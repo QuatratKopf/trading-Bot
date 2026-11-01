@@ -583,6 +583,23 @@ def day(h, d):
     h._send(200, {"day": d, "trades": engine.day_trades(d)})
 
 
+@route("GET", r"/api/levels/(NQ|ES|auto)")
+def levels(h, fam):
+    with engine.lock:
+        h._send(200, engine.levels(None if fam == "auto" else fam))
+
+
+@route("GET", r"/api/sessions/(NQ|ES|auto)")
+def session_stats(h, fam):
+    with engine.lock:
+        h._send(200, engine.session_stats(None if fam == "auto" else fam))
+
+
+@route("GET", r"/api/edge")
+def edge(h):
+    h._send(200, engine.edge_data())
+
+
 @route("POST", r"/api/own/add")
 def own_add(h):
     h._send(200, engine.own_add(h._json()))

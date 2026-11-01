@@ -297,6 +297,94 @@ svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 .nw-f{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 18px 6px;border-top:1px solid var(--line);flex-wrap:wrap}
 .news-pill{color:var(--neg)!important;border-color:rgba(255,93,108,.4)!important}
 @media (max-width:700px){ .nw{grid-template-columns:48px 24px minmax(0,1fr) auto;padding:9px 12px;gap:8px} .nw-v{grid-column:3/5;grid-row:2;white-space:normal} .nw-t{font-size:12px} }
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:-6px}
+.subtabs button{border:0;background:none;color:var(--muted);font:500 14px var(--f-body);padding:10px 14px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.subtabs button:hover{color:var(--fg)}
+.subtabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.ed-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.ed-k{display:grid;grid-template-columns:repeat(4,minmax(120px,auto));gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:1;max-width:900px}
+.ed-k > div{padding:12px 16px;display:flex;flex-direction:column;gap:2px;border-left:1px solid var(--line);min-width:0}
+.ed-k > div:first-child{border-left:0}
+.ed-k .l,.ed-x .l,.mu .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
+.ed-k b{font-family:var(--f-mono);font-size:21px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-k small{font-size:11.5px;color:var(--muted)}
+.ed-help{margin:12px 0 4px;line-height:1.6}
+.edge,.muster{display:flex;flex-direction:column;gap:6px}
+.ed-t td,.ed-t th{vertical-align:middle}
+.ed-t td small{display:block;font-size:11px}
+.ed-r{cursor:pointer} .ed-r:hover td{background:var(--raise)} .ed-r.open td{background:var(--raise)}
+.ed-r .chev{color:var(--muted);display:inline-block;transition:transform .15s} .ed-r.open .chev{transform:rotate(180deg)}
+.ci-w{display:grid;grid-template-columns:52px 110px auto;gap:8px;align-items:center}
+.ci{position:relative;height:8px;border-radius:4px;background:var(--sunk)}
+.ci-r{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:4px}
+.ci-b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--muted);border-radius:1px}
+.ci-p{position:absolute;top:-2px;width:3px;height:12px;background:var(--fg);border-radius:1px;transform:translateX(-1px)}
+.grade{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;font:700 12px var(--f-body)}
+.gA{background:var(--fill);color:var(--accent)} .gB{background:rgba(76,141,255,.08);color:#8fb6ff} .gC{background:var(--warn-bg);color:var(--warn)} .gD{background:var(--neg-bg);color:var(--neg)} .g–{color:var(--muted)}
+.spk{width:80px;height:24px;display:block}
+.trust{font-family:var(--f-mono);font-size:15px}
+.ed-d td{padding:0!important;background:var(--sunk)}
+.ed-x{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px;padding:14px;white-space:normal;text-align:left;font-family:var(--f-body)}
+.ed-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ed-wide{grid-column:1/-1}
+.grid-wl{display:grid;grid-template-columns:repeat(auto-fill,11px);gap:3px}
+.grid-wl i{width:11px;height:11px;border-radius:2px;background:var(--neg)} .grid-wl i.w{background:var(--pos)}
+.ed-mini{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.ed-mini div{display:flex;flex-direction:column;gap:1px} .ed-mini b{font-family:var(--f-mono);font-size:14px}
+.dirrow{display:grid;grid-template-columns:48px minmax(0,1fr) 60px 36px;gap:8px;align-items:center;font-size:12.5px}
+.dirrow .dbar{position:relative;height:8px;border-radius:4px;background:var(--sunk)} .dirrow .dbar i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.dirrow .dbar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--muted)}
+.wd,.hrs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.hrs{grid-template-columns:repeat(auto-fill,minmax(44px,1fr))}
+.wd div,.hrs div{border-radius:7px;padding:6px 4px;text-align:center;background:var(--raise);border:1px solid var(--line);display:flex;flex-direction:column;gap:1px;font-size:11px;color:var(--muted)}
+.wd div.ok{background:var(--fill);color:#8fb6ff} .wd div.bad{background:var(--neg-bg)}
+.wd b,.hrs b{font-family:var(--f-mono);font-size:12.5px;color:var(--fg)} .wd small{font-size:10px}
+.recent{display:flex;gap:6px;flex-wrap:wrap}
+.recent span{font-size:11.5px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--raise);color:var(--muted)}
+.recent span.w{border-color:rgba(47,211,154,.35)} .recent span.w b{color:var(--pos)} .recent span.x{border-color:rgba(255,93,108,.35)} .recent span.x b{color:var(--neg)}
+.mu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:8px}
+.mu-c{border:1px solid var(--line);border-radius:10px;background:var(--raise);padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.mu-w{grid-column:1/-1}
+.mu-h{display:flex;flex-direction:column;gap:1px}
+.mu-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+.mu-g > div{display:flex;flex-direction:column;gap:1px} .mu-g b{font-size:18px} .mu-g small{font-size:11px}
+.pbar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--sunk)} .pbar i{display:block;height:100%}
+.hist{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;align-items:end}
+.hist > div{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.hb{height:90px;width:100%;display:flex;gap:3px;align-items:flex-end;justify-content:center}
+.hb i{width:40%;max-width:22px;border-radius:3px 3px 0 0;min-height:2px} .hb i.p{background:var(--pos)} .hb i.n{background:var(--neg)}
+.ck-2{align-items:start}
+@media (max-width:820px){ .ed-top{flex-direction:column;align-items:stretch} .ed-k{max-width:none} .ed-top .seg{align-self:flex-start} }
+@media (max-width:700px){
+  .ed-t tr > :nth-child(4),.ed-t tr > :nth-child(6),.ed-t tr > :nth-child(7),.ed-t tr > :nth-child(8),.ed-t tr > :nth-child(10){display:none}
+  .edge .scroll{overflow:visible}
+  .ed-t{table-layout:fixed;width:100%}
+  .ed-t th:nth-child(2){width:66px} .ed-t th:nth-child(3){width:40px} .ed-t th:nth-child(5){width:58px} .ed-t th:nth-child(9){width:40px}
+  .ed-t th{font-size:9.5px!important;letter-spacing:.04em!important;overflow:hidden;text-overflow:ellipsis}
+  .ed-t .ci{display:none}
+  .ed-t td:first-child b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ed-d td{width:auto} .ed-x{min-width:0} .ed-mini{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ed-t .ci-w{display:block} .ed-t .ci-w small{display:none}
+  .ed-t td,.ed-t th{padding-left:6px;padding-right:6px}
+  .ed-t td small{display:none}
+  .ed-d td{display:table-cell!important}
+  .ed-x{padding:10px 6px}
+  .wd{grid-template-columns:repeat(5,minmax(0,1fr))}
+}
+.lv-box{padding:6px 0}
+.lv-tags{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px 10px}
+.lv-row{display:grid;grid-template-columns:44px minmax(0,1fr) 92px 78px minmax(0,auto);gap:10px;align-items:center;padding:7px 16px;border-top:1px solid var(--line);font-size:13px}
+.lv-list > .lv-row:first-child{border-top:0}
+.lv-k{font:700 11px var(--f-body);letter-spacing:.06em;color:var(--accent)}
+.lv-row.pd .lv-k{color:var(--warn)}
+.lv-n{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-p{text-align:right} .lv-d{text-align:right;font-size:12px}
+.lv-row.now{background:var(--fill);border-top:1px solid color-mix(in srgb,var(--accent) 50%,transparent);border-bottom:1px solid color-mix(in srgb,var(--accent) 50%,transparent)}
+.lv-row.now .lv-k,.lv-row.now .lv-n,.lv-row.now .lv-p{color:var(--accent);font-weight:600}
+.lv-row.now + .lv-row{border-top:0}
+@media (max-width:1060px){ .ck-2{grid-template-columns:1fr} }
+@media (max-width:820px){ .ed-k{grid-template-columns:repeat(2,minmax(0,1fr))} .ed-k > div:nth-child(3){border-left:0} .ed-k > div:nth-child(n+3){border-top:1px solid var(--line)} .ed-x,.mu{grid-template-columns:1fr} .ed-mini{grid-template-columns:repeat(3,minmax(0,1fr))} .mu-w,.ed-wide{grid-column:auto} }
+@media (max-width:560px){ .lv-row{grid-template-columns:38px minmax(0,1fr) 76px 64px;padding:7px 12px} .lv-row > span:last-child{grid-column:2/-1} .lv-row > span:last-child:empty{display:none} }
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -638,13 +726,204 @@ function newsPanel() {
   $("#nwRef").onclick = () => { toast("News werden neu geladen"); loadNews(true); };
 }
 setInterval(() => loadNews(), 5 * 60000);
+
+/* ───────── Edge-Check: wie gut ist jede Strategie wirklich? ───────── */
+const EDGE = {data: null, at: 0, open: null, period: "alle"};
+try { EDGE.period = localStorage.getItem("fvg-edge-p") || "alle"; } catch (e) {}
+function wilson(k, n) {   // 95-%-Vertrauensbereich einer Quote
+  if (!n) return [0, 0];
+  const z = 1.96, p = k / n, d = 1 + z * z / n, c = (p + z * z / (2 * n)) / d, h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+  return [Math.max(0, c - h) * 100, Math.min(1, c + h) * 100];
+}
+const DOW = ["Mo", "Di", "Mi", "Do", "Fr"];
+function edgeCalc(list) {
+  const n = list.length, w = list.filter(t => t.r > 0), l = list.filter(t => t.r <= 0);
+  const aw = w.length ? w.reduce((a, t) => a + t.r, 0) / w.length : 0, al = l.length ? -l.reduce((a, t) => a + t.r, 0) / l.length : 0;
+  const wr = n ? w.length / n * 100 : 0, base = aw > 0 && al > 0 ? al / (aw + al) * 100 : 100 / 3;
+  const [lo, hi] = wilson(w.length, n), exp = n ? list.reduce((a, t) => a + t.r, 0) / n : 0;
+  const gw = w.reduce((a, t) => a + t.r, 0), gl = -l.reduce((a, t) => a + t.r, 0);
+  const edge = wr - base;
+  const grade = !n ? "–" : lo > base + 5 ? "A" : lo > base ? "B" : wr > base ? "C" : "D";
+  const trust = Math.round(Math.max(0, Math.min(100, 50 + 2 * (lo - base) + (edge > 0 ? edge : 0))) * (0.35 + 0.65 * Math.min(1, n / 40)));
+  return {n, w: w.length, wr, base, lo, hi, exp, pf: gl ? gw / gl : null, edge, grade, trust, aw, al};
+}
+function streaks(list) {
+  let cur = 0, curW = null, bw = 0, bl = 0, run = 0, last = null;
+  for (const t of list) { const win = t.r > 0; run = win === last ? run + 1 : 1; last = win; if (win) bw = Math.max(bw, run); else bl = Math.max(bl, run); }
+  cur = run; curW = last;
+  return {cur, curW, bw, bl};
+}
+async function edgeLoad(force) {
+  if (!force && EDGE.data && Date.now() - EDGE.at < 60000) return;
+  try { EDGE.data = await api("/api/edge"); EDGE.at = Date.now(); } catch (e) { EDGE.err = e.message; }
+}
+async function edgeView() {
+  const body = $("#stBody");
+  if (!EDGE.data) body.innerHTML = '<div class="empty">Edge-Check wird berechnet …</div>';
+  const fresh = !EDGE.data || Date.now() - EDGE.at > 60000;
+  if (fresh) { await edgeLoad(); }
+  else if (body.querySelector(".edge")) return;   // nicht bei jedem Refresh neu aufbauen (aufgeklappte Zeile bleibt)
+  if (STAB !== "edge" || TAB !== "stats") return;
+  const days = {"1m": 31, "3m": 92, "6m": 183, alle: 1e5}[EDGE.period];
+  const since = Date.now() / 1000 - days * 86400;
+  const all = (EDGE.data ? EDGE.data.trades : []).filter(t => (t.closed || t.opened) >= since);
+  const by = {}; all.forEach(t => (by[t.setup] = by[t.setup] || []).push(t));
+  const rows = Object.entries(by).map(([k, l]) => ({k, l, c: edgeCalc(l)})).sort((a, b) => b.c.trust - a.c.trust);
+  const tot = edgeCalc(all), bestRow = rows[0];
+  const spark = l => { let s = 0; const v = l.slice(-60).map(t => (s += t.r)); if (v.length < 2) return ""; const lo = Math.min(0, ...v), hi = Math.max(0, ...v), sp = hi - lo || 1;
+    const pts = v.map((y, i) => `${(i / (v.length - 1) * 80).toFixed(1)},${(22 - (y - lo) / sp * 20).toFixed(1)}`).join(" ");
+    return `<svg viewBox="0 0 80 24" class="spk"><polyline points="${pts}" fill="none" stroke="${v[v.length - 1] >= 0 ? "var(--accent)" : "var(--neg)"}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`; };
+  const ciBar = c => `<div class="ci"><span class="ci-r" style="left:${c.lo}%;width:${Math.max(1, c.hi - c.lo)}%"></span><span class="ci-b" style="left:${c.base}%"></span><span class="ci-p" style="left:${c.wr}%"></span></div>`;
+  const detail = r => {
+    const l = r.l, st = streaks(l), last20 = edgeCalc(l.slice(-20));
+    const dir = ["long", "short"].map(sd => [sd, edgeCalc(l.filter(t => t.side === sd))]);
+    const wd = DOW.map((d, i) => [d, edgeCalc(l.filter(t => t.ny_weekday === i))]);
+    const hrs = {}; l.forEach(t => (hrs[t.ny_hour] = hrs[t.ny_hour] || []).push(t));
+    const hk = Object.keys(hrs).map(Number).sort((a, b) => a - b);
+    return `<div class="ed-x">
+      <div class="ed-card"><span class="l">Bilanz · Gewinn / Verlust</span>
+        <div class="grid-wl">${l.slice(-200).map(t => `<i class="${t.r > 0 ? "w" : "x"}" title="${dtm(t.closed)} · ${t.r > 0 ? "+" : ""}${num2(t.r)} R"></i>`).join("")}</div>
+        <div class="ed-mini">${[["Aktuell", st.cur ? `${st.cur}${st.curW ? "G" : "V"}` : "–", st.curW ? "pos" : "neg"], ["Längste Gewinnserie", st.bw, "pos"], ["Längste Verlustserie", st.bl, "neg"],
+          ["Letzte 20", pct(last20.wr), last20.wr >= r.c.base ? "pos" : "neg"], ["Gesamt", pct(r.c.wr), ""]].map(([a, b, c]) => `<div><span class="l">${a}</span><b class="${c}">${b}</b></div>`).join("")}</div>
+        <span class="hint">${l.length} Signale${l.length > 200 ? " · neueste 200 gezeigt" : ""} · älteste links</span></div>
+      <div class="ed-card"><span class="l">Wo es funktioniert</span>
+        ${dir.map(([sd, c]) => `<div class="dirrow"><span>${sd === "long" ? "Long" : "Short"}</span><div class="dbar"><i style="width:${c.wr}%"></i><b style="left:${c.base}%"></b></div><span class="mono">${c.n ? pct(c.wr) : "–"}</span><span class="hint">(${c.n})</span></div>`).join("")}
+        <span class="l" style="margin-top:8px">Trefferquote je Wochentag</span>
+        <div class="wd">${wd.map(([d, c]) => `<div class="${!c.n ? "" : c.wr >= c.base ? "ok" : "bad"}"><span>${d}</span><b>${c.n ? Math.round(c.wr) + " %" : "–"}</b><small>${c.n}</small></div>`).join("")}</div>
+        <span class="l" style="margin-top:8px">Stunden (NY) · Ø R</span>
+        <div class="hrs">${hk.length ? hk.map(h => { const c = edgeCalc(hrs[h]); const a = Math.max(-1, Math.min(1, c.exp));
+          return `<div title="${h}:00 NY · ${c.n} Signale · ${pct(c.wr)}" style="background:${a >= 0 ? `rgba(47,211,154,${0.12 + a * 0.55})` : `rgba(255,93,108,${0.12 - a * 0.55})`}"><span>${h}</span><b>${c.exp > 0 ? "+" : ""}${num2(c.exp)}</b></div>`; }).join("") : '<span class="hint">–</span>'}</div></div>
+      <div class="ed-card ed-wide"><span class="l">Letzte Signale · neueste zuerst</span>
+        <div class="recent">${l.slice(-14).reverse().map(t => `<span class="${t.r > 0 ? "w" : "x"}">${new Date(t.closed * 1000).toLocaleDateString("de-DE", {weekday: "short", day: "numeric", month: "short"})} <b>${t.r > 0 ? "+" : ""}${num2(t.r)} R</b> ${t.r > 0 ? "✓" : "✗"}</span>`).join("")}</div></div>
+    </div>`;
+  };
+  body.innerHTML = `
+    <section class="panel edge">
+      <div class="ed-top">
+        <div class="ed-k">${[["Trefferquote", tot.n ? pct(tot.wr) : "–", `${tot.n ? (tot.edge >= 0 ? "+" : "") + num2(tot.edge) + " Pkt. über Breakeven" : ""}`],
+          ["Ausgewertete Signale", tot.n, `${rows.length} Strategien`], ["Ø R pro Signal", tot.n ? (tot.exp > 0 ? "+" : "") + num2(tot.exp) : "–", tot.pf ? `Profit-Faktor ${num2(tot.pf)}` : ""],
+          ["Beste Strategie", bestRow ? esc(bestRow.k) : "–", bestRow ? `Vertrauen ${bestRow.c.trust} · Note ${bestRow.c.grade}` : ""]].map(([l, v, sub]) => `<div><span class="l">${l}</span><b>${v}</b><small>${sub}</small></div>`).join("")}</div>
+        <div class="seg" role="group" aria-label="Zeitraum">${[["1m", "1M"], ["3m", "3M"], ["6m", "6M"], ["alle", "Alle"]].map(([k, l]) => `<button type="button" data-ep="${k}" aria-pressed="${EDGE.period === k}">${l}</button>`).join("")}</div>
+      </div>
+      <p class="hint ed-help"><b>So liest du es:</b> Trefferquote = wie oft das Signal ins Ziel lief · <b>Breakeven</b> = Quote, ab der die Strategie bei ihrem Chance-Risiko-Verhältnis Geld verdient · <b>Edge</b> = Abstand dazu · <b>Note A–D</b> = liegt auch der vorsichtige Wert (untere Grenze des 95-%-Bereichs) über Breakeven? · <b>Vertrauen</b> = Gesamtwert aus Edge und Stichprobe (danach sortiert). Gezählt werden alle Signale aus TradingView, auch die du nicht genommen hast.</p>
+      ${rows.length ? `<div class="scroll"><table class="ed-t"><thead><tr><th class="t">Strategie</th><th class="t">Trefferquote · 95 %</th><th>Note</th><th>Breakeven</th><th>Edge</th><th>Ø R</th><th>Signale</th><th class="t">Verlauf</th><th>Vertrauen</th><th></th></tr></thead><tbody>
+        ${rows.map(r => `<tr class="ed-r ${EDGE.open === r.k ? "open" : ""}" data-ek="${esc(r.k)}" tabindex="0">
+          <td class="t"><b>${esc(r.k)}</b><small class="hint">${r.c.aw ? `Ø Gewinn +${num2(r.c.aw)} R · Ø Verlust −${num2(r.c.al)} R` : ""}</small></td>
+          <td class="t"><div class="ci-w"><span class="mono">${pct(r.c.wr)}</span>${ciBar(r.c)}<small class="hint">±${num2((r.c.hi - r.c.lo) / 2)}</small></div></td>
+          <td><span class="grade g${r.c.grade}">${r.c.grade}</span></td>
+          <td class="muted">${pct(r.c.base)}</td>
+          <td class="${cls(r.c.edge)}">${r.c.edge > 0 ? "+" : ""}${num2(r.c.edge)}</td>
+          <td class="${cls(r.c.exp)}">${r.c.exp > 0 ? "+" : ""}${num2(r.c.exp)}</td>
+          <td>${r.c.n}</td>
+          <td class="t">${spark(r.l)}</td>
+          <td><b class="trust" style="color:${r.c.trust >= 70 ? "var(--accent)" : r.c.trust >= 50 ? "var(--fg)" : "var(--muted)"}">${r.c.trust}</b></td>
+          <td><span class="chev">▾</span></td></tr>
+          ${EDGE.open === r.k ? `<tr class="ed-d"><td colspan="${window.innerWidth <= 700 ? 5 : 10}">${detail(r)}</td></tr>` : ""}`).join("")}
+      </tbody></table></div>` : `<div class="empty">Noch keine abgeschlossenen Signale${EDGE.period !== "alle" ? " in diesem Zeitraum" : ""}. Sobald TradingView Signale und Kerzen schickt, füllt sich der Edge-Check von selbst.</div>`}
+    </section>`;
+  body.querySelectorAll("[data-ep]").forEach(b => b.onclick = () => { EDGE.period = b.dataset.ep; try { localStorage.setItem("fvg-edge-p", EDGE.period); } catch (e) {} body.innerHTML = ""; edgeView(); });
+  body.querySelectorAll(".ed-r").forEach(tr => { const t = () => { EDGE.open = EDGE.open === tr.dataset.ek ? null : tr.dataset.ek; body.innerHTML = ""; edgeView(); };
+    tr.onclick = t; tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); t(); } }; });
+}
+
+/* ───────── Session-Muster aus den gesammelten Kerzen ───────── */
+const MU = {fam: "auto", data: null, at: 0};
+async function musterView() {
+  const body = $("#stBody");
+  if (MU.data && Date.now() - MU.at < 120000 && body.querySelector(".muster")) return;
+  if (!MU.data) body.innerHTML = '<div class="empty">Session-Muster werden berechnet …</div>';
+  try { MU.data = await api("/api/sessions/" + MU.fam); MU.at = Date.now(); } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (STAB !== "muster" || TAB !== "stats") return;
+  const D = MU.data.days || [], n = D.length;
+  const prob = (k, m) => { const [lo, hi] = wilson(k, m); return {p: m ? k / m * 100 : null, lo, hi, k, m}; };
+  const pr = x => x.m ? `<b class="mono">${Math.round(x.p)} %</b><small class="hint">${x.k} von ${x.m} · 95 %: ${Math.round(x.lo)}–${Math.round(x.hi)} %</small>` : '<b class="mono muted">–</b><small class="hint">noch keine Daten</small>';
+  const bar = (parts) => `<div class="pbar">${parts.map(([v, c, l]) => v ? `<i style="width:${v}%;background:${c}" title="${l}: ${Math.round(v)} %"></i>` : "").join("")}</div>`;
+  const brk = key => { const ev = D.map(d => d.events[key]).filter(Boolean); const m = ev.length;
+    const up = ev.filter(e => e.first === "oben").length, dn = ev.filter(e => e.first === "unten").length, none = m - up - dn, both = ev.filter(e => e.both).length;
+    return {m, up: prob(up, m), dn: prob(dn, m), none: prob(none, m), both: prob(both, m),
+      times: ev.filter(e => e.when).map(e => e.when)}; };
+  const card = (title, sub, b) => `<div class="mu-c"><div class="mu-h"><b>${title}</b><small class="hint">${sub}</small></div>
+    ${bar([[b.up.p, "var(--pos)", "oben zuerst"], [b.dn.p, "var(--neg)", "unten zuerst"], [b.none.p, "var(--line2)", "kein Bruch"]])}
+    <div class="mu-g"><div><span class="l">Oben zuerst</span>${pr(b.up)}</div><div><span class="l">Unten zuerst</span>${pr(b.dn)}</div>
+      <div><span class="l">Beide Seiten (Sweep)</span>${pr(b.both)}</div><div><span class="l">Kein Bruch</span>${pr(b.none)}</div></div></div>`;
+  const gaps = D.map(d => d.events.gap).filter(g => g && g.dir !== "keins"), gu = gaps.filter(g => g.dir === "hoch"), gd = gaps.filter(g => g.dir === "runter");
+  const fillMin = gaps.filter(g => g.filled && g.when).map(g => { const [h, m] = g.when.split(":").map(Number); return h * 60 + m - 570; }).sort((a, b) => a - b);
+  const med = fillMin.length ? fillMin[Math.floor(fillMin.length / 2)] : null;
+  const pdh = prob(D.filter(d => d.events.pdh).length, D.filter(d => "pdh" in d.events).length), pdl = prob(D.filter(d => d.events.pdl).length, D.filter(d => "pdl" in d.events).length);
+  const mid = prob(D.filter(d => d.events.mid).length, D.filter(d => "mid" in d.events).length);
+  const hist = key => { const b = Array(7).fill(0); D.forEach(d => { const t = d.events[key]; if (!t) return; const [h, m] = t.split(":").map(Number); b[Math.min(6, Math.max(0, h - 9 - (m < 30 ? 1 : 0)))]++; }); return b; };
+  const hod = hist("hod"), lod = hist("lod"), hmax = Math.max(1, ...hod, ...lod);
+  const HL = ["9:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30"];
+  body.innerHTML = `<section class="panel muster">
+    <div class="ed-top"><div class="ed-k">${[["Gesammelte Handelstage", n, MU.data.fam ? MU.data.fam + "-Kerzen aus TradingView" : ""],
+      ["Gap gefüllt", gaps.length ? Math.round(gaps.filter(g => g.filled).length / gaps.length * 100) + " %" : "–", gaps.length ? `${gaps.length} Gaps · Median ${med != null ? med + " Min nach Open" : "–"}` : ""],
+      ["PDH genommen", pdh.m ? Math.round(pdh.p) + " %" : "–", "in der New-York-Session"], ["PDL genommen", pdl.m ? Math.round(pdl.p) + " %" : "–", "in der New-York-Session"]]
+      .map(([l, v, sub]) => `<div><span class="l">${l}</span><b>${v}</b><small>${sub}</small></div>`).join("")}</div>
+      ${(MU.data.fams || []).length > 1 ? `<div class="seg">${MU.data.fams.map(f => `<button type="button" data-mf="${f}" aria-pressed="${MU.data.fam === f}">${f}</button>`).join("")}</div>` : ""}</div>
+    ${n < 20 ? `<p class="hint ed-help">Die App sammelt die Kerzen, die TradingView schickt, und wertet jeden fertigen Handelstag aus. Mit ${n} ${n === 1 ? "Tag" : "Tagen"} sind die Zahlen noch wackelig (siehe 95-%-Bereich). Ab etwa 40 Tagen werden sie belastbar. Dafür muss der Alert der Strategie in TradingView laufen und „Kerzen-Daten an die App senden“ an sein (Standard).</p>` : ""}
+    <div class="mu">
+      ${card("London-Range (02:00–05:00 NY)", "Welche Seite bricht danach zuerst?", brk("london"))}
+      ${card("Initial Balance (09:30–10:30)", "Welche Seite der ersten Stunde bricht zuerst?", brk("ib"))}
+      ${card("Asien-Range (20:00–00:00)", "Welche Seite bricht ab Mitternacht zuerst?", brk("asia"))}
+      <div class="mu-c"><div class="mu-h"><b>Opening-Gap</b><small class="hint">RTH-Open gegen Vortagesschluss · gefüllt bis 16:00</small></div>
+        <div class="mu-g"><div><span class="l">Gap hoch gefüllt</span>${pr(prob(gu.filter(g => g.filled).length, gu.length))}</div>
+          <div><span class="l">Gap runter gefüllt</span>${pr(prob(gd.filter(g => g.filled).length, gd.length))}</div>
+          <div><span class="l">Midnight Open getestet</span>${pr(mid)}</div>
+          <div><span class="l">Median bis Fill</span><b class="mono">${med != null ? med + " Min" : "–"}</b><small class="hint">nach 09:30</small></div></div></div>
+      <div class="mu-c mu-w"><div class="mu-h"><b>Wann entsteht Hoch und Tief des Tages?</b><small class="hint">New-York-Session je Stunde</small></div>
+        <div class="hist">${HL.map((h, i) => `<div><div class="hb"><i class="p" style="height:${hod[i] / hmax * 100}%" title="Tageshoch ${h}: ${hod[i]}"></i><i class="n" style="height:${lod[i] / hmax * 100}%" title="Tagestief ${h}: ${lod[i]}"></i></div><span>${h}</span></div>`).join("")}</div>
+        <div class="legend"><span><i style="background:var(--pos)"></i>Tageshoch</span><span><i style="background:var(--neg)"></i>Tagestief</span></div></div>
+    </div></section>`;
+  body.querySelectorAll("[data-mf]").forEach(b => b.onclick = () => { MU.fam = b.dataset.mf; MU.data = null; body.innerHTML = ""; musterView(); });
+}
+
+/* ───────── Key Levels heute (Cockpit) ───────── */
+const LV = {fam: "auto", data: null, at: 0};
+async function levelsLoad() {
+  try { LV.data = await api("/api/levels/" + LV.fam); LV.at = Date.now(); } catch (e) { LV.err = e.message; }
+  if (TAB === "cockpit") levelsPanel();
+}
+function levelsPanel() {
+  const box = $("#lvSec"); if (!box) return;
+  if (!LV.data || Date.now() - LV.at > 30000) { if (!levelsPanel._busy) { levelsPanel._busy = true; levelsLoad().finally(() => levelsPanel._busy = false); } if (!LV.data) return; }
+  const d = LV.data, T = d.today;
+  if (!d.fam || !T) { box.innerHTML = `<div class="section-h"><h2>Key Levels heute</h2></div><div class="empty">Erscheinen, sobald TradingView Kerzen schickt (Alert der Strategie läuft, „Kerzen-Daten an die App senden“ an). Ab dem zweiten Tag gibt es auch Vortages-Levels.</div>`; return; }
+  const ev = T.events || {}, price = d.price;
+  const L = [["PDH", "Vortageshoch", T.pdh, ev.pdh], ["PDL", "Vortagestief", T.pdl, ev.pdl], ["PDC", "Vortagesschluss", T.pdc, ev.gap && ev.gap.filled ? ev.gap.when : null],
+    ["ONH", "Overnight-Hoch", T.onh], ["ONL", "Overnight-Tief", T.onl],
+    ["AH", "Asien-Hoch", T.asia_h, ev.asia && ev.asia.first === "oben" ? ev.asia.when : null], ["AL", "Asien-Tief", T.asia_l, ev.asia && ev.asia.first === "unten" ? ev.asia.when : null],
+    ["LH", "London-Hoch", T.lon_h, ev.london && ev.london.first === "oben" ? ev.london.when : null], ["LL", "London-Tief", T.lon_l, ev.london && ev.london.first === "unten" ? ev.london.when : null],
+    ["MO", "Midnight Open", T.mid_open, ev.mid], ["RO", "RTH-Open 09:30", T.rth_open],
+    ["IBH", "IB-Hoch", T.ib_h, ev.ib && ev.ib.first === "oben" ? ev.ib.when : null], ["IBL", "IB-Tief", T.ib_l, ev.ib && ev.ib.first === "unten" ? ev.ib.when : null]]
+    .filter(x => x[2] != null).sort((a, b) => b[2] - a[2]);
+  let rows = "", placed = false;
+  for (const [k, name, v, hit] of L) {
+    if (!placed && price != null && price > v) { rows += `<div class="lv-row now"><span class="lv-k">Kurs</span><span class="lv-n">${esc(d.fam)} jetzt</span><span class="lv-p mono">${px(price)}</span><span></span><span></span></div>`; placed = true; }
+    const dist = price != null ? v - price : null;
+    rows += `<div class="lv-row ${k.startsWith("PD") ? "pd" : ""}"><span class="lv-k">${k}</span><span class="lv-n">${name}</span><span class="lv-p mono">${px(v)}</span>
+      <span class="lv-d mono ${dist == null ? "" : dist > 0 ? "pos" : "neg"}">${dist == null ? "" : (dist > 0 ? "+" : "−") + Math.abs(dist).toFixed(2).replace(".", ",")}</span>
+      <span>${hit ? `<span class="chip ${k === "MO" || k === "PDC" ? "" : "warn"}">${k === "MO" ? "getestet" : k === "PDC" ? "Gap gefüllt" : "gebrochen"} ${hit}</span>` : ""}</span></div>`;
+  }
+  if (!placed && price != null) rows += `<div class="lv-row now"><span class="lv-k">Kurs</span><span class="lv-n">${esc(d.fam)} jetzt</span><span class="lv-p mono">${px(price)}</span><span></span><span></span></div>`;
+  const tags = [];
+  if (ev.gap && ev.gap.dir !== "keins") tags.push(`Gap ${ev.gap.dir} ${Math.abs(ev.gap.size).toFixed(2).replace(".", ",")} Pkt. · ${ev.gap.filled ? "gefüllt " + ev.gap.when : "offen"}`);
+  if (ev.asia) tags.push(`Asien: ${ev.asia.first ? ev.asia.first + " zuerst " + ev.asia.when : "kein Bruch"}`);
+  if (ev.london) tags.push(`London: ${ev.london.first ? ev.london.first + " zuerst " + ev.london.when : "kein Bruch"}${ev.london.both ? " · beide Seiten" : ""}`);
+  if (ev.ib) tags.push(`IB: ${ev.ib.first ? ev.ib.first + " zuerst " + ev.ib.when : "kein Bruch"}`);
+  box.innerHTML = `<div class="section-h"><h2>Key Levels heute</h2>
+      ${(d.fams || []).length > 1 ? `<div class="seg">${d.fams.map(f => `<button type="button" data-lf="${f}" aria-pressed="${d.fam === f}">${f}</button>`).join("")}</div>` : `<p class="hint">${esc(d.fam)} · Handelstag ${esc(T.day.split("-").reverse().join("."))}</p>`}</div>
+    <div class="panel lv-box">${tags.length ? `<div class="lv-tags">${tags.map(t => `<span class="chip mute">${t}</span>`).join("")}</div>` : ""}
+      <div class="lv-list">${rows || '<div class="empty" style="border:0">Noch keine Levels für heute.</div>'}</div>
+      <div class="nw-f"><span class="hint">Abstand in Punkten vom aktuellen Kurs · Zeiten in NY · Levels aus den Kerzen, die TradingView schickt</span></div></div>`;
+  box.querySelectorAll("[data-lf]").forEach(b => b.onclick = () => { LV.fam = b.dataset.lf; LV.data = null; levelsLoad(); });
+}
 function cockpit(full) {
   const m = $("#main"), t = S.today, lossUsed = t.max_loss > 0 ? Math.min(100, Math.max(0, -t.pnl / t.max_loss * 100)) : 0;
   if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
     <div id="setup"></div>
     <section class="kpis" id="todayK"></section>
     <section class="panel perf" id="perf"></section>
-    <section class="section" id="newsSec"></section>
+    <div class="grid2 ck-2"><section class="section" id="lvSec"></section><section class="section" id="newsSec"></section></div>
     <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
     <div class="grid2">
@@ -653,6 +932,7 @@ function cockpit(full) {
     </div></div>`;
   setupPanel();
   newsPanel();
+  levelsPanel();
   const perfKey = JSON.stringify([PERF, S.daily]);
   if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
   $("#todayK").innerHTML = [
@@ -832,11 +1112,26 @@ function bindPerf(root, rerender) {
   root.querySelectorAll("[data-src]").forEach(b => b.onclick = () => { PERF.src = b.dataset.src; savePerf(); rerender(); });
 }
 
+let STAB = "uebersicht";
+try { STAB = localStorage.getItem("fvg-stab") || "uebersicht"; } catch (e) {}
 function stats() {
+  if (!$("#stWrap")) {
+    $("#main").innerHTML = `<div id="stWrap" style="display:contents">
+      <div class="subtabs" role="tablist">${[["uebersicht", "Übersicht"], ["edge", "Edge-Check"], ["muster", "Session-Muster"]].map(([k, l]) =>
+        `<button type="button" role="tab" data-st="${k}" aria-selected="${STAB === k}">${l}</button>`).join("")}</div>
+      <div id="stBody" style="display:contents"></div></div>`;
+    document.querySelectorAll("[data-st]").forEach(b => b.onclick = () => { STAB = b.dataset.st; try { localStorage.setItem("fvg-stab", STAB); } catch (e) {}
+      document.querySelectorAll("[data-st]").forEach(x => x.setAttribute("aria-selected", x === b)); $("#stBody").innerHTML = ""; stats(); });
+  }
+  if (STAB === "edge") return edgeView();
+  if (STAB === "muster") return musterView();
+  statsOverview();
+}
+function statsOverview() {
   const st = S.stats;
   const all = perfData("gesamt", "alle"), last30 = all.days.slice(-30);
   const setups = Object.entries(st.by_setup).sort((a, b) => b[1].net - a[1].net), maxAbs = Math.max(1, ...setups.map(([, v]) => Math.abs(v.net)));
-  $("#main").innerHTML = `
+  $("#stBody").innerHTML = `
     <section class="panel perf" id="perfS"></section>
     <section class="panel"><div class="section-h"><h2>P&L je Handelstag</h2><p class="hint">Letzte ${last30.length} Handelstage, Bot und eigene Trades</p></div>${dayBarsSvg(last30)}</section>
     <section class="kpis">${[

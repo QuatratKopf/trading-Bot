@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS shadow (
     entry REAL, sl REAL, tp REAL, opened REAL, closed REAL, exit REAL, r REAL,
     status TEXT, ny_hour INTEGER, ny_weekday INTEGER, bar_time REAL
 );
+CREATE TABLE IF NOT EXISTS bars (
+    id TEXT PRIMARY KEY,
+    fam TEXT, t REAL, o REAL, h REAL, l REAL, c REAL
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL, level TEXT, text TEXT
@@ -42,6 +46,7 @@ class DB:
         with self.lock:
             self.con.executescript(SCHEMA)
             self._migrate()
+            self.con.execute("CREATE INDEX IF NOT EXISTS bars_ft ON bars (fam, t)")
             self.con.commit()
 
     def _migrate(self):
@@ -150,6 +155,20 @@ class DB:
 
     def closed_shadows(self):
         return self.rows("SELECT * FROM shadow WHERE status='geschlossen' ORDER BY closed")
+
+    # --- Kerzen (für Key Levels und Session-Muster) ---
+    def add_bar(self, fam, t, o, h, l, c):
+        self._exec("INSERT OR REPLACE INTO bars (id, fam, t, o, h, l, c) VALUES (?,?,?,?,?,?,?)",
+                   (f"{fam}{int(t)}", fam, t, o, h, l, c))
+
+    def bars(self, fam, since_ms):
+        return self.rows("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+
+    def bar_fams(self):
+        return [r["fam"] for r in self.rows("SELECT fam, COUNT(*) n FROM bars GROUP BY fam ORDER BY n DESC")]
+
+    def prune_bars(self, before_ms):
+        self._exec("DELETE FROM bars WHERE t < ?", (before_ms,))
 
     # --- Ereignisse ---
     def log(self, text, level="info"):

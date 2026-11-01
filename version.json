@@ -1,6 +1,6 @@
 {
-  "version": "2.2.0",
-  "file": "releases/FVG-Trader-2.2.0.cmd",
-  "sha256": "2979af356b0f88e13d7d017aaf6ab70472455099d26f1a20b5eaef4ca433d252",
-  "notes": "Neues dunkles Design, Auswahlleiste wieder oben, Einstellungen aufklappbar, Kalender neu mit Tagesansicht zum Eintragen, Wirtschafts-News im Cockpit"
+  "version": "2.3.0",
+  "file": "releases/FVG-Trader-2.3.0.cmd",
+  "sha256": "59d743588ef1b03a157334d50c6277ea782238dba0efb23033ff7dd72c0ac5d9",
+  "notes": "Edge-Check je Strategie, Session-Muster (Gap-Fill, London/IB/Asien-Breakout, PDH/PDL), Key Levels im Cockpit"
 }

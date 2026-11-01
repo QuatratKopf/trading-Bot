@@ -1,5 +1,6 @@
 """Kern der App: Signale prüfen, Positionsgröße berechnen, Stop-Loss erzwingen, ausführen oder vorschlagen."""
 import copy
+import bisect
 import datetime as dt
 import json
 import math
@@ -136,6 +137,95 @@ def family(root):
 
 def round_tick(price, tick):
     return round(round(price / tick) * tick, 4)
+
+
+# ───────────────────────── Key Levels & Session-Muster (aus gesammelten Kerzen) ─────────────────────────
+def _ny_dt(ms):
+    return ny_time(ms / 1000)
+
+
+def _win(bars, a, b):
+    """Kerzen, deren Beginn in [a, b) liegt (NY-Zeit)."""
+    return [x for x in bars if a <= x["ny"] < b]
+
+
+def _range_hl(bs):
+    return (max(x["h"] for x in bs), min(x["l"] for x in bs)) if bs else (None, None)
+
+
+def _first_break(bs, hi, lo):
+    """Welche Seite wird zuerst gebrochen? ('oben'|'unten'|None, Uhrzeit, beide Seiten?)"""
+    first, when, up, dn = None, None, False, False
+    for x in bs:
+        u, d = hi is not None and x["h"] > hi, lo is not None and x["l"] < lo
+        if (u or d) and first is None:
+            first = "oben" if u and not d else "unten" if d and not u else ("oben" if x["c"] >= x["o"] else "unten")
+            when = x["ny"].strftime("%H:%M")
+        up, dn = up or u, dn or d
+    return first, when, up and dn
+
+
+def summarize_day(bars, day):
+    """Alle Levels und Ereignisse eines New-Yorker Handelstags. bars: Kerzen mit Feld 'ny' (datetime)."""
+    D = dt.datetime.combine(day, dt.time(0))
+    t = lambda h, m=0, d=0: D + dt.timedelta(days=d, hours=h, minutes=m)  # noqa: E731
+    prev_days = sorted({x["ny"].date() for x in bars if x["ny"] < D and x["ny"].weekday() < 5
+                        and dt.time(9, 30) <= x["ny"].time() < dt.time(16)})
+    out = {"day": str(day), "levels": [], "events": {}}
+    pd = prev_days[-1] if prev_days else None
+    if pd:
+        P = dt.datetime.combine(pd, dt.time(0))
+        prth = _win(bars, P + dt.timedelta(hours=9, minutes=30), P + dt.timedelta(hours=16))
+        if prth:
+            h, l = _range_hl(prth)
+            out["pdh"], out["pdl"], out["pdc"] = h, l, prth[-1]["c"]
+    on = _win(bars, t(18, d=-1), t(9, 30))
+    asia = _win(bars, t(20, d=-1), t(0))
+    london = _win(bars, t(2), t(5))
+    rth = _win(bars, t(9, 30), t(16))
+    ib = _win(bars, t(9, 30), t(10, 30))
+    mid = _win(bars, t(0), t(0, 30))
+    out["onh"], out["onl"] = _range_hl(on)
+    out["asia_h"], out["asia_l"] = _range_hl(asia)
+    out["lon_h"], out["lon_l"] = _range_hl(london)
+    out["ib_h"], out["ib_l"] = _range_hl(ib)
+    out["mid_open"] = mid[0]["o"] if mid else None
+    out["rth_open"] = rth[0]["o"] if rth else None
+    out["rth_bars"] = len(rth)
+    out["rth_done"] = bool(rth) and rth[-1]["ny"] >= t(15, 30)
+    out["ib_done"] = bool(ib) and ib[-1]["ny"] >= t(10, 15)
+    out["lon_done"] = bool(london) and london[-1]["ny"] >= t(4, 45)
+    out["asia_done"] = bool(asia) and asia[-1]["ny"] >= t(23, 45, d=-1)
+    ev = out["events"]
+    # Gap: RTH-Eröffnung gegen Vortagesschluss
+    if out.get("pdc") is not None and out["rth_open"] is not None:
+        g = out["rth_open"] - out["pdc"]
+        ev["gap"] = {"size": round(g, 2), "dir": "hoch" if g > 0 else "runter" if g < 0 else "keins", "filled": False, "when": None}
+        for x in rth:
+            if (g > 0 and x["l"] <= out["pdc"]) or (g < 0 and x["h"] >= out["pdc"]):
+                ev["gap"].update(filled=True, when=x["ny"].strftime("%H:%M"))
+                break
+    if out["asia_done"]:
+        f, w, both = _first_break(_win(bars, t(0), t(16)), out["asia_h"], out["asia_l"])
+        ev["asia"] = {"first": f, "when": w, "both": both}
+    if out["lon_done"]:
+        f, w, both = _first_break(_win(bars, t(5), t(16)), out["lon_h"], out["lon_l"])
+        ev["london"] = {"first": f, "when": w, "both": both}
+    if out["ib_done"]:
+        f, w, both = _first_break(_win(bars, t(10, 30), t(16)), out["ib_h"], out["ib_l"])
+        ev["ib"] = {"first": f, "when": w, "both": both}
+    if rth and out.get("pdh") is not None:
+        ev["pdh"] = next((x["ny"].strftime("%H:%M") for x in rth if x["h"] > out["pdh"]), None)
+        ev["pdl"] = next((x["ny"].strftime("%H:%M") for x in rth if x["l"] < out["pdl"]), None)
+    if rth and out["mid_open"] is not None:
+        ev["mid"] = next((x["ny"].strftime("%H:%M") for x in rth if x["l"] <= out["mid_open"] <= x["h"]), None)
+    if rth:
+        h, l = _range_hl(rth)
+        hi_t = next(x["ny"] for x in rth if x["h"] == h)
+        lo_t = next(x["ny"] for x in rth if x["l"] == l)
+        ev["hod"], ev["lod"] = hi_t.strftime("%H:%M"), lo_t.strftime("%H:%M")
+        ev["rth_close"] = rth[-1]["c"]
+    return out
 
 
 class Engine:
@@ -321,6 +411,11 @@ class Engine:
         bar["ts"] = time.time()
         bar["time"] = self._num(p.get("time"))
         self.last_bar[fam] = bar
+        if bar["time"]:
+            try:
+                self.db.add_bar(fam, bar["time"], bar["open"], bar["high"], bar["low"], bar["close"])
+            except Exception as e:  # noqa: BLE001
+                self.db.log(f"Kerze nicht gespeichert: {e}", "warn")
         for sh in self.db.open_shadows():
             if sh["fam"] != fam or not self._bar_after(sh, bar):
                 continue
@@ -790,6 +885,7 @@ class Engine:
                         self._close_shadow(sh, last)
                 self.learn()
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
+                self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
             if r["flat_at_session_end"] and self.db.open_positions():
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
@@ -842,6 +938,57 @@ class Engine:
             "curve": curve[-500:], "by_setup": by_setup,
             "trades": list(reversed(trades))[:100],
         }
+
+    # ───────── Key Levels & Session-Muster ─────────
+    def _bars_ny(self, fam, days):
+        rows = self.db.bars(fam, (time.time() - days * 86400) * 1000)
+        for x in rows:
+            x["ny"] = _ny_dt(x["t"])
+        return rows
+
+    def levels(self, fam=None):
+        fams = self.db.bar_fams()
+        fam = fam if fam in fams else (fams[0] if fams else None)
+        if not fam:
+            return {"fams": [], "fam": None, "today": None, "price": None}
+        bars = self._bars_ny(fam, 6)
+        now = ny_time()
+        day = now.date()
+        if now.weekday() >= 5 or now.time() >= dt.time(18):   # ab 18 Uhr NY gehört alles zum nächsten Handelstag
+            day = day + dt.timedelta(days=1)
+            while day.weekday() >= 5:
+                day += dt.timedelta(days=1)
+        lb = self.last_bar.get(fam)
+        price = lb["close"] if lb else (bars[-1]["c"] if bars else None)
+        return {"fams": fams, "fam": fam, "today": summarize_day(bars, day), "price": price,
+                "bars": len(bars), "now_ny": now.strftime("%H:%M")}
+
+    def session_stats(self, fam=None, days=400):
+        fams = self.db.bar_fams()
+        fam = fam if fam in fams else (fams[0] if fams else None)
+        if not fam:
+            return {"fams": [], "fam": None, "days": []}
+        bars = self._bars_ny(fam, days)
+        cache = getattr(self, "_sum_cache", {})
+        today = ny_date()
+        days_ = sorted({x["ny"].date() for x in bars if x["ny"].weekday() < 5 and x["ny"].date() < today
+                        and dt.time(9, 30) <= x["ny"].time() < dt.time(16)})
+        out, ts = [], [x["t"] for x in bars]
+        for d in days_:
+            key = (fam, d)
+            if key not in cache:
+                mid = dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc).timestamp() * 1000
+                part = bars[bisect.bisect_left(ts, mid - 6 * 864e5):bisect.bisect_right(ts, mid + 2 * 864e5)]
+                cache[key] = summarize_day(part, d)
+            if cache[key]["rth_done"]:
+                out.append({"day": str(d), "events": cache[key]["events"]})
+        self._sum_cache = cache
+        return {"fams": fams, "fam": fam, "days": out}
+
+    def edge_data(self):
+        rows = self.db.rows("SELECT setup, side, r, ny_hour, ny_weekday, opened, closed FROM shadow "
+                            "WHERE status='geschlossen' AND r IS NOT NULL ORDER BY closed")
+        return {"trades": rows[-5000:]}
 
     # ───────── Kalender: Bot-Trades + eigene Trades ─────────
     def _calendar_trades(self):

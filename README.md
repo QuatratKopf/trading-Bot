@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.2.0 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.3.0 "Notiz"`) |
 
 ## Funktionen
 
@@ -31,6 +31,9 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 - Pflicht-Stop-Loss (Safe-Stop), Tagesverlust-Limit, News-Filter, Notaus
 - Lernmodul: bewertet jede Strategie täglich anhand von Schatten-Trades
 - Kalender mit Tages-, Wochen- und Monats-P&L, eigene Trades (eintragen oder CSV-Import), Filter Bot/Eigene, Statistiken
+- Key Levels im Cockpit: Vortageshoch/-tief/-schluss, Overnight, Asien, London, Midnight Open, Initial Balance, Gap
+- Edge-Check je Strategie: Trefferquote mit 95-%-Bereich, Breakeven, Edge, Note A–D, Vertrauen, Wochentage, Stunden
+- Session-Muster aus gesammelten Kerzen: Gap-Fill, London-/IB-/Asien-Breakout, PDH/PDL genommen, Zeitpunkt von Tageshoch und -tief
 - Wirtschafts-News im Cockpit: wichtige US-Termine (CPI, NFP, FOMC …) mit Countdown
 - Paper-Trading und Tradovate (Demo/Live); eigene Tradovate-Trades werden automatisch in den Kalender übernommen
 
