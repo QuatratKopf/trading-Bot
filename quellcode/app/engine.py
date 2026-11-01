@@ -3,6 +3,7 @@ import copy
 import datetime as dt
 import json
 import math
+import re
 import os
 import secrets
 import threading
@@ -790,23 +791,182 @@ class Engine:
             "trades": list(reversed(trades))[:100],
         }
 
-    def _real_closed(self):
-        return [t for t in self.db.closed_positions() if t["broker"] == self.broker.name and not t["is_test"]]
+    # ───────── Kalender: Bot-Trades + eigene Trades ─────────
+    def _calendar_trades(self):
+        out = []
+        for t in self.db.closed_positions():
+            if t["broker"] == "eigen":
+                t["source"] = "eigen"
+            elif t["broker"] == self.broker.name and not t["is_test"]:
+                t["source"] = "bot"
+            else:
+                continue
+            t["day"] = t.get("trade_day") or str(ny_date(t["closed"]))
+            out.append(t)
+        return out
 
     def daily(self):
-        """P&L je Handelstag (New-York-Datum des Schließens) für den Kalender."""
+        """P&L je Handelstag, getrennt nach Bot und eigenen Trades."""
         days = {}
-        for t in self._real_closed():
-            b = days.setdefault(str(ny_date(t["closed"])), {"pnl": 0.0, "n": 0, "w": 0})
-            b["pnl"] += t["pnl"]
+        for t in self._calendar_trades():
+            d = days.setdefault(t["day"], {s: {"pnl": 0.0, "n": 0, "w": 0} for s in ("bot", "eigen")})
+            b = d[t["source"]]
+            b["pnl"] += t["pnl"] or 0
             b["n"] += 1
-            b["w"] += t["pnl"] > 0
-        for b in days.values():
-            b["pnl"] = round(b["pnl"], 2)
+            b["w"] += (t["pnl"] or 0) > 0
+        for d in days.values():
+            for b in d.values():
+                b["pnl"] = round(b["pnl"], 2)
         return days
 
     def day_trades(self, day):
-        return [t for t in self._real_closed() if str(ny_date(t["closed"])) == day]
+        return sorted([t for t in self._calendar_trades() if t["day"] == day], key=lambda t: t["opened"] or t["closed"])
+
+    def _own_insert(self, t):
+        pid = uuid.uuid4().hex[:10]
+        self.db.add_position({
+            "id": pid, "signal_id": "", "broker": "eigen", "source": "eigen", "root": t["root"], "contract": t["root"],
+            "side": t["side"], "setup": "Eigener Trade", "qty": t["qty"], "entry": t.get("entry"), "exit": t.get("exit"),
+            "sl": None, "tp": None, "initial_sl": None, "opened": t["opened"], "closed": t["closed"],
+            "pnl": round(t["pnl"], 2), "status": "geschlossen", "close_reason": t.get("note") or "Eigener Trade",
+            "broker_ref": {"key": t.get("key", "")}, "is_test": 0, "trade_day": t["day"], "note": t.get("note", "")})
+        return pid
+
+    def own_add(self, b):
+        """Eigenen Trade von Hand eintragen. P&L direkt oder aus Punkten × Punktwert × Anzahl − Gebühren."""
+        with self.lock:
+            day = str(b.get("day") or "")
+            dt.date.fromisoformat(day)
+            root = str(b.get("root") or "NQ").upper()
+            side = "short" if str(b.get("side")).lower() == "short" else "long"
+            qty = int(b.get("qty") or 1)
+            if qty < 1:
+                raise ValueError("Anzahl muss mindestens 1 sein")
+            entry, exit_, fees = self._num(b.get("entry")), self._num(b.get("exit")), self._num(b.get("fees")) or 0.0
+            pnl = self._num(b.get("pnl"))
+            if pnl is None:
+                if entry is None or exit_ is None or root not in INSTR:
+                    raise ValueError("Bitte Ein- und Ausstieg angeben oder das P&L direkt eintragen")
+                d = 1 if side == "long" else -1
+                pnl = (exit_ - entry) * d * qty * INSTR[root]["pv"] - fees
+            ts = self._num(b.get("ts")) or dt.datetime.combine(dt.date.fromisoformat(day), dt.time(16), dt.timezone.utc).timestamp()
+            pid = self._own_insert({"root": root, "side": side, "qty": qty, "entry": entry, "exit": exit_, "pnl": pnl,
+                                    "opened": self._num(b.get("ts_in")) or ts, "closed": ts, "day": day,
+                                    "note": str(b.get("note") or "")[:120]})
+            self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {pnl:+,.0f} $")
+            return {"ok": True, "id": pid}
+
+    def own_delete(self, pid):
+        with self.lock:
+            p = self.db.position(pid)
+            if not p or p["broker"] != "eigen":
+                raise ValueError("Nur eigene Trades können gelöscht werden")
+            self.db._exec("DELETE FROM positions WHERE id=?", (pid,))
+            return {"ok": True}
+
+    def own_import(self, text, subtract_fees=True):
+        """CSV-Import eigener Trades (Topstep/ProjectX, Tradovate, NinjaTrader u. a.). Spalten werden automatisch erkannt."""
+        import csv
+        import hashlib
+        import io
+        text = text.lstrip("\ufeff")
+        try:
+            dialect = csv.Sniffer().sniff(text[:4000], delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+        rows = list(csv.reader(io.StringIO(text), dialect))
+        if len(rows) < 2:
+            raise ValueError("Die Datei enthält keine Trades")
+        norm = lambda h: re.sub(r"[^a-z0-9&%]", "", h.lower())   # noqa: E731
+        head = [norm(h) for h in rows[0]]
+
+        def col(*names, avoid=("%", "cum", "kum", "total", "percent")):
+            for n in names:
+                for i, h in enumerate(head):
+                    if n in h and not any(a in h for a in avoid):
+                        return i
+            return None
+
+        c_pnl = col("netpnl", "netprofit", "pnl", "p&l", "profit", "gewinn", "realized")
+        if c_pnl is None:
+            raise ValueError("Keine P&L-Spalte gefunden (z. B. „PnL“, „Profit“, „P&L“)")
+        c_exit = col("exitedat", "exittime", "soldtimestamp", "closetime", "closedat", "exitdate", "closed", "sold")
+        c_entry = col("enteredat", "entrytime", "boughttimestamp", "opentime", "openedat", "entrydate", "bought")
+        c_date = col("tradeday", "tradedate", "datetime", "date", "time", "datum")
+        c_sym = col("contractname", "contract", "symbol", "instrument", "ticker", "product")
+        c_qty = col("size", "qty", "quantity", "contracts", "menge")
+        c_side = col("type", "side", "direction", "richtung")
+        c_ein = col("entryprice", "buyprice", "openprice", "avgentry")
+        c_aus = col("exitprice", "sellprice", "closeprice", "avgexit")
+        c_fee = [i for i, h in enumerate(head) if any(k in h for k in ("fee", "commission", "gebuehr", "gebühr"))]
+        if c_exit is None and c_date is None and c_entry is None:
+            raise ValueError("Keine Datums-Spalte gefunden")
+
+        def num(v):
+            v = (v or "").strip().replace("$", "").replace("€", "").replace(" ", "").replace("−", "-")
+            if v.startswith("(") and v.endswith(")"):
+                v = "-" + v[1:-1]
+            if v.count(",") and v.count("."):
+                v = v.replace(",", "") if v.rfind(".") > v.rfind(",") else v.replace(".", "").replace(",", ".")
+            elif v.count(",") == 1:
+                v = v.replace(",", ".")
+            try:
+                return float(v)
+            except ValueError:
+                return None
+
+        def when(v):
+            v = (v or "").strip()
+            if not v:
+                return None
+            iso = v.replace(" ", "T", 1) if re.match(r"\d{4}-\d{2}-\d{2} ", v) else v
+            try:
+                d = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                return d if d.tzinfo else d.astimezone()
+            except ValueError:
+                pass
+            base = re.sub(r"\s*[+-]\d{2}:?\d{2}$", "", v)
+            for f in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p", "%m/%d/%Y",
+                      "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    return dt.datetime.strptime(base, f).astimezone()
+                except ValueError:
+                    continue
+            return None
+
+        existing = {(p.get("broker_ref") or {}).get("key") for p in self.db.closed_positions() if p["broker"] == "eigen"}
+        added, skipped, bad = 0, 0, 0
+        with self.lock:
+            for r in rows[1:]:
+                if not any(x.strip() for x in r):
+                    continue
+                g = lambda i: r[i] if i is not None and i < len(r) else ""   # noqa: E731
+                pnl = num(g(c_pnl))
+                t_exit = when(g(c_exit)) or when(g(c_date)) or when(g(c_entry))
+                if pnl is None or t_exit is None:
+                    bad += 1
+                    continue
+                fees = sum(num(g(i)) or 0 for i in c_fee) if subtract_fees else 0.0
+                t_entry = when(g(c_entry)) or t_exit
+                day_raw = when(g(c_date)) if c_date is not None and "tradeday" in head[c_date] else None
+                day = str(day_raw.date()) if day_raw else str(ny_date(t_exit.timestamp()))
+                sym = g(c_sym).strip().upper()
+                m = re.match(r"^/?(MNQ|MES|NQ|ES|MYM|YM|M2K|RTY|MGC|GC|MCL|CL)", sym.split(":")[-1])
+                root = m.group(1) if m else (sym[:12] or "?")
+                side_raw = g(c_side).lower()
+                side = "short" if any(k in side_raw for k in ("short", "sell", "verkauf")) else "long"
+                qty = abs(int(num(g(c_qty)) or 1)) or 1
+                key = hashlib.sha1("|".join([day, sym, g(c_entry), g(c_exit), g(c_pnl), g(c_ein), g(c_aus)]).encode()).hexdigest()
+                if key in existing:
+                    skipped += 1
+                    continue
+                existing.add(key)
+                self._own_insert({"root": root, "side": side, "qty": qty, "entry": num(g(c_ein)), "exit": num(g(c_aus)),
+                                  "pnl": pnl - fees, "opened": t_entry.timestamp(), "closed": t_exit.timestamp(),
+                                  "day": day, "key": key, "note": "Import"})
+                added += 1
+            self.db.log(f"Eigene Trades importiert: {added} neu, {skipped} schon vorhanden, {bad} nicht lesbar")
+        return {"ok": True, "added": added, "skipped": skipped, "bad": bad, "fees": bool(c_fee) and subtract_fees}
 
     def state(self):
         with self.lock:

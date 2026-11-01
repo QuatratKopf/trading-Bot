@@ -82,8 +82,12 @@ h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0}
 .empty{color:var(--muted);font-size:13px;padding:18px;border:1px dashed var(--line);border-radius:8px;text-align:center}
 
 /* Kennzahlen */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0;box-shadow:1px 0 0 var(--line),0 1px 0 var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
+.seg button{font:500 13px var(--f-body);background:transparent;color:var(--muted);border:0;border-right:1px solid var(--line);padding:7px 12px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--fill);color:var(--accent);font-weight:600}
 .kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .kpi .v{font-family:var(--f-mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meter{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden;margin-top:4px}
@@ -169,6 +173,12 @@ button.day{cursor:pointer}
   .day .meta,.wk .meta{display:none}
   .cal .dow{font-size:10px;padding:0 2px}
 }
+
+.day .meta .s,.wk .meta .s{display:none}
+.modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
+.modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.modal select{width:100%}
+@media (max-width:640px){ .day .meta,.wk .meta{display:block;font-size:10px} .day .meta .f,.wk .meta .f{display:none} .day .meta .s,.wk .meta .s{display:inline} }
 
 /* Einstellungen */
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start}
@@ -494,78 +504,187 @@ function equitySvg(curve) {
 }
 
 /* ───────── Kalender ───────── */
-const CAL = {y: null, m: null, sel: null, detail: null};
+const CAL = {y: null, m: null, sel: null, detail: null, filter: "alle"};
+try { CAL.filter = localStorage.getItem("fvg-cal-filter") || "alle"; } catch (e) {}
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const kUsd = v => { const a = Math.abs(v); return (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + (a >= 1000 ? (a / 1000).toFixed(a >= 10000 ? 0 : 1).replace(".", ",") + "k" : Math.round(a)); };
 const sUsd = v => (v > 0 ? "+" : "") + usd(v);
+// Tageswerte passend zum Filter: {pnl, n, w, bot, own}
+function pick(d) {
+  if (!d) return null;
+  const b = d.bot || {pnl: 0, n: 0, w: 0}, o = d.eigen || {pnl: 0, n: 0, w: 0};
+  const r = CAL.filter === "bot" ? {...b} : CAL.filter === "eigen" ? {...o} : {pnl: b.pnl + o.pnl, n: b.n + o.n, w: b.w + o.w};
+  r.bot = CAL.filter === "eigen" ? 0 : b.n; r.own = CAL.filter === "bot" ? 0 : o.n;
+  return r.n ? r : null;
+}
+function countText(r, short) {
+  if (CAL.filter !== "alle") return short ? `${r.n}` : `${r.n} ${r.n === 1 ? "Trade" : "Trades"} · ${Math.round(r.w / r.n * 100)} %`;
+  const parts = [];
+  if (r.bot) parts.push(short ? `${r.bot}B` : `${r.bot} Bot`);
+  if (r.own) parts.push(short ? `${r.own}E` : `${r.own} ${r.own === 1 ? "eigener" : "eigene"}`);
+  return parts.join(short ? " " : " · ");
+}
 function calendar() {
   const now = new Date();
   if (CAL.y === null) { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); }
   const D = S.daily || {}, first = new Date(CAL.y, CAL.m, 1), last = new Date(CAL.y, CAL.m + 1, 0);
-  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));   // Montag der ersten Woche
-  const todayIso = iso(now);
-  // Monatsübersicht
-  const mDays = Object.entries(D).filter(([k]) => k.startsWith(`${CAL.y}-${String(CAL.m + 1).padStart(2, "0")}`));
-  const mPnl = mDays.reduce((a, [, b]) => a + b.pnl, 0), wins = mDays.filter(([, b]) => b.pnl > 0), losses = mDays.filter(([, b]) => b.pnl < 0);
-  const mTrades = mDays.reduce((a, [, b]) => a + b.n, 0);
+  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+  const todayIso = iso(now), prefix = `${CAL.y}-${String(CAL.m + 1).padStart(2, "0")}`;
+  const mDays = Object.keys(D).filter(k => k.startsWith(prefix)).map(k => [k, pick(D[k])]).filter(([, r]) => r);
+  const mPnl = mDays.reduce((a, [, r]) => a + r.pnl, 0), wins = mDays.filter(([, r]) => r.pnl > 0), losses = mDays.filter(([, r]) => r.pnl < 0);
+  const mBot = Object.keys(D).filter(k => k.startsWith(prefix)).reduce((a, k) => a + (D[k].bot ? D[k].bot.pnl : 0), 0);
+  const mOwn = Object.keys(D).filter(k => k.startsWith(prefix)).reduce((a, k) => a + (D[k].eigen ? D[k].eigen.pnl : 0), 0);
+  const mTrades = mDays.reduce((a, [, r]) => a + r.n, 0);
   const best = mDays.reduce((a, x) => !a || x[1].pnl > a[1].pnl ? x : a, null), worst = mDays.reduce((a, x) => !a || x[1].pnl < a[1].pnl ? x : a, null);
   const dLabel = k => new Date(k + "T12:00:00").toLocaleDateString("de-DE", {day: "numeric", month: "short"});
   let cells = ["Mo", "Di", "Mi", "Do", "Fr", "Woche"].map(d => `<div class="dow">${d}</div>`).join("");
   let wkNo = 0;
   for (let w = new Date(start); w <= last; w.setDate(w.getDate() + 7)) {
-    let wkPnl = 0, wkN = 0, wkDays = 0, hasWeekday = false;
+    let wk = {pnl: 0, n: 0, bot: 0, own: 0, w: 0}, wkDays = 0;
     for (let i = 0; i < 7; i++) {
       const d = new Date(w); d.setDate(w.getDate() + i);
-      const inMonth = d.getMonth() === CAL.m, k = iso(d), b = D[k];
-      if (inMonth && b) { wkPnl += b.pnl; wkN += b.n; wkDays++; }
-      if (i >= 5) continue;   // Wochenende fließt nur in die Wochensumme ein
-      if (inMonth) hasWeekday = true;
+      const inMonth = d.getMonth() === CAL.m, k = iso(d), r = inMonth ? pick(D[k]) : null;
+      if (r) { wk.pnl += r.pnl; wk.n += r.n; wk.bot += r.bot; wk.own += r.own; wk.w += r.w; wkDays++; }
+      if (i >= 5) continue;
       if (!inMonth) { cells += `<div class="day out"><span class="dn">${d.getDate()}</span></div>`; continue; }
-      const cls = b ? (b.pnl > 0 ? "win" : b.pnl < 0 ? "loss" : "") : "";
-      cells += `<${b ? `button type="button" data-day="${k}"` : "div"} class="day ${cls} ${k === todayIso ? "today" : ""} ${CAL.sel === k ? "sel" : ""}" ${b ? `aria-label="${d.getDate()}. ${MONTHS[CAL.m]}: ${sUsd(b.pnl)}"` : ""}>
+      const cls = r ? (r.pnl > 0 ? "win" : r.pnl < 0 ? "loss" : "") : "";
+      cells += `<${r ? `button type="button" data-day="${k}"` : "div"} class="day ${cls} ${k === todayIso ? "today" : ""} ${CAL.sel === k ? "sel" : ""}" ${r ? `aria-label="${d.getDate()}. ${MONTHS[CAL.m]}: ${sUsd(r.pnl)}, ${countText(r)}"` : ""}>
         <span class="dn">${d.getDate()}</span>
-        ${b ? `<span class="pl ${cls === "win" ? "pos" : cls === "loss" ? "neg" : ""}"><span class="f">${sUsd(b.pnl)}</span><span class="s">${kUsd(b.pnl)}</span></span>
-          <span class="meta">${b.n} ${b.n === 1 ? "Trade" : "Trades"} · ${Math.round(b.w / b.n * 100)} %</span>` : `<span class="meta">&nbsp;</span>`}
-      </${b ? "button" : "div"}>`;
+        ${r ? `<span class="pl ${cls === "win" ? "pos" : cls === "loss" ? "neg" : ""}"><span class="f">${sUsd(r.pnl)}</span><span class="s">${kUsd(r.pnl)}</span></span>
+          <span class="meta"><span class="f">${countText(r)}</span><span class="s">${countText(r, true)}</span></span>` : `<span class="meta">&nbsp;</span>`}
+      </${r ? "button" : "div"}>`;
     }
     wkNo++;
     cells += `<div class="wk"><span class="dn"><span class="f">Woche ${wkNo}</span><span class="s">W${wkNo}</span></span>
-      <span class="pl ${wkPnl > 0 ? "pos" : wkPnl < 0 ? "neg" : ""}">${wkDays ? `<span class="f">${sUsd(wkPnl)}</span><span class="s">${kUsd(wkPnl)}</span>` : "–"}</span>
-      <span class="meta">${wkDays ? `${wkDays} ${wkDays === 1 ? "Tag" : "Tage"} · ${wkN} Trades` : "kein Handel"}</span></div>`;
+      <span class="pl ${wk.pnl > 0 ? "pos" : wk.pnl < 0 ? "neg" : ""}">${wkDays ? `<span class="f">${sUsd(wk.pnl)}</span><span class="s">${kUsd(wk.pnl)}</span>` : "–"}</span>
+      <span class="meta"><span class="f">${wkDays ? `${wkDays} ${wkDays === 1 ? "Tag" : "Tage"} · ${countText(wk)}` : "kein Handel"}</span><span class="s">${wkDays ? countText(wk, true) : ""}</span></span></div>`;
   }
+  const kpis = [
+    ["Monat", sUsd(mPnl), cls(mPnl)],
+    ...(CAL.filter === "alle" ? [["davon Bot", sUsd(mBot), cls(mBot)], ["davon eigene", sUsd(mOwn), cls(mOwn)]] : []),
+    ["Handelstage", mDays.length, ""],
+    ["Gewinntage", `${wins.length}${mDays.length ? ` · ${Math.round(wins.length / mDays.length * 100)} %` : ""}`, wins.length ? "pos" : ""],
+    ["Verlusttage", losses.length, losses.length ? "neg" : ""], ["Trades", mTrades, ""],
+    ["Bester Tag", best && best[1].pnl > 0 ? sUsd(best[1].pnl) : "–", "pos", best && best[1].pnl > 0 ? dLabel(best[0]) : ""],
+    ["Schlechtester Tag", worst && worst[1].pnl < 0 ? sUsd(worst[1].pnl) : "–", "neg", worst && worst[1].pnl < 0 ? dLabel(worst[0]) : ""],
+  ];
   $("#main").innerHTML = `
-    <section class="section"><div class="section-h"><div class="cal-h">
-        <button class="btn cal-nav" id="calPrev" aria-label="Vorheriger Monat">‹</button><h2>${MONTHS[CAL.m]} ${CAL.y}</h2><button class="btn cal-nav" id="calNext" aria-label="Nächster Monat">›</button>
-        <button class="btn" id="calToday" style="padding:6px 10px">Heute</button></div>
-      <p class="hint">Tage nach New-Yorker Handelsdatum, ohne Test-Trades</p></div>
-    <section class="kpis">${[
-      ["Monat", sUsd(mPnl), cls(mPnl)], ["Handelstage", mDays.length, ""],
-      ["Gewinntage", `${wins.length}${mDays.length ? ` · ${Math.round(wins.length / mDays.length * 100)} %` : ""}`, wins.length ? "pos" : ""],
-      ["Verlusttage", losses.length, losses.length ? "neg" : ""], ["Trades", mTrades, ""],
-      ["Bester Tag", best && best[1].pnl > 0 ? `${sUsd(best[1].pnl)}` : "–", "pos", best && best[1].pnl > 0 ? dLabel(best[0]) : ""],
-      ["Schlechtester Tag", worst && worst[1].pnl < 0 ? `${sUsd(worst[1].pnl)}` : "–", "neg", worst && worst[1].pnl < 0 ? dLabel(worst[0]) : ""],
-    ].map(([l, v, c, sub]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span>${sub ? `<span class="hint" style="font-size:11.5px">${sub}</span>` : ""}</div>`).join("")}</section>
-    <div class="cal" role="grid" aria-label="Handelskalender">${cells}</div></section>
-    <section class="section" id="dayBox">${CAL.detail || (mDays.length ? '<p class="hint">Tippe auf einen Tag, um seine Trades zu sehen.</p>' : '<div class="empty">In diesem Monat gibt es noch keine abgeschlossenen Trades.</div>')}</section>`;
+    <section class="section">
+      <div class="section-h">
+        <div class="cal-h"><button class="btn cal-nav" id="calPrev" aria-label="Vorheriger Monat">‹</button><h2>${MONTHS[CAL.m]} ${CAL.y}</h2><button class="btn cal-nav" id="calNext" aria-label="Nächster Monat">›</button>
+          <button class="btn" id="calToday" style="padding:6px 10px">Heute</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div class="seg" role="group" aria-label="Trades filtern">${[["alle", "Alle"], ["bot", "Bot"], ["eigen", "Eigene"]].map(([k, l]) => `<button type="button" data-f="${k}" aria-pressed="${CAL.filter === k}">${l}</button>`).join("")}</div>
+          <button class="btn" id="ownAdd">+ Eigener Trade</button>
+          <label class="btn" style="cursor:pointer">Importieren<input type="file" id="ownCsv" accept=".csv,.txt" hidden></label>
+        </div>
+      </div>
+      <section class="kpis">${kpis.map(([l, v, c, sub]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span>${sub ? `<span class="hint" style="font-size:11.5px">${sub}</span>` : ""}</div>`).join("")}</section>
+      <div class="cal" role="grid" aria-label="Handelskalender">${cells}</div>
+      <p class="hint">Tage nach New-Yorker Handelsdatum. Bot-Trades ohne Test-Trades. Eigene Trades zählen nicht in die Bot-Statistik.</p>
+    </section>
+    <section class="section" id="dayBox">${CAL.detail && CAL.sel ? dayDetail() : (mDays.length ? '<p class="hint">Tippe auf einen Tag, um seine Trades zu sehen.</p>' : `<div class="empty">In diesem Monat gibt es ${CAL.filter === "eigen" ? "noch keine eigenen Trades. Trag sie mit „+ Eigener Trade“ ein oder importiere sie als CSV." : "noch keine abgeschlossenen Trades."}</div>`)}</section>`;
   const go = dm => { CAL.m += dm; if (CAL.m < 0) { CAL.m = 11; CAL.y--; } if (CAL.m > 11) { CAL.m = 0; CAL.y++; } CAL.sel = null; CAL.detail = null; calendar(); };
   $("#calPrev").onclick = () => go(-1); $("#calNext").onclick = () => go(1);
   $("#calToday").onclick = () => { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); CAL.sel = null; CAL.detail = null; calendar(); };
+  document.querySelectorAll(".seg [data-f]").forEach(b => b.onclick = () => { CAL.filter = b.dataset.f; try { localStorage.setItem("fvg-cal-filter", CAL.filter); } catch (e) {}
+    if (CAL.sel) openDay(CAL.sel); else calendar(); });
   document.querySelectorAll(".cal button.day").forEach(b => b.onclick = () => openDay(b.dataset.day));
+  $("#ownAdd").onclick = () => ownTradeDialog(CAL.sel || todayIso);
+  document.querySelectorAll(".owndel").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => {
+    try { await api(`/api/own/${b.dataset.id}/delete`, {}); toast("Eigener Trade gelöscht"); S = await api("/api/state"); openDay(CAL.sel); } catch (e) { toast(e.message); }
+  }));
+  $("#ownCsv").onchange = e => { const f = e.target.files[0]; if (f) importDialog(f); e.target.value = ""; };
 }
 async function openDay(k) {
   CAL.sel = k;
-  try {
-    const r = await api("/api/day/" + k), b = (S.daily || {})[k] || {pnl: 0, n: 0, w: 0};
-    const title = new Date(k + "T12:00:00").toLocaleDateString("de-DE", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
-    CAL.detail = `<div class="section-h"><h2>${title}</h2><p class="hint"><span class="${cls(b.pnl)}" style="font-weight:600">${sUsd(b.pnl)}</span> · ${b.n} Trades · ${b.w} Gewinner</p></div>
-      <div class="panel scroll"><table><thead><tr><th class="t">Zeit</th><th class="t">Trade</th><th class="t">Strategie</th><th>Ein</th><th>Aus</th><th class="t">Grund</th><th>Netto</th></tr></thead><tbody>
-      ${r.trades.map(t => `<tr><td class="t mono">${tm(t.opened)}–${tm(t.closed)}</td><td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td>
-        <td class="t"><span class="chip">${esc(t.setup)}</span></td><td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="wrap" style="min-width:120px">${esc(t.close_reason)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}
-      </tbody></table></div>`;
-  } catch (e) { CAL.detail = `<p class="err-msg">${esc(e.message)}</p>`; }
+  try { CAL.dayTrades = (await api("/api/day/" + k)).trades; CAL.dayErr = null; } catch (e) { CAL.dayErr = e.message; CAL.dayTrades = []; }
+  CAL.detail = true;
   calendar();
   $("#dayBox").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+function dayDetail() {
+  const k = CAL.sel;
+  if (CAL.dayErr) return `<p class="err-msg">${esc(CAL.dayErr)}</p>`;
+  const list = (CAL.dayTrades || []).filter(t => CAL.filter === "alle" || t.source === CAL.filter);
+  const sum = pick((S.daily || {})[k]) || {pnl: 0, n: 0, w: 0, bot: 0, own: 0};
+  const title = new Date(k + "T12:00:00").toLocaleDateString("de-DE", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+  return `<div class="section-h"><h2>${title}</h2><p class="hint"><span class="${cls(sum.pnl)}" style="font-weight:600">${sUsd(sum.pnl)}</span>${sum.n ? ` · ${countText(sum)} · ${sum.w} Gewinner` : ""}</p></div>
+    ${list.length ? `<div class="panel scroll"><table><thead><tr><th class="t">Zeit</th><th class="t">Quelle</th><th class="t">Trade</th><th class="t">Strategie / Notiz</th><th>Ein</th><th>Aus</th><th>Netto</th><th></th></tr></thead><tbody>
+    ${list.map(t => `<tr><td class="t mono">${t.source === "eigen" && t.opened === t.closed ? "–" : `${tm(t.opened)}–${tm(t.closed)}`}</td>
+      <td class="t"><span class="chip ${t.source === "eigen" ? "warn" : ""}">${t.source === "eigen" ? "Eigen" : "Bot"}</span></td>
+      <td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td>
+      <td class="wrap" style="min-width:140px">${esc(t.source === "eigen" ? (t.note || "–") : `${t.setup} · ${t.close_reason}`)}</td>
+      <td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td>
+      <td>${t.source === "eigen" ? `<button class="btn ghost-danger owndel" data-id="${t.id}" data-key="del-${t.id}" data-orig="Löschen" style="padding:3px 8px;font-size:12px">${armed("del-" + t.id) ? "Sicher?" : "Löschen"}</button>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">Keine ${CAL.filter === "bot" ? "Bot-" : CAL.filter === "eigen" ? "eigenen " : ""}Trades an diesem Tag.</div>`}`;
+}
+function modal(html) {
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-bg" id="mdl" role="dialog" aria-modal="true"><div class="panel modal">${html}</div></div>`);
+  const close = () => $("#mdl") && $("#mdl").remove();
+  $("#mdl").addEventListener("click", e => { if (e.target.id === "mdl") close(); });
+  document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
+  return close;
+}
+function ownTradeDialog(day) {
+  const close = modal(`<h2 style="font-size:18px">Eigenen Trade eintragen</h2>
+    <form id="ownF" class="form" style="gap:10px">
+      <div class="edit" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <label>Handelstag<input id="oDay" type="date" value="${day}" required></label>
+        <label>Instrument<select id="oRoot">${["NQ", "MNQ", "ES", "MES"].map(r => `<option>${r}</option>`).join("")}</select></label>
+        <label>Richtung<select id="oSide"><option value="long">Long</option><option value="short">Short</option></select></label>
+        <label>Anzahl<input id="oQty" type="number" min="1" step="1" value="1"></label>
+        <label>Einstieg<input id="oIn" type="number" step="0.25" placeholder="z. B. 21010.25"></label>
+        <label>Ausstieg<input id="oOut" type="number" step="0.25" placeholder="z. B. 21030.50"></label>
+        <label>Gebühren ($)<input id="oFee" type="number" step="0.01" min="0" value="0"></label>
+        <label>oder P&L direkt ($)<input id="oPnl" type="number" step="0.01" placeholder="optional"></label>
+      </div>
+      <div class="edit" style="grid-template-columns:1fr"><label>Notiz<input id="oNote" type="text" maxlength="120" placeholder="z. B. Topstep-Konto, NY-Open"></label></div>
+      <p class="hint" style="margin:0">Ergebnis: <b id="oRes">–</b></p>
+      <p class="err-msg" id="oErr" hidden></p>
+      <div class="actions"><button class="btn primary" type="submit">Speichern</button><button class="btn" type="button" id="oCancel">Abbrechen</button></div>
+    </form>`);
+  const pv = {NQ: 20, MNQ: 2, ES: 50, MES: 5};
+  const calc = () => {
+    const direct = parseFloat($("#oPnl").value);
+    let r = NaN;
+    if (isFinite(direct)) r = direct;
+    else { const a = parseFloat($("#oIn").value), b = parseFloat($("#oOut").value), q = parseInt($("#oQty").value) || 0, f = parseFloat($("#oFee").value) || 0;
+      if (isFinite(a) && isFinite(b)) r = (b - a) * ($("#oSide").value === "long" ? 1 : -1) * q * pv[$("#oRoot").value] - f; }
+    $("#oRes").textContent = isFinite(r) ? sUsd(Math.round(r * 100) / 100) : "–"; $("#oRes").className = cls(r);
+  };
+  $("#ownF").addEventListener("input", calc);
+  $("#oCancel").onclick = close;
+  $("#ownF").onsubmit = async e => {
+    e.preventDefault();
+    const dayVal = $("#oDay").value;
+    try {
+      await api("/api/own/add", {day: dayVal, root: $("#oRoot").value, side: $("#oSide").value, qty: $("#oQty").value,
+        entry: $("#oIn").value, exit: $("#oOut").value, fees: $("#oFee").value, pnl: $("#oPnl").value, note: $("#oNote").value});
+      close(); toast("Eigener Trade gespeichert");
+      S = await api("/api/state");
+      CAL.y = +dayVal.slice(0, 4); CAL.m = +dayVal.slice(5, 7) - 1; openDay(dayVal);
+    } catch (err) { $("#oErr").textContent = err.message; $("#oErr").hidden = false; }
+  };
+  $("#oIn").focus();
+}
+async function importDialog(file) {
+  const text = await file.text();
+  const close = modal(`<h2 style="font-size:18px">Eigene Trades importieren</h2>
+    <p style="margin:0"><b>${esc(file.name)}</b> · ${text.split(/\r?\n/).filter(x => x.trim()).length - 1} Zeilen</p>
+    <p class="hint" style="margin:0">Funktioniert mit CSV-Exporten aus Topstep, Tradovate, NinjaTrader und den meisten Plattformen. Spalten wie Datum, Symbol, Richtung und P&L werden automatisch erkannt. Schon importierte Trades werden übersprungen.</p>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="iFee" checked> Gebühren-Spalte vom P&L abziehen (falls vorhanden)</label>
+    <p class="err-msg" id="iErr" hidden></p>
+    <div class="actions"><button class="btn primary" id="iGo">Importieren</button><button class="btn" id="iCancel">Abbrechen</button></div>`);
+  $("#iCancel").onclick = close;
+  $("#iGo").onclick = async () => {
+    try {
+      const r = await api("/api/own/import", {csv: text, subtract_fees: $("#iFee").checked});
+      close(); toast(`${r.added} Trades importiert${r.skipped ? `, ${r.skipped} schon vorhanden` : ""}${r.bad ? `, ${r.bad} nicht lesbar` : ""}`);
+      CAL.filter = CAL.filter === "bot" ? "alle" : CAL.filter; await refresh(true);
+    } catch (e) { $("#iErr").textContent = e.message; $("#iErr").hidden = false; }
+  };
 }
 
 /* ───────── Lernmodul ───────── */

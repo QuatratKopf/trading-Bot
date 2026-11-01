@@ -1,6 +1,6 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "file": "FVG-Trader.cmd",
-  "sha256": "56a0635411e3d54388e82cc254b74dbc619042a4a379b9e12494c68ae426e277",
-  "notes": "Updates kommen ab jetzt über GitHub"
+  "sha256": "82651f25f5d24f2507e30abc986d1f4222d6d70a3b7e1bba8a0a27ce370df0d7",
+  "notes": "Neu: eigene Trades im Kalender (eintragen oder CSV-Import) und Filter Bot/Eigene"
 }

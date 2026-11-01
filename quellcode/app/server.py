@@ -122,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > (5_000_000 if self.path.startswith("/api/update/") else 100_000):
+        if n > (5_000_000 if self.path.startswith(("/api/update/", "/api/own/import")) else 100_000):
             raise ValueError("Anfrage zu groß")
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         return raw
@@ -414,6 +414,22 @@ def shutdown(h):
 @route("GET", r"/api/day/(\d{4}-\d{2}-\d{2})")
 def day(h, d):
     h._send(200, {"day": d, "trades": engine.day_trades(d)})
+
+
+@route("POST", r"/api/own/add")
+def own_add(h):
+    h._send(200, engine.own_add(h._json()))
+
+
+@route("POST", r"/api/own/import")
+def own_import(h):
+    b = h._json()
+    h._send(200, engine.own_import(str(b.get("csv") or ""), bool(b.get("subtract_fees", True))))
+
+
+@route("POST", r"/api/own/([a-f0-9]+)/delete")
+def own_delete(h, pid):
+    h._send(200, engine.own_delete(pid))
 
 
 @route("GET", r"/api/pine")

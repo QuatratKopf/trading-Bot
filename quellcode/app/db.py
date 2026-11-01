@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS positions (
     signal_id TEXT, broker TEXT, root TEXT, contract TEXT, side TEXT, setup TEXT,
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
-    status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL
+    status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
+    source TEXT, trade_day TEXT, note TEXT
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,
