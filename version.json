@@ -1,6 +1,6 @@
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "file": "FVG-Trader.cmd",
-  "sha256": "ff6f2cb569e899b831d25a110f62bed88c7f7e8b353fe1a8dc065bb857c00174",
-  "notes": "Einstellungen aufgeräumt, Knopf „Jetzt aktualisieren“, Tradovate verknüpfen: eigene Trades automatisch im Kalender"
+  "sha256": "6c23062611d5a3264f9f23a4bf2f994d7d5299c085523cf2b5751eb95958c068",
+  "notes": "Update-Neustart unter Windows repariert"
 }

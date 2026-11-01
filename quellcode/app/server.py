@@ -289,7 +289,7 @@ def _fetch(url, limit=5_000_000):
     url += ("&" if "?" in url else "?") + f"t={int(time.time())}"   # GitHub-Zwischenspeicher umgehen
     req = urllib.request.Request(url, headers={"User-Agent": f"FVG-Trader/{APP_VERSION}", "Cache-Control": "no-cache"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=25) as r:
             return r.read(limit + 1)[:limit]
     except Exception:
         import shutil
@@ -342,24 +342,46 @@ def install_update(data, sha=None):
     tmp = LAUNCHER + ".neu"
     with open(tmp, "wb") as f:
         f.write(data)
-    os.replace(tmp, LAUNCHER)
+    try:
+        os.replace(tmp, LAUNCHER)
+    except OSError as e:
+        os.remove(tmp)
+        engine.db.log(f"Update: Datei konnte nicht ersetzt werden: {e}", "error")
+        raise ValueError(f"Die App-Datei konnte nicht ersetzt werden ({e.strerror or e}). "
+                         "Liegt sie in einem geschützten Ordner? Verschieb FVG-Trader.cmd z. B. nach Dokumente und versuch es erneut.")
     engine.db.log(f"Update installiert: Version {APP_VERSION} → {new_version}. App startet neu.")
+    print(f"Update {APP_VERSION} -> {new_version}: Datei ersetzt, Neustart folgt", flush=True)
     threading.Timer(0.8, restart).start()
     return new_version
 
 
 def restart():
+    """Startet FVG Trader neu. Unter Windows über ein kleines Hilfsskript, das unabhängig von diesem Prozess läuft."""
     import subprocess
     try:
         tunnel.stop()
         if SRV:
             SRV.server_close()
-        env = dict(os.environ, FVG_NO_BROWSER="1")
-        py = windowless_python() if sys.platform.startswith("win") else sys.executable
-        subprocess.Popen([py, LAUNCHER, "--hintergrund"], env=env, cwd=os.path.dirname(LAUNCHER),
-                         creationflags=0x08000000 if sys.platform.startswith("win") else 0,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=not sys.platform.startswith("win"))
+        if sys.platform.startswith("win"):
+            helper = os.path.join(DATA, "neustart.cmd")
+            with open(helper, "w", encoding="ascii", errors="replace") as f:
+                f.write("@echo off\r\n"
+                        "rem Startet FVG Trader nach einem Update neu\r\n"
+                        "ping -n 3 127.0.0.1 >nul\r\n"
+                        f'start "" /min "{LAUNCHER}" --hintergrund\r\n')
+            flags = 0x08000000 | 0x00000200   # kein Fenster, eigene Prozessgruppe
+            try:
+                subprocess.Popen(["cmd.exe", "/c", helper], creationflags=flags | 0x01000000,   # aus dem Job lösen
+                                 cwd=os.path.dirname(LAUNCHER), close_fds=True)
+            except OSError:
+                subprocess.Popen(["cmd.exe", "/c", helper], creationflags=flags, cwd=os.path.dirname(LAUNCHER), close_fds=True)
+        else:
+            subprocess.Popen([sys.executable, LAUNCHER, "--hintergrund"], cwd=os.path.dirname(LAUNCHER),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             env=dict(os.environ, FVG_NO_BROWSER="1"))
+        print("Neustart angestoßen", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"Neustart fehlgeschlagen: {e}", flush=True)
     finally:
         os._exit(0)
 
@@ -539,6 +561,8 @@ def main():
         print(f"\n  FVG Trader läuft bereits, das Fenster wird geöffnet.\n")
         open_app_window(f"http://localhost:{PORT}")
         return
+    engine.db.log(f"FVG Trader {APP_VERSION} gestartet")
+    print(f"FVG Trader {APP_VERSION} gestartet", flush=True)
     if not os.environ.get("FVG_NO_TUNNEL"):
         tunnel.start()
     url = f"http://localhost:{PORT}"

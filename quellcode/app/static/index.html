@@ -270,18 +270,42 @@ function copyText(txt, label) {
 async function runUpdate(doIt) {
   const before = S && S.version;
   document.body.insertAdjacentHTML("beforeend", `<div id="updOv" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;place-items:center;padding:16px">
-    <div style="text-align:center;max-width:360px"><h2 style="font-size:20px">Update wird installiert …</h2><p class="hint" id="updMsg">Die App lädt die neue Version und startet neu. Das dauert nur ein paar Sekunden.</p></div></div>`);
-  try { await doIt(); } catch (e) { $("#updOv").remove(); toast(e.message); return; }
+    <div style="text-align:center;max-width:380px;display:flex;flex-direction:column;gap:10px;align-items:center">
+      <h2 style="font-size:20px" id="updT">Update wird geladen …</h2>
+      <p class="hint" id="updMsg" style="margin:0">Die neue Version wird heruntergeladen und geprüft.</p>
+      <div id="updAct"></div></div></div>`);
+  const msg = (t, m, act) => { $("#updT").textContent = t; $("#updMsg").innerHTML = m; $("#updAct").innerHTML = act || ""; };
+  let res;
+  try { res = await doIt(); } catch (e) {
+    msg("Update fehlgeschlagen", esc(e.message), '<button class="btn" id="updClose">Schließen</button>');
+    $("#updClose").onclick = () => $("#updOv").remove(); return;
+  }
+  const target = res && res.version;
+  msg("Neustart …", `Version <b>${esc(target || "neu")}</b> ist installiert. FVG Trader startet neu, das dauert ein paar Sekunden.`);
   const t0 = Date.now();
   const poll = async () => {
-    try { const r = await fetch("/api/state"); if (r.ok) { const j = await r.json(); if (j.version !== before) { location.reload(); return; } }
-      else if (r.status === 401) { location.reload(); return; } } catch (e) {}
-    if (Date.now() - t0 > 60000) { $("#updMsg").textContent = "Das dauert länger als gedacht. Starte FVG Trader über das Desktop-Symbol neu."; return; }
+    const secs = (Date.now() - t0) / 1000;
+    try {
+      const r = await fetch("/api/state", {cache: "no-store"});
+      if (r.status === 401) { location.reload(); return; }
+      if (r.ok) {
+        const j = await r.json();
+        if (j.version !== before) { location.reload(); return; }
+        if (secs > 20) {   // alter Prozess läuft noch
+          msg("Neustart hat nicht geklappt", "Die neue Version ist installiert, aber die alte läuft noch. Bitte unter Einstellungen „App beenden“ und dann FVG Trader über das Desktop-Symbol starten.",
+            '<button class="btn" id="updClose">Schließen</button>'); $("#updClose").onclick = () => $("#updOv").remove(); return;
+        }
+      }
+    } catch (e) {}
+    if (secs > 45) {
+      msg("Fast geschafft", `Version <b>${esc(target || "neu")}</b> ist installiert, nur der automatische Neustart hat nicht geklappt.<br>Starte FVG Trader einfach über das <b>Desktop-Symbol</b>.`,
+        '<button class="btn" id="updRetry">Erneut verbinden</button>');
+      $("#updRetry").onclick = () => location.reload(); return;
+    }
     setTimeout(poll, 1000);
   };
-  setTimeout(poll, 1500);
+  setTimeout(poll, 2000);
 }
-
 async function startupUpdatePrompt() {
   if (!S.config.update_url) return;
   let u;
