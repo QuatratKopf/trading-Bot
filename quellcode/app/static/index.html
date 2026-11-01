@@ -144,6 +144,42 @@ svg{display:block;width:100%;height:auto}
 svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 .gl{stroke:var(--line)}
 
+/* Performance & Grafiken */
+.perf{display:flex;flex-direction:column;gap:14px}
+.perf-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.perf-ctl{display:flex;gap:8px;flex-wrap:wrap}
+.perf-b{display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px;align-items:center}
+.ring{position:relative;width:170px;height:170px;flex:none}
+.ring svg{display:block}
+.ring-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ring-v{font-family:var(--f-mono);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.ring-l{font-size:12px;color:var(--muted)}
+.perf-side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.perf-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.perf-stats div{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:8px;background:var(--sunk);min-width:0}
+.perf-stats span{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.perf-stats b{font-family:var(--f-mono);font-size:17px;font-weight:500;white-space:nowrap}
+.spark{border-radius:8px;background:var(--sunk);padding:6px}
+.spark svg{width:100%;display:block}
+.hbars{display:flex;flex-direction:column;gap:10px}
+.hbar{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:12px;align-items:center}
+.hbar-l{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hbar-l .hint{font-size:11.5px}
+.hbar-t{position:relative;height:10px;border-radius:5px;background:var(--sunk);overflow:hidden}
+.hbar-mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)}
+.hbar-t i{position:absolute;top:0;bottom:0;border-radius:5px}
+.hbar-t i.p{left:50%;background:var(--pos)} .hbar-t i.n{right:50%;background:var(--neg)}
+.hbar b{font-size:13px;text-align:right;min-width:70px}
+.panel{box-shadow:0 1px 2px rgba(10,15,30,.04)}
+@media (max-width:720px){ .perf-b{grid-template-columns:1fr;justify-items:center} .perf-side{width:100%} .perf-stats{grid-template-columns:repeat(2,minmax(0,1fr))} }
+
+.sess-list{display:flex;flex-direction:column;gap:6px}
+.sess{display:grid;grid-template-columns:20px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.sess.on,.sess:has(input:checked){border-color:var(--accent);background:var(--fill)}
+.sess-n{font-size:13.5px;font-weight:500}
+.sess-t{font-size:12px}
+@media (max-width:560px){ .sess{grid-template-columns:20px minmax(0,1fr)} .sess-t{grid-column:2} }
+
 /* Kalender */
 .cal-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .cal-h h2{font-size:20px;min-width:170px;text-align:center}
@@ -390,7 +426,7 @@ function header() {
   $("#pTv").innerHTML = `<span class="dot ${tvState[0]}"></span>${tvState[1]}`;
   $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "tradovate" ? " " + (c.tradovate.env === "live" ? "LIVE" : "Demo") : ""}`;
   $("#pBroker").title = S.broker.status;
-  $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? "Session offen" : "Session zu"}`;
+  $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? esc(S.session_name) : "keine Session"}`;
   $("#autoT").setAttribute("aria-checked", c.auto_mode);
   $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
     : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
@@ -411,6 +447,7 @@ function cockpit(full) {
   if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
     <div id="setup"></div>
     <section class="kpis" id="todayK"></section>
+    <section class="panel perf" id="perf"></section>
     <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
     <div class="grid2">
@@ -418,6 +455,8 @@ function cockpit(full) {
       <section class="section"><h2>Aktivität</h2><div class="panel feed" id="feed"></div></section>
     </div></div>`;
   setupPanel();
+  const perfKey = JSON.stringify([PERF, S.daily]);
+  if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
   $("#todayK").innerHTML = [
     ["Kontostand", S.balance == null ? "–" : usd2(S.balance), ""],
     ["P&L heute", usd(t.pnl), cls(t.pnl)],
@@ -517,24 +556,109 @@ function sugCard(p) {
 }
 
 /* ───────── Statistik ───────── */
+/* ───────── Grafiken ───────── */
+let PERF = {period: "monat", src: "alle"};
+try { PERF = Object.assign(PERF, JSON.parse(localStorage.getItem("fvg-perf") || "{}")); } catch (e) {}
+const savePerf = () => { try { localStorage.setItem("fvg-perf", JSON.stringify(PERF)); } catch (e) {} };
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function perfData(period, src) {
+  const now = new Date(), today = isoDay(now);
+  let from = "0000";
+  if (period === "heute") from = today;
+  else if (period === "woche") { const d = new Date(now); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); from = isoDay(d); }
+  else if (period === "monat") from = today.slice(0, 8) + "01";
+  const days = Object.keys(S.daily || {}).filter(k => k >= from && k <= today).sort().map(k => {
+    const d = S.daily[k], b = d.bot || {pnl: 0, n: 0, w: 0}, o = d.eigen || {pnl: 0, n: 0, w: 0};
+    const r = src === "bot" ? b : src === "eigen" ? o : {pnl: b.pnl + o.pnl, n: b.n + o.n, w: b.w + o.w};
+    return {day: k, pnl: r.pnl, n: r.n, w: r.w};
+  }).filter(r => r.n);
+  const n = days.reduce((a, r) => a + r.n, 0), w = days.reduce((a, r) => a + r.w, 0), pnl = days.reduce((a, r) => a + r.pnl, 0);
+  let eq = 0; const curve = days.map(r => (eq += r.pnl));
+  return {days, n, w, l: n - w, pnl, curve, winDays: days.filter(r => r.pnl > 0).length,
+          best: days.reduce((a, r) => !a || r.pnl > a.pnl ? r : a, null), worst: days.reduce((a, r) => !a || r.pnl < a.pnl ? r : a, null)};
+}
+function donutSvg(w, l, size = 170) {
+  const r = 62, c = 2 * Math.PI * r, tot = w + l, fw = tot ? w / tot : 0;
+  const gap = tot && w && l ? 3 : 0, lw = Math.max(0, c * fw - gap), ll = Math.max(0, c * (1 - fw) - gap);
+  return `<svg viewBox="0 0 170 170" width="${size}" height="${size}" role="img" aria-label="Gewinn- und Verlust-Trades">
+    <circle cx="85" cy="85" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="16"/>
+    ${tot ? `<circle cx="85" cy="85" r="${r}" fill="none" stroke="var(--pos)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${lw} ${c}" transform="rotate(-90 85 85)"/>
+    <circle cx="85" cy="85" r="${r}" fill="none" stroke="var(--neg)" stroke-width="16" stroke-linecap="round" stroke-dasharray="${ll} ${c}" stroke-dashoffset="${-(c * fw)}" transform="rotate(-90 85 85)"/>` : ""}
+  </svg>`;
+}
+function sparkSvg(vals, W = 320, H = 70) {
+  if (vals.length < 2) return `<div class="hint" style="height:${H}px;display:grid;place-items:center">Kurve ab 2 Handelstagen</div>`;
+  const all = [0, ...vals], lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
+  const x = i => 4 + (W - 8) * i / (all.length - 1), y = v => 6 + (H - 12) * (1 - (v - lo) / span);
+  const line = all.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const col = vals[vals.length - 1] >= 0 ? "var(--pos)" : "var(--neg)";
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px" role="img" aria-label="Equity-Verlauf">
+    <line x1="4" x2="${W - 4}" y1="${y(0)}" y2="${y(0)}" class="gl" stroke-dasharray="3 3"/>
+    <path d="${line}L${x(all.length - 1)},${y(lo)}L${x(0)},${y(lo)}Z" fill="${col}" fill-opacity=".10"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function dayBarsSvg(days) {
+  if (!days.length) return '<p class="hint">Noch keine Handelstage im Zeitraum.</p>';
+  const W = 900, H = 200, L = 56, R = 8, T = 10, B = 24, n = days.length;
+  const lo0 = Math.min(0, ...days.map(d => d.pnl)), hi0 = Math.max(0, ...days.map(d => d.pnl));
+  const span = hi0 - lo0 || 100, stepRaw = span / 4, mag = 10 ** Math.floor(Math.log10(stepRaw)), step = [1, 2, 2.5, 5, 10].find(m => m * mag >= stepRaw) * mag;
+  const lo = Math.floor(lo0 / step) * step, hi = Math.ceil(hi0 / step) * step || step;
+  const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo)), bw = (W - L - R) / n;
+  let g = ""; for (let v = lo; v <= hi + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${kUsd(v)}</text>`;
+  const every = Math.ceil(n / 10);
+  const bars = days.map((d, i) => { const x0 = L + i * bw + bw * .18, w = Math.max(2, bw * .64), y0 = y(Math.max(0, d.pnl)), h = Math.max(1, Math.abs(y(d.pnl) - y(0)));
+    return `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" rx="2" fill="${d.pnl >= 0 ? "var(--pos)" : "var(--neg)"}"><title>${d.day}: ${sUsd(d.pnl)} · ${d.n} Trades</title></rect>` +
+      (i % every === 0 ? `<text x="${x0 + w / 2}" y="${H - 6}" text-anchor="middle">${d.day.slice(8)}.${d.day.slice(5, 7)}.</text>` : ""); }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="P&L je Handelstag">${g}${bars}</svg>`;
+}
+const PERIODS = [["heute", "Heute"], ["woche", "Woche"], ["monat", "Monat"], ["gesamt", "Gesamt"]];
+const SOURCES = [["alle", "Alle"], ["bot", "Bot"], ["eigen", "Eigene"]];
+function perfCard(compact) {
+  const d = perfData(PERF.period, PERF.src), wr = d.n ? d.w / d.n * 100 : null;
+  const seg = (list, key) => `<div class="seg" role="group">${list.map(([k, l]) => `<button type="button" data-${key}="${k}" aria-pressed="${PERF[key] === k}">${l}</button>`).join("")}</div>`;
+  return `<div class="perf-h"><h2>Performance</h2><div class="perf-ctl">${seg(PERIODS, "period")}${seg(SOURCES, "src")}</div></div>
+    <div class="perf-b">
+      <div class="ring">${donutSvg(d.w, d.l)}<div class="ring-c"><span class="ring-v ${cls(d.pnl)}">${d.n ? sUsd(Math.round(d.pnl)) : "–"}</span><span class="ring-l">${wr == null ? "keine Trades" : `${Math.round(wr)} % Treffer`}</span></div></div>
+      <div class="perf-side">
+        <div class="perf-stats">
+          <div><span>Gewinner</span><b class="pos">${d.w}</b></div><div><span>Verlierer</span><b class="neg">${d.l}</b></div>
+          <div><span>Handelstage</span><b>${d.days.length}${d.days.length ? ` <small class="hint">(${d.winDays} grün)</small>` : ""}</b></div>
+          <div><span>Ø pro Tag</span><b class="${cls(d.days.length ? d.pnl / d.days.length : 0)}">${d.days.length ? sUsd(Math.round(d.pnl / d.days.length)) : "–"}</b></div>
+        </div>
+        ${compact ? "" : ""}<div class="spark">${sparkSvg(d.curve)}</div>
+      </div>
+    </div>`;
+}
+function bindPerf(root, rerender) {
+  root.querySelectorAll("[data-period]").forEach(b => b.onclick = () => { PERF.period = b.dataset.period; savePerf(); rerender(); });
+  root.querySelectorAll("[data-src]").forEach(b => b.onclick = () => { PERF.src = b.dataset.src; savePerf(); rerender(); });
+}
+
 function stats() {
   const st = S.stats;
+  const all = perfData("gesamt", "alle"), last30 = all.days.slice(-30);
+  const setups = Object.entries(st.by_setup).sort((a, b) => b[1].net - a[1].net), maxAbs = Math.max(1, ...setups.map(([, v]) => Math.abs(v.net)));
   $("#main").innerHTML = `
+    <section class="panel perf" id="perfS"></section>
+    <section class="panel"><div class="section-h"><h2>P&L je Handelstag</h2><p class="hint">Letzte ${last30.length} Handelstage, Bot und eigene Trades</p></div>${dayBarsSvg(last30)}</section>
     <section class="kpis">${[
       ["Netto-Gewinn", usd(st.net), cls(st.net)], ["Trades", st.n, ""], ["Trefferquote", pct(st.winrate), ""],
       ["Profit-Faktor", num2(st.pf), st.pf >= 1 ? "pos" : st.pf != null ? "neg" : ""], ["Ø R pro Trade", num2(st.avg_r), cls(st.avg_r)],
       ["Max. Drawdown", usd(st.max_dd), st.max_dd < 0 ? "neg" : ""], ["Ø Gewinn", usd(st.avg_win), "pos"], ["Ø Verlust", usd(st.avg_loss), "neg"],
     ].map(([l, v, c]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span></div>`).join("")}</section>
-    <section class="panel"><div class="section-h"><h2>Equity</h2><p class="hint">Kumulierter Gewinn je abgeschlossenem Trade (${esc(S.broker.label)}, ohne Test-Trades)</p></div><div id="eq"></div></section>
+    <section class="panel"><div class="section-h"><h2>Equity des Bots</h2><p class="hint">Kumulierter Gewinn je abgeschlossenem Trade (${esc(S.broker.label)}, ohne Test-Trades)</p></div><div id="eq"></div></section>
     <div class="grid2">
-      <section class="section"><h2>Nach Strategie</h2><div class="panel scroll">${st.n ? `<table><thead><tr><th class="t">Strategie</th><th>Trades</th><th>Treffer</th><th>Netto</th></tr></thead><tbody>
-        ${Object.entries(st.by_setup).sort((a, b) => b[1].net - a[1].net).map(([k, v]) => `<tr><td class="t"><span class="chip">${esc(k)}</span></td><td>${v.n}</td><td>${pct(v.w / v.n * 100)}</td><td class="${cls(v.net)}">${usd(v.net)}</td></tr>`).join("")}
-        </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
+      <section class="section"><h2>Nach Strategie</h2><div class="panel">${st.n ? `<div class="hbars">
+        ${setups.map(([k, v]) => `<div class="hbar"><div class="hbar-l"><span class="chip">${esc(k)}</span><span class="hint">${v.n} Trades · ${pct(v.w / v.n * 100)}</span></div>
+          <div class="hbar-t"><div class="hbar-mid"></div><i class="${v.net >= 0 ? "p" : "n"}" style="width:${Math.abs(v.net) / maxAbs * 50}%"></i></div><b class="mono ${cls(v.net)}">${usd(v.net)}</b></div>`).join("")}
+        </div>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
       <section class="section"><h2>Letzte Trades</h2><div class="panel scroll">${st.trades.length ? `<table><thead><tr><th class="t">Geschlossen</th><th class="t">Trade</th><th>Ein</th><th>Aus</th><th class="t">Grund</th><th>Netto</th></tr></thead><tbody>
-        ${st.trades.slice(0, 40).map(t => `<tr><td class="t mono">${dtm(t.closed)}</td><td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td><td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="wrap" style="min-width:110px">${esc(t.close_reason)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}
+        ${st.trades.slice(0, 15).map(t => `<tr><td class="t mono">${dtm(t.closed)}</td><td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td><td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="t" style="font-family:var(--f-body);color:var(--muted)">${esc(t.close_reason)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}
         </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
     </div>`;
   $("#eq").innerHTML = equitySvg(st.curve);
+  const pr = () => { $("#perfS").innerHTML = perfCard(); bindPerf($("#perfS"), pr); };
+  pr();
 }
 function equitySvg(curve) {
   if (!curve.length) return '<p class="hint">Die Kurve erscheint nach dem ersten abgeschlossenen Trade.</p>';
@@ -546,8 +670,9 @@ function equitySvg(curve) {
   let g = ""; for (let v = lo; v <= hi + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`;
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.e).toFixed(1)}`).join("");
   const last = pts[pts.length - 1], col = last.e >= 0 ? "var(--pos)" : "var(--neg)";
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity-Kurve">${g}
-    <path d="${line}L${x(pts.length - 1)},${y(Math.max(lo, 0))}L${x(0)},${y(Math.max(lo, 0))}Z" fill="var(--fill)"/>
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity-Kurve">
+    <defs><linearGradient id="eqg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>${g}
+    <path d="${line}L${x(pts.length - 1)},${y(Math.max(lo, 0))}L${x(0)},${y(Math.max(lo, 0))}Z" fill="url(#eqg)"/>
     <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="${x(pts.length - 1)}" cy="${y(last.e)}" r="4" fill="${col}"/>
     <text x="${L}" y="${H - 4}">Start</text><text x="${W - R}" y="${H - 4}" text-anchor="end">Trade ${pts.length - 1}</text></svg>`;
 }
@@ -771,6 +896,13 @@ const num = id => { const x = parseFloat(v(id)); return isFinite(x) ? x : undefi
 const sec = (title, hint, body, id = "") => `<section class="set-sec" ${id ? `id="${id}"` : ""}><div class="set-h"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ""}</div><div class="set-b">${body}</div></section>`;
 
 let settingsKey = "";
+// New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
+function localTime(hm) {
+  const [nh, nm] = (S.now_ny || "00:00").split(":").map(Number), now = new Date();
+  const off = ((now.getHours() * 60 + now.getMinutes()) - (nh * 60 + nm) + 1440 * 2) % 1440;
+  const rounded = Math.round(off / 30) * 30, [h, m] = hm.split(":").map(Number), t = (h * 60 + m + rounded) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
 function settings() {
   settingsKey = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart]);
   const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, t = c.tradovate, L = c.learning;
@@ -813,10 +945,12 @@ function settings() {
     ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "Danach handelt der Bot heute nicht mehr. 0 = aus"})}
     ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}`)}
 
-  ${sec("Handelszeit & Vorschläge", "Zeiten in New Yorker Zeit (9:30 NY = 15:30 bei uns).", `
-    <div class="row"><label for="ss">Handelszeit</label><div class="inline"><input id="ss" data-cfg type="time" value="${r.session_start}"> – <input id="se" data-cfg type="time" value="${r.session_end}"></div></div>
+  ${sec("Sessions & Vorschläge", "Hak an, in welchen Sessions der Bot handeln darf. Die gleichen Haken gibt es in den Einstellungen der TradingView-Strategie.", `
+    <div class="sess-list">${Object.entries(S.sessions).map(([k, x]) => `<label class="sess ${(r.sessions || {})[k] ? "on" : ""}">
+      <input type="checkbox" class="chk" data-cfg data-sess="${k}" ${(r.sessions || {})[k] ? "checked" : ""}>
+      <span class="sess-n">${esc(x.name)}</span><span class="sess-t mono">${x.start}–${x.end === "00:00" ? "24:00" : x.end} NY</span><span class="sess-t mono hint">${localTime(x.start)}–${localTime(x.end)} bei dir</span></label>`).join("")}</div>
     ${field("es", "Nur in der Handelszeit handeln", r.enforce_session, {check: true})}
-    ${field("fe", "Zum Ende alles schließen", r.flat_at_session_end, {check: true})}
+    ${field("fe", "Zum Ende der Session schließen", r.flat_at_session_end, {check: true, help: "Offene Positionen werden geschlossen, wenn ihre Session endet"})}
     ${field("to", "Vorschlag verfällt nach (Sekunden)", c.suggestion_timeout_sec, {attrs: {min: 15, step: 15}, help: "Gilt, wenn der Auto-Modus aus ist"})}
     ${field("le", "Lernmodul aktiv", L.enabled, {check: true, help: "Schwache Strategien bekommen halbe Größe oder Pause"})}`)}
 
@@ -900,7 +1034,8 @@ function settings() {
     const patch = {
       sizing: {mode, fixed_qty: v("fq"), risk_usd: num("ru"), risk_pct: num("rp"), contract_type: v("ct"), max_qty: v("mq")},
       safe_stop: {NQ: {default: num("nqd"), min: num("nqmin"), max: num("nqmax")}, ES: {default: num("esd"), min: num("esmin"), max: num("esmax")}, default_rr: num("rr")},
-      risk: {max_daily_loss: num("mdl"), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), session_start: v("ss"), session_end: v("se"), flat_at_session_end: v("fe")},
+      risk: {max_daily_loss: num("mdl"), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), flat_at_session_end: v("fe"),
+        sessions: Object.fromEntries([...document.querySelectorAll("[data-sess]")].map(x => [x.dataset.sess, x.checked]))},
       suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"),
       learning: {enabled: v("le"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),

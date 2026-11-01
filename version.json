@@ -1,6 +1,6 @@
 {
-  "version": "1.9.9",
-  "file": "releases/FVG-Trader-1.9.9.cmd",
-  "sha256": "871a453edb52ec206549f3bd7fdf35689dc0b7fdab5cf41d23d72165af3aea7c",
-  "notes": "Updates zuverlässiger: feste Release-Dateien, erneuter Versuch bei Prüfsummenfehler"
+  "version": "2.0.0",
+  "file": "releases/FVG-Trader-2.0.0.cmd",
+  "sha256": "4927bb05c4dfa55622d90c2b763c17bd2fe73ef64460a198b53f7e8a0258fb96",
+  "notes": "Neu: Sessions (Asien, London, NY) zum Anhaken, Performance-Ring im Cockpit, Tages-P&L-Grafik, schönere Statistik"
 }

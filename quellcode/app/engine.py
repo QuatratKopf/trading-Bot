@@ -21,6 +21,25 @@ INSTR = {
     "MES": {"tick": 0.25, "pv": 5.0,  "mini": "ES",   "name": "Micro E-mini S&P 500"},
 }
 
+# Handels-Sessions in New Yorker Zeit (Start, Ende)
+TRADING_SESSIONS = {
+    "asia":     ("Asien", "20:00", "00:00"),
+    "london":   ("London", "02:00", "05:00"),
+    "ny_am":    ("New York Vormittag (Open)", "09:30", "11:30"),
+    "ny_lunch": ("New York Mittag", "11:30", "13:30"),
+    "ny_pm":    ("New York Nachmittag", "13:30", "15:50"),
+}
+
+
+def in_session(key, t):
+    """Liegt die New-Yorker Zeit t in der Session? Abend-Sessions (Asien) gehören zum nächsten Handelstag."""
+    _, start, end = TRADING_SESSIONS[key]
+    hm, wd = t.strftime("%H:%M"), t.weekday()
+    if start < end:
+        return wd < 5 and start <= hm < end
+    return (hm >= start and wd in (6, 0, 1, 2, 3)) or (hm < end and wd < 5)
+
+
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/QuatratKopf/trading-Bot/main/version.json"
 
 DEFAULT_CONFIG = {
@@ -51,8 +70,9 @@ DEFAULT_CONFIG = {
         "max_trades_day": 5,
         "max_open": 1,
         "enforce_session": True,
-        "session_start": "09:30",
-        "session_end": "15:50",
+        "session_start": "09:30",   # alt, nicht mehr genutzt
+        "session_end": "15:50",     # alt, nicht mehr genutzt
+        "sessions": {"asia": False, "london": False, "ny_am": True, "ny_lunch": False, "ny_pm": True},
         "flat_at_session_end": True,
     },
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25},
@@ -236,8 +256,10 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
-        for k in ("session_start", "session_end"):
-            dt.datetime.strptime(c["risk"][k], "%H:%M")
+        ses = c["risk"].get("sessions") or {}
+        c["risk"]["sessions"] = {k: bool(ses.get(k)) for k in TRADING_SESSIONS}
+        if c["risk"]["enforce_session"] and not any(c["risk"]["sessions"].values()):
+            raise ValueError("Bitte mindestens eine Session anhaken, in der der Bot handeln darf.")
 
     def regenerate_token(self):
         with self.lock:
@@ -496,15 +518,18 @@ class Engine:
                   if p["broker"] == self.broker.name and ny_date(p["closed"]) == today)
         return pnl + sum(self._unrealized(p) for p in self.db.open_positions())
 
+    def session_now(self, t=None):
+        """Name der gerade laufenden, angehakten Session oder None."""
+        t = t or ny_time()
+        on = self.cfg["risk"].get("sessions") or {}
+        return next((k for k in TRADING_SESSIONS if on.get(k) and in_session(k, t)), None)
+
     def _guards(self, fam):
         r = self.cfg["risk"]
         if self.cfg["paused"]:
             return "Handel pausiert"
-        if r["enforce_session"]:
-            now = ny_time()
-            hm = now.strftime("%H:%M")
-            if now.weekday() >= 5 or not (r["session_start"] <= hm < r["session_end"]):
-                return f"Außerhalb der Handelszeit ({r['session_start']}–{r['session_end']} NY)"
+        if r["enforce_session"] and not self.session_now():
+            return "Außerhalb der gewählten Sessions"
         if len(self.db.open_positions()) >= int(r["max_open"]):
             return "Maximale Anzahl offener Positionen erreicht"
         if len(self._today_trades()) >= int(r["max_trades_day"]):
@@ -758,7 +783,7 @@ class Engine:
                     self.db.log(f"Vorschlag {s['side'].upper()} {s['root']} verfallen")
             r = self.cfg["risk"]
             t = ny_time()
-            if t.weekday() < 5 and t.strftime("%H:%M") >= r["session_end"] and self.learning.get("last_day") != str(t.date()):
+            if t.weekday() < 5 and t.strftime("%H:%M") >= "16:00" and self.learning.get("last_day") != str(t.date()):
                 for sh in self.db.open_shadows():
                     last = (self.last_bar.get(sh["fam"]) or {}).get("close")
                     if last:
@@ -766,11 +791,11 @@ class Engine:
                 self.learn()
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
             if r["flat_at_session_end"] and self.db.open_positions():
-                hm = t.strftime("%H:%M")
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
-                    # nur Positionen schließen, die vor dem heutigen Sessionende eröffnet wurden
-                    if o.date() < t.date() or (o.strftime("%H:%M") < r["session_end"] <= hm):
+                    # schließen, sobald keine angehakte Session mehr läuft (wie in der TradingView-Strategie)
+                    started_in = next((k for k in TRADING_SESSIONS if in_session(k, o)), None)
+                    if started_in and (not self.session_now(t) or time.time() - pos["opened"] > 20 * 3600):
                         try:
                             self._close(pos, None, "Sessionende")
                         except ValueError:
@@ -1068,7 +1093,9 @@ class Engine:
                 "config": self.public_cfg(),
                 "instruments": INSTR,
                 "now_ny": now_ny.strftime("%H:%M"),
-                "session_open": now_ny.weekday() < 5 and r["session_start"] <= now_ny.strftime("%H:%M") < r["session_end"],
+                "session_open": bool(self.session_now(now_ny)),
+                "session_name": TRADING_SESSIONS[self.session_now(now_ny)][0] if self.session_now(now_ny) else "",
+                "sessions": {k: {"name": v[0], "start": v[1], "end": v[2]} for k, v in TRADING_SESSIONS.items()},
                 "tv": {"last_msg": self.last_msg,
                        "last_bar": {k: v for k, v in self.last_bar.items()}},
                 "broker": {"name": self.broker.name, "label": self.broker.label, "ok": self.broker_ok,

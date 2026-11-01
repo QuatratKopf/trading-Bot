@@ -19,12 +19,14 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 1.9.9 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.0.0 "Notiz"`) |
 
 ## Funktionen
 
 - Strategien: FVG, iFVG, Silver Bullet, Opening Range Breakout, Liquidity Sweep, VWAP-Reclaim (Pine Script in der App kopierbar)
 - Auto-Modus an/aus, sonst Vorschläge zum Annehmen oder Ablehnen
+- Sessions zum Anhaken: Asien, London, New York Vormittag, Mittag, Nachmittag (in App und Strategie)
+- Performance-Ring im Cockpit (Zeitraum und Quelle wählbar), Tages-P&L-Grafik, Equity-Kurve
 - Positionsgröße: feste Anzahl, Risiko in $ oder in % vom Konto, Mini oder Micro
 - Pflicht-Stop-Loss (Safe-Stop), Tagesverlust-Limit, News-Filter, Notaus
 - Lernmodul: bewertet jede Strategie täglich anhand von Schatten-Trades

@@ -44,12 +44,13 @@ useBE       = input.bool(false, "Stop auf Break-even ab 1R",              group 
 maxTradesDay= input.int(3,      "Max. Trades pro Tag", minval = 1,        group = grpRisk)
 maxDayLoss  = input.float(1000, "Tagesverlust-Limit ($, 0 = aus)", minval = 0, group = grpRisk)
 
-grpTime = "③ Handelszeiten (New York)"
-sess1       = input.session("0930-1130", "Session 1",                     group = grpTime)
-useSess2    = input.bool(true,  "Session 2 aktiv",                        group = grpTime)
-sess2       = input.session("1330-1530", "Session 2",                     group = grpTime)
-flatHour    = input.int(15,     "Alles schließen um (Stunde NY)", minval = 0, maxval = 23, group = grpTime)
-flatMin     = input.int(50,     "… Minute", minval = 0, maxval = 59,      group = grpTime)
+grpTime = "③ Sessions (New Yorker Zeit)"
+useAsia     = input.bool(false, "Asien 20:00–24:00",                      group = grpTime)
+useLondon   = input.bool(false, "London 02:00–05:00",                     group = grpTime)
+useNyAm     = input.bool(true,  "New York Vormittag 09:30–11:30",         group = grpTime)
+useNyLunch  = input.bool(false, "New York Mittag 11:30–13:30",            group = grpTime)
+useNyPm     = input.bool(true,  "New York Nachmittag 13:30–15:50",        group = grpTime)
+flatEnd     = input.bool(true,  "Außerhalb der Sessions alles schließen", group = grpTime)
 
 grpBias = "④ Trendfilter"
 useBias     = input.bool(true,  "Nur mit HTF-Trend handeln",              group = grpBias)
@@ -131,8 +132,12 @@ if block10 and nyMin >= 9 * 60 + 50 and nyMin < 10 * 60 + 10
     newsBlock := true
     newsReason := "10:00-Daten"
 
-inSess = not na(time(timeframe.period, sess1, TZ)) or (useSess2 and not na(time(timeframe.period, sess2, TZ)))
-flatAt = flatHour * 60 + flatMin
+inAsia   = useAsia    and not na(time(timeframe.period, "2000-2359", TZ))
+inLondon = useLondon  and not na(time(timeframe.period, "0200-0500", TZ))
+inNyAm   = useNyAm    and not na(time(timeframe.period, "0930-1130", TZ))
+inNyLun  = useNyLunch and not na(time(timeframe.period, "1130-1330", TZ))
+inNyPm   = useNyPm    and not na(time(timeframe.period, "1330-1550", TZ))
+inSess   = inAsia or inLondon or inNyAm or inNyLun or inNyPm
 
 // ───────────────────────── Indikatoren ─────────────────────────
 atr    = ta.atr(atrLen)
@@ -263,7 +268,7 @@ var float tRisk = na
 var string tId  = ""
 var bool  beDone = false
 
-canTrade = inSess and not newsBlock and not lossHit and tradesToday < maxTradesDay and nyMin < flatAt and strategy.position_size == 0
+canTrade = inSess and not newsBlock and not lossHit and tradesToday < maxTradesDay and strategy.position_size == 0
 
 // ta-Funktionen global berechnen (nicht in if-Blöcken)
 bool  wasBelow = ta.highest(close - vw, vwapLook)[1] < 0
@@ -364,7 +369,7 @@ if useBE and not beDone and strategy.position_size != 0
 
 // Flat zum Sessionende, vor FOMC und bei Tageslimit
 if strategy.position_size != 0
-    if nyMin >= flatAt or nyMin < 9 * 60 + 30
+    if flatEnd and not inSess
         strategy.close_all(comment = "Sessionende", alert_message = jsonExit(""))
     else if isFomc and blockFomc != "Ignorieren" and nyMin >= 13 * 60 + 50
         strategy.close_all(comment = "FOMC", alert_message = jsonExit(""))
@@ -436,7 +441,8 @@ if showDash and barstate.islast
     table.cell(dash, 0, 0, "FVG Bot · " + syminfo.ticker + " · " + timeframe.period, text_color = color.white, text_size = size.normal, text_halign = text.align_left)
     table.merge_cells(dash, 0, 0, 1, 0)
     row(1,  "Position",          pos, posC)
-    row(2,  "Session",           inSess ? "aktiv" : "geschlossen", inSess ? cBull : cMuted)
+    string sName = inAsia ? "Asien" : inLondon ? "London" : inNyAm ? "NY Vormittag" : inNyLun ? "NY Mittag" : inNyPm ? "NY Nachmittag" : "keine"
+    row(2,  "Session",           sName, inSess ? cBull : cMuted)
     row(3,  "News-Filter",       newsBlock ? "gesperrt · " + newsReason : "frei", newsBlock ? cIBear : cBull)
     row(4,  "HTF-Bias",          not useBias ? "aus" : close > htfEma ? "bullisch" : "bärisch", not useBias ? cMuted : close > htfEma ? cBull : cBear)
     row(5,  "Aktive Zonen",      str.tostring(nF) + " FVG · " + str.tostring(nI) + " iFVG", color.white)
