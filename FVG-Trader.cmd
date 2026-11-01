@@ -472,7 +472,7 @@ INSTR = {
     "MES": {"tick": 0.25, "pv": 5.0,  "mini": "ES",   "name": "Micro E-mini S&P 500"},
 }
 
-DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/QuatratKopf/trading-bot/main/version.json"
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/QuatratKopf/trading-Bot/main/version.json"
 
 DEFAULT_CONFIG = {
     "auto_mode": False,
@@ -589,7 +589,7 @@ class Engine:
         if os.path.exists(self.cfg_path):
             with open(self.cfg_path, encoding="utf-8") as f:
                 cfg = deep_merge(cfg, json.load(f))
-        if not cfg.get("update_url"):
+        if not cfg.get("update_url") or "QuatratKopf/trading-bot/" in cfg["update_url"]:
             cfg["update_url"] = DEFAULT_UPDATE_URL
         if not cfg["webhook_token"]:
             cfg["webhook_token"] = secrets.token_urlsafe(18)
