@@ -76,6 +76,12 @@ DEFAULT_CONFIG = {
         "sessions": {"asia": False, "london": False, "ny_am": True, "ny_lunch": False, "ny_pm": True},
         "flat_at_session_end": True,
     },
+    "challenge": {             # Fremdkapital / Prop-Firm-Challenge
+        "enabled": False, "name": "", "phase": "Challenge", "start_balance": 50000.0, "start_day": "",
+        "profit_target": 3000.0, "max_dd": 2000.0, "dd_type": "eod", "lock_at_start": True,
+        "daily_loss": 1000.0, "consistency_pct": 0.0, "min_days": 0, "source": "alle",
+        "guard": True, "guard_buffer": 250.0,
+    },
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25},
     "tradovate": {"env": "demo", "username": "", "password": "", "cid": "", "secret": "",
                   "app_id": "", "account": "", "device_id": ""},
@@ -333,6 +339,22 @@ class Engine:
         L["pause_below_r"], L["half_below_r"] = float(L["pause_below_r"]), float(L["half_below_r"])
         if not (5 <= L["window"] <= 500 and 3 <= L["min_trades"] <= L["window"] and L["pause_below_r"] < L["half_below_r"]):
             raise ValueError("Lernmodul: Fenster 5–500, Mindest-Trades ≤ Fenster, Pause-Schwelle < Halbe-Größe-Schwelle")
+        ch = c["challenge"]
+        for k in ("start_balance", "profit_target", "max_dd", "daily_loss", "consistency_pct", "guard_buffer"):
+            ch[k] = float(ch[k] or 0)
+            if ch[k] < 0:
+                raise ValueError("Fremdkapital: Werte dürfen nicht negativ sein")
+        ch["min_days"] = int(ch["min_days"] or 0)
+        if ch["dd_type"] not in ("eod", "intraday", "static"):
+            raise ValueError("Fremdkapital: unbekannte Drawdown-Art")
+        if ch["source"] not in ("alle", "bot", "eigen"):
+            raise ValueError("Fremdkapital: unbekannte Trade-Quelle")
+        if ch["start_day"] and not re.match(r"^\d{4}-\d{2}-\d{2}$", ch["start_day"]):
+            raise ValueError("Fremdkapital: Startdatum als JJJJ-MM-TT")
+        if ch["enabled"] and (ch["start_balance"] <= 0 or ch["max_dd"] <= 0):
+            raise ValueError("Fremdkapital: Kontogröße und maximaler Drawdown müssen größer als 0 sein")
+        if ch["consistency_pct"] > 100:
+            raise ValueError("Fremdkapital: Konsistenzregel in % (0–100)")
         pu = (c.get("public_url") or "").strip()
         if pu and not re.match(r"^https?://[^\s/]+\.[^\s]+$", pu):
             raise ValueError("„Eigene feste Adresse“ muss eine Internetadresse sein (https://…). "
@@ -508,7 +530,7 @@ class Engine:
             guard = f"Strategie {base['setup']} ist ausgeschaltet"
         elif rule == "pausiert":
             guard = f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)"
-        guard = guard or self._guards(fam)
+        guard = guard or self._guards(fam, base.get("risk_usd"))
         if guard:
             base.update(status="blockiert", reason=guard)
             self.db.add_signal(base)
@@ -619,10 +641,21 @@ class Engine:
         on = self.cfg["risk"].get("sessions") or {}
         return next((k for k in TRADING_SESSIONS if on.get(k) and in_session(k, t)), None)
 
-    def _guards(self, fam):
+    def _guards(self, fam, risk=None):
         r = self.cfg["risk"]
         if self.cfg["paused"]:
             return "Handel pausiert"
+        ch = self.cfg["challenge"]
+        if ch["enabled"] and ch["guard"] and ch["source"] != "eigen":
+            c = self.challenge()
+            if c["breached"]:
+                return "Fremdkapital: Verlustgrenze erreicht, Konto ist verletzt"
+            if c["daily_left"] is not None and c["daily_left"] <= ch["guard_buffer"]:
+                return f"Fremdkapital: Tageslimit fast erreicht (noch ${c['daily_left']:.0f})"
+            if c["can_lose"] <= ch["guard_buffer"]:
+                return f"Fremdkapital-Schutz: nur noch ${c['can_lose']:.0f} bis zur Verlustgrenze"
+            if risk and risk > c["can_lose"] - ch["guard_buffer"]:
+                return f"Fremdkapital-Schutz: Risiko ${risk:.0f} größer als erlaubter Spielraum (${c['can_lose'] - ch['guard_buffer']:.0f})"
         if r["enforce_session"] and not self.session_now():
             return "Außerhalb der gewählten Sessions"
         if len(self.db.open_positions()) >= int(r["max_open"]):
@@ -683,7 +716,7 @@ class Engine:
                 upd["risk_usd"] = round(q * abs(sig["entry"] - upd.get("sl", sig["sl"])) * INSTR[sig["root"]]["pv"], 2)
                 self.db.update_signal(sid, **upd)
                 sig = self.db.signal(sid)
-            guard = self._guards(fam)
+            guard = self._guards(fam, sig.get("risk_usd"))
             if guard:
                 self.db.update_signal(sid, status="blockiert", reason=guard)
                 raise ValueError(guard)
@@ -1004,6 +1037,72 @@ class Engine:
             out.append(t)
         return out
 
+    def challenge(self):
+        """Live-Stand der Fremdkapital-Challenge: Verlustgrenze (EOD/Intraday/statisch), Ziel, Tageslimit, Konsistenz."""
+        ch = self.cfg["challenge"]
+        start, dd = float(ch["start_balance"]), float(ch["max_dd"])
+        today = str(ny_date())
+        trades = [t for t in self._calendar_trades()
+                  if (ch["source"] == "alle" or t["source"] == ch["source"]) and (not ch["start_day"] or t["day"] >= ch["start_day"])]
+        trades.sort(key=lambda t: (t["day"], t["closed"] or 0))
+        upnl = 0.0
+        if ch["source"] != "eigen":
+            upnl = sum(self._unrealized(p) for p in self.db.open_positions()
+                       if p["broker"] == self.broker.name and not p["is_test"])
+
+        def thr(hwm):
+            if ch["dd_type"] == "static":
+                return start - dd
+            v = hwm - dd
+            return min(v, start) if ch["lock_at_start"] else v
+
+        bal, hwm, days, by_day = start, start, [], {}
+        for t in trades:
+            by_day.setdefault(t["day"], []).append(t)
+        for d in sorted(by_day):
+            pnl = 0.0
+            for t in by_day[d]:
+                pnl += t["pnl"]
+                bal += t["pnl"]
+                if ch["dd_type"] == "intraday":
+                    hwm = max(hwm, bal)
+            if ch["dd_type"] == "eod" and d < today:
+                hwm = max(hwm, bal)
+            days.append({"day": d, "pnl": round(pnl, 2), "n": len(by_day[d]), "balance": round(bal, 2),
+                         "threshold": round(thr(hwm), 2)})
+        equity = bal + upnl
+        if ch["dd_type"] == "intraday":
+            hwm = max(hwm, equity)
+        threshold = thr(hwm)
+        buffer = equity - threshold
+        today_pnl = sum(t["pnl"] for t in by_day.get(today, [])) + upnl
+        daily_left = (float(ch["daily_loss"]) + today_pnl) if float(ch["daily_loss"]) > 0 else None
+        can_lose = min(buffer, daily_left) if daily_left is not None else buffer
+        profit = bal - start
+        to_target = max(0.0, float(ch["profit_target"]) - profit)
+        win_days = [x["pnl"] for x in days if x["pnl"] > 0]
+        best = max(win_days) if win_days else 0.0
+        cons = None
+        if float(ch["consistency_pct"]) > 0:
+            need = best / (float(ch["consistency_pct"]) / 100) if best else 0.0
+            share = best / profit * 100 if profit > 0 else None
+            cons = {"pct": ch["consistency_pct"], "best": round(best, 2), "share": round(share, 1) if share is not None else None,
+                    "ok": profit > 0 and best <= profit * float(ch["consistency_pct"]) / 100 + 1e-9,
+                    "need_total": round(need, 2), "extra": round(max(0.0, need - profit), 2)}
+        n_days = len(days)
+        breached = buffer <= 0
+        passed = (not breached and to_target <= 0 and (cons is None or cons["ok"]) and n_days >= int(ch["min_days"] or 0))
+        return {
+            "enabled": ch["enabled"], "cfg": ch, "start": start, "balance": round(bal, 2), "equity": round(equity, 2),
+            "upnl": round(upnl, 2), "profit": round(profit, 2), "threshold": round(threshold, 2), "hwm": round(hwm, 2),
+            "locked": ch["dd_type"] != "static" and ch["lock_at_start"] and hwm - dd >= start,
+            "buffer": round(buffer, 2), "today_pnl": round(today_pnl, 2),
+            "daily_left": round(daily_left, 2) if daily_left is not None else None, "can_lose": round(can_lose, 2),
+            "to_target": round(to_target, 2), "consistency": cons, "days_traded": n_days,
+            "best_day": round(best, 2), "breached": breached, "passed": passed,
+            "daily_hit": daily_left is not None and daily_left <= 0, "days": days[-120:], "n_trades": len(trades),
+        }
+
     def daily(self):
         """P&L je Handelstag, getrennt nach Bot und eigenen Trades."""
         days = {}
@@ -1257,6 +1356,7 @@ class Engine:
                 "stats": self.stats(),
                 "learning": self.learning_view(),
                 "daily": self.daily(),
+                "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
                 "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
                 "sizing_preview": {fam: [self.size_preview(fam, pts) for pts in
                                          ((10, 20, 40, 60) if fam == "NQ" else (3, 5, 10, 15))]

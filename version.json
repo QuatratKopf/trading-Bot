@@ -1,6 +1,6 @@
 {
-  "version": "2.3.0",
-  "file": "releases/FVG-Trader-2.3.0.cmd",
-  "sha256": "59d743588ef1b03a157334d50c6277ea782238dba0efb23033ff7dd72c0ac5d9",
-  "notes": "Edge-Check je Strategie, Session-Muster (Gap-Fill, London/IB/Asien-Breakout, PDH/PDL), Key Levels im Cockpit"
+  "version": "2.4.0",
+  "file": "releases/FVG-Trader-2.4.0.cmd",
+  "sha256": "5013e66ebf5e3339a9af22c12afefba21c650fe504416fec3c843d9700fbcd20",
+  "notes": "Neuer Reiter Fremdkapital: Prop-Firm-Challenge live (Verlustgrenze EOD/Intraday/statisch, Profitziel, Tageslimit, Konsistenz, Bot-Schutz) plus Karte im Cockpit"
 }
