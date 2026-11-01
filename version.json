@@ -1,6 +1,6 @@
 {
-  "version": "1.8.1",
+  "version": "1.8.2",
   "file": "FVG-Trader.cmd",
-  "sha256": "6c23062611d5a3264f9f23a4bf2f994d7d5299c085523cf2b5751eb95958c068",
-  "notes": "Update-Neustart unter Windows repariert"
+  "sha256": "767c2fef3f335e8dd83790b45b016eabb483a608a6faf6dc8725935f481df179",
+  "notes": "Neu: Protokoll in den Einstellungen (App-Log anzeigen, kopieren, Ordner öffnen)"
 }

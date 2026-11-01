@@ -29,11 +29,40 @@ PORT = int(os.environ.get("FVG_PORT", "8787"))
 BACKGROUND = "--hintergrund" in sys.argv
 APP_VERSION = "dev"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
-if sys.stdout is None or sys.stderr is None:   # ohne Konsolenfenster (pythonw): Ausgaben in eine Log-Datei
-    os.makedirs(DATA, exist_ok=True)
-    _logf = open(os.path.join(DATA, "app.log"), "a", encoding="utf-8", buffering=1)
-    sys.stdout = sys.stdout or _logf
-    sys.stderr = sys.stderr or _logf
+LOG_FILE = os.path.join(DATA, "app.log")
+
+
+class _Tee:
+    """Schreibt Ausgaben immer in app.log und, falls vorhanden, zusätzlich ins Konsolenfenster."""
+    def __init__(self, *streams):
+        self.streams = [x for x in streams if x is not None]
+
+    def write(self, text):
+        for st in self.streams:
+            try:
+                st.write(text)
+            except Exception:  # noqa: BLE001
+                pass
+        return len(text)
+
+    def flush(self):
+        for st in self.streams:
+            try:
+                st.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+os.makedirs(DATA, exist_ok=True)
+try:
+    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 1_000_000:   # alte Logs aufheben, Datei klein halten
+        os.replace(LOG_FILE, LOG_FILE + ".1")
+except OSError:
+    pass
+_logf = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+_logf.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} Start =====\n")
+sys.stdout = _Tee(sys.stdout, _logf)
+sys.stderr = _Tee(sys.stderr, _logf)
 
 engine = Engine(DATA)
 tunnel = Tunnel(DATA, PORT, engine.db.log)
@@ -467,6 +496,32 @@ def own_delete(h, pid):
     h._send(200, engine.own_delete(pid))
 
 
+@route("GET", r"/api/log")
+def app_log(h):
+    lines = []
+    for f in (LOG_FILE + ".1", LOG_FILE):
+        try:
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                lines += fh.read().splitlines()
+        except OSError:
+            pass
+    events = [f"{time.strftime('%d.%m. %H:%M:%S', time.localtime(e['ts']))}  {e['level'].upper():5}  {e['text']}"
+              for e in reversed(engine.db.events(150))]
+    h._send(200, {"path": LOG_FILE, "folder": DATA, "version": APP_VERSION, "log": lines[-300:], "events": events})
+
+
+@route("POST", r"/api/open-folder")
+def open_folder(h):
+    import subprocess
+    if sys.platform.startswith("win"):
+        os.startfile(DATA)   # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", DATA])
+    else:
+        subprocess.Popen(["xdg-open", DATA], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    h._send(200, {"ok": True, "folder": DATA})
+
+
 @route("GET", r"/api/pine")
 def pine(h):
     h._send(200, {"source": pine_source()})
@@ -567,7 +622,7 @@ def main():
         tunnel.start()
     url = f"http://localhost:{PORT}"
     print(f"\n  FVG Trader läuft:  {url}")
-    print(f"  Webhook-Pfad:      /webhook/{engine.cfg['webhook_token']}")
+    print("  Webhook bereit (Adresse in der App unter Einstellungen → TradingView)")
     print("  Dieses Fenster offen lassen (darf minimiert sein). Beenden mit Strg+C.\n")
     if os.environ.get("FVG_NO_BROWSER") != "1" and not BACKGROUND:
         threading.Timer(1.0, lambda: open_app_window(url)).start()
