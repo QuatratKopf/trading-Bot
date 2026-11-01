@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FVG Trader</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f5bd3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FVG Trader">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232f5bd3'/%3E%3Crect x='7' y='6' width='5' height='12' fill='white'/%3E%3Crect x='14' y='11' width='5' height='14' fill='white' opacity='.55'/%3E%3Crect x='21' y='15' width='5' height='11' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: feste Kopfzeile mit Modus-Schalter & Notaus → Reiter → Cockpit (Vorschläge zuerst, dann Positionen, dann Verlauf) */
+:root{
+  --bg:#f3f4f7; --surface:#fff; --sunk:#eceef3; --line:#d9dce5; --fg:#161a24; --muted:#5d6475;
+  --accent:#2f5bd3; --accent-fg:#fff; --pos:#0f8a72; --neg:#d2493f; --warn:#b86e00; --fill:rgba(47,91,211,.10);
+  --pos-bg:rgba(15,138,114,.10); --neg-bg:rgba(210,73,63,.10); --warn-bg:rgba(184,110,0,.12);
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#10131b; --surface:#171b26; --sunk:#12151e; --line:#2a3040; --fg:#e7e9ef; --muted:#9097a8;
+  --accent:#7b9cff; --accent-fg:#0d1020; --pos:#3cc4a4; --neg:#f2766b; --warn:#f0a43a; --fill:rgba(123,156,255,.14);
+  --pos-bg:rgba(60,196,164,.12); --neg-bg:rgba(242,118,107,.12); --warn-bg:rgba(240,164,58,.14); color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-body);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1200px;margin:0 auto;padding:0 max(16px,env(safe-area-inset-left,0px)) 60px max(16px,env(safe-area-inset-right,0px))}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,select{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px;min-width:0}
+input[type=number]{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.pos{color:var(--pos)} .neg{color:var(--neg)} .muted{color:var(--muted)}
+
+/* Kopfzeile */
+.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .wrap{padding-bottom:0}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 0}
+.brand{font-family:var(--f-display);font-weight:800;font-size:20px;letter-spacing:-.01em;margin-right:auto;display:flex;align-items:center;gap:10px}
+.brand i{display:inline-block;width:22px;height:22px;border-radius:5px;background:var(--accent)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--pos)} .dot.bad{background:var(--neg)} .dot.warn{background:var(--warn)}
+.switch{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.switch b{font-weight:600;font-size:13px}
+.tgl{position:relative;width:46px;height:26px;border-radius:999px;border:0;background:var(--line);transition:background .15s}
+.tgl::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.tgl[aria-checked=true]{background:var(--pos)} .tgl[aria-checked=true]::after{transform:translateX(20px)}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;padding:7px 12px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.btn.good{background:var(--pos);border-color:var(--pos);color:#fff;font-weight:600}
+.btn.danger{background:var(--neg);border-color:var(--neg);color:#fff;font-weight:600}
+.btn.ghost-danger{color:var(--neg);border-color:var(--neg)}
+.btn:disabled{opacity:.5;cursor:default}
+.tabs{display:flex;gap:4px;overflow-x:auto}
+@media (max-width:600px){
+  .top{position:static}
+  .bar{gap:8px;padding:10px 0}
+  .brand{font-size:18px;width:100%}
+  #pSess,#pBroker{display:none}
+  .switch{padding:3px 4px 3px 10px}
+  #kill{padding:6px 10px}
+  .tabs button{padding:9px 9px}
+}
+.tabs button{border:0;background:none;color:var(--muted);padding:10px 12px;border-bottom:2px solid transparent;font-weight:500;white-space:nowrap}
+.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent)}
+.banner{margin:12px 0 0;padding:10px 14px;border-radius:6px;background:var(--warn-bg);color:var(--warn);font-weight:500}
+
+main{display:flex;flex-direction:column;gap:20px;padding-top:20px}
+h2{font-family:var(--f-display);font-weight:600;font-size:16px;margin:0}
+.section{display:flex;flex-direction:column;gap:10px;min-width:0}
+.section-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.hint{color:var(--muted);font-size:12.5px;margin:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;min-width:0}
+.empty{color:var(--muted);font-size:13px;padding:18px;border:1px dashed var(--line);border-radius:8px;text-align:center}
+
+/* Kennzahlen */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.kpi{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.kpi .v{font-family:var(--f-mono);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meter{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden;margin-top:4px}
+.meter i{display:block;height:100%;background:var(--neg)}
+
+/* Vorschläge */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.sug{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.sug.long{border-left-color:var(--pos)} .sug.short{border-left-color:var(--neg)}
+.sug-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.side{font-family:var(--f-display);font-weight:800;font-size:18px;letter-spacing:.02em}
+.side.long{color:var(--pos)} .side.short{color:var(--neg)}
+.chip{display:inline-block;font-size:11.5px;padding:2px 7px;border-radius:4px;background:var(--fill);color:var(--accent);font-weight:500;white-space:nowrap}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.good{background:var(--pos-bg);color:var(--pos)}
+.chip.bad{background:var(--neg-bg);color:var(--neg)}
+.chip.mute{background:var(--sunk);color:var(--muted)}
+.timer{margin-left:auto;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.lv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px}
+.lv div{display:flex;flex-direction:column;min-width:0}
+.lv span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.lv b{font-family:var(--f-mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums}
+.edit{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.edit label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.edit input{width:100%}
+.flags{display:flex;gap:6px;flex-wrap:wrap}
+.actions{display:flex;gap:8px}
+.actions .btn{flex:1;padding:9px 12px}
+
+/* Tabellen */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{font-family:var(--f-mono);font-size:12.5px;text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.t,th.t{text-align:left;font-family:var(--f-body)}
+td.wrap{white-space:normal;min-width:260px;font-family:var(--f-body);font-size:12.5px;text-align:left;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+.rowbtns{display:flex;gap:6px;justify-content:flex-end}
+.rowbtns .btn{padding:4px 9px;font-size:12px}
+
+.grid2{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:20px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.wizard{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:14px}
+.wizard li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;align-items:start}
+.wizard .num{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:13px;background:var(--sunk);color:var(--muted)}
+.wizard li.done .num{background:var(--pos-bg);color:var(--pos)}
+.wizard li.now .num{background:var(--accent);color:var(--accent-fg)}
+.wizard li.done .hint{display:none}
+.feed{display:flex;flex-direction:column;gap:0;max-height:360px;overflow:auto}
+.feed div{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.feed time{font-family:var(--f-mono);color:var(--muted);font-size:11.5px}
+.feed .warn{color:var(--warn)} .feed .error{color:var(--neg)}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
+.gl{stroke:var(--line)}
+
+/* Kalender */
+.cal-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cal-h h2{font-size:20px;min-width:170px;text-align:center}
+.cal-nav{width:34px;height:34px;padding:0;font-size:18px;line-height:1}
+.cal{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) minmax(0,1.1fr);gap:6px}
+.cal .dow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;padding:0 4px 2px}
+.day{position:relative;min-height:92px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:8px 10px;display:flex;flex-direction:column;justify-content:space-between;text-align:left;font:inherit;color:inherit;min-width:0}
+.day.win{background:var(--pos-bg);border-color:color-mix(in srgb,var(--pos) 35%,var(--line))}
+.day.loss{background:var(--neg-bg);border-color:color-mix(in srgb,var(--neg) 35%,var(--line))}
+.day.out{background:transparent;border-style:dashed;opacity:.45}
+.day.today{outline:2px solid var(--accent);outline-offset:-1px}
+.day.sel{box-shadow:0 0 0 2px var(--fg) inset}
+button.day{cursor:pointer}
+.day .dn{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.day .pl{font-family:var(--f-mono);font-size:17px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.day .pl .s{display:none}
+.day .meta{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wk{border-radius:8px;border:1px solid var(--line);background:var(--sunk);padding:8px 10px;display:flex;flex-direction:column;justify-content:space-between;min-height:92px;min-width:0}
+.wk .dn{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.wk .pl{font-family:var(--f-mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wk .pl .s,.wk .dn .s{display:none}
+@media (max-width:640px){
+  .cal{gap:3px}
+  .day,.wk{min-height:58px;padding:5px 5px;border-radius:6px}
+  .day .pl,.wk .pl{font-size:12px}
+  .day .pl .f,.wk .pl .f,.wk .dn .f{display:none} .day .pl .s,.wk .pl .s,.wk .dn .s{display:inline}
+  .day .meta,.wk .meta{display:none}
+  .cal .dow{font-size:10px;padding:0 2px}
+}
+
+/* Einstellungen */
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start}
+.form{display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,46%);gap:10px;align-items:center}
+.row label{font-size:13px}
+.row small{display:block;color:var(--muted);font-size:11.5px}
+.row input,.row select{width:100%}
+.radios{display:flex;gap:6px;flex-wrap:wrap}
+.radios label{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer}
+.radios input{margin:0}
+.radios label:has(input:checked){border-color:var(--accent);background:var(--fill)}
+.save{display:flex;gap:10px;align-items:center;justify-content:flex-end}
+.ok-msg{font-size:12.5px;color:var(--pos)} .err-msg{font-size:12.5px;color:var(--neg)}
+.code{font-family:var(--f-mono);font-size:12px;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px;word-break:break-all;white-space:pre-wrap}
+.copyrow{display:flex;gap:8px;align-items:stretch}
+.copyrow .code{flex:1;min-width:0}
+ol.steps{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px}
+
+/* Login */
+.login{min-height:100vh;display:grid;place-items:center;padding:16px}
+.login form{width:min(360px,100%);display:flex;flex-direction:column;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:24px}
+.login h1{font-family:var(--f-display);font-weight:800;font-size:24px;margin:0}
+
+.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13px;z-index:20;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const usd = v => v == null || !isFinite(v) ? "–" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("de-DE", {maximumFractionDigits: 0});
+const usd2 = v => v == null || !isFinite(v) ? "–" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const px = v => v == null ? "–" : Number(v).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const pct = v => v == null || !isFinite(v) ? "–" : v.toFixed(1).replace(".", ",") + " %";
+const num2 = v => v == null || !isFinite(v) ? "–" : v.toFixed(2).replace(".", ",");
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+const tm = ts => new Date(ts * 1000).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"});
+const dtm = ts => new Date(ts * 1000).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+
+let S = null, TAB = "cockpit", pendingKey = "", seenPending = new Set(), firstLoad = true, settingsDirty = false;
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "fvg"}, body: JSON.stringify(body)};
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && !path.startsWith("/api/login")) { showLogin(); throw new Error("Bitte anmelden"); }
+  if (!r.ok) throw new Error(j.error || "Fehler " + r.status);
+  return j;
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 3200);
+}
+async function act(fn, okMsg) {
+  try { const r = await fn(); if (okMsg) toast(okMsg); await refresh(); return r; }
+  catch (e) { toast(e.message); }
+}
+
+function copyText(txt, label) {
+  const fallback = () => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); toast((label || "Text") + " kopiert"); } catch (e) { toast("Bitte manuell kopieren"); } ta.remove(); };
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => toast((label || "Text") + " kopiert"), fallback); else fallback();
+}
+
+async function runUpdate(doIt) {
+  const before = S && S.version;
+  document.body.insertAdjacentHTML("beforeend", `<div id="updOv" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;place-items:center;padding:16px">
+    <div style="text-align:center;max-width:360px"><h2 style="font-size:20px">Update wird installiert …</h2><p class="hint" id="updMsg">Die App lädt die neue Version und startet neu. Das dauert nur ein paar Sekunden.</p></div></div>`);
+  try { await doIt(); } catch (e) { $("#updOv").remove(); toast(e.message); return; }
+  const t0 = Date.now();
+  const poll = async () => {
+    try { const r = await fetch("/api/state"); if (r.ok) { const j = await r.json(); if (j.version !== before) { location.reload(); return; } }
+      else if (r.status === 401) { location.reload(); return; } } catch (e) {}
+    if (Date.now() - t0 > 60000) { $("#updMsg").textContent = "Das dauert länger als gedacht. Starte FVG Trader über das Desktop-Symbol neu."; return; }
+    setTimeout(poll, 1000);
+  };
+  setTimeout(poll, 1500);
+}
+
+async function startupUpdatePrompt() {
+  if (!S.config.update_url) return;
+  let u;
+  try { u = await api("/api/update/check", {}); } catch (e) { return; }
+  if (!u.available) return;
+  try { if (sessionStorage.getItem("fvg-upd-asked") === u.version) return; sessionStorage.setItem("fvg-upd-asked", u.version); } catch (e) {}
+  document.body.insertAdjacentHTML("beforeend", `<div id="updAsk" role="dialog" aria-modal="true" aria-labelledby="updAskT"
+    style="position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px">
+    <div class="panel" style="max-width:400px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+      <h2 id="updAskT" style="font-size:19px">Update verfügbar</h2>
+      <p style="margin:0">Version <b>${esc(u.version)}</b> ist da (installiert: ${esc(S.version)}).${u.notes ? `<br><span class="hint">${esc(u.notes)}</span>` : ""}</p>
+      <p class="hint" style="margin:0">Jetzt aktualisieren? Deine Einstellungen und Trades bleiben erhalten.</p>
+      <div class="actions"><button class="btn primary" id="updYes">Ja, jetzt aktualisieren</button><button class="btn" id="updNo">Nein</button></div>
+    </div></div>`);
+  $("#updYes").focus();
+  $("#updNo").onclick = () => $("#updAsk").remove();
+  $("#updYes").onclick = () => { $("#updAsk").remove(); runUpdate(() => api("/api/update/apply", {})); };
+}
+
+/* ───────── Login ───────── */
+async function showLogin() {
+  const a = await fetch("/api/auth").then(r => r.json());
+  const setup = !a.has_password;
+  $("#app").innerHTML = `<div class="login"><form id="lf">
+    <h1>FVG Trader</h1>
+    <p class="hint">${setup ? "Lege ein Passwort fest. Es schützt die App, sobald sie über das Internet erreichbar ist." : "Melde dich an, um deinen Bot zu steuern."}</p>
+    <input id="pw" type="password" autocomplete="${setup ? "new-password" : "current-password"}" placeholder="Passwort${setup ? " (mind. 8 Zeichen)" : ""}" required>
+    <button class="btn primary" type="submit">${setup ? "Passwort festlegen" : "Anmelden"}</button>
+    <p id="lerr" class="err-msg" hidden></p></form></div>`;
+  $("#pw").focus();
+  $("#lf").onsubmit = async e => {
+    e.preventDefault();
+    try { await api(setup ? "/api/setup" : "/api/login", {password: $("#pw").value}); start(); }
+    catch (err) { $("#lerr").textContent = err.message; $("#lerr").hidden = false; }
+  };
+}
+
+/* ───────── Gerüst ───────── */
+function shell() {
+  $("#app").innerHTML = `
+  <div class="top"><div class="wrap">
+    <div class="bar">
+      <div class="brand"><i aria-hidden="true"></i>FVG Trader</div>
+      <span class="pill" id="pTv"></span>
+      <span class="pill" id="pBroker"></span>
+      <span class="pill" id="pSess"></span>
+      <div class="switch"><b id="autoLbl">Auto-Modus</b><button class="tgl" id="autoT" role="switch" aria-checked="false" aria-labelledby="autoLbl"></button></div>
+      <button class="btn danger" id="kill">Notaus</button>
+    </div>
+    <nav class="tabs" role="tablist">
+      ${[["cockpit","Cockpit"],["calendar","Kalender"],["stats","Statistik"],["learn","Lernmodul"],["settings","Einstellungen"]].map(([k,l]) =>
+        `<button role="tab" data-tab="${k}" aria-selected="${k===TAB}">${l}</button>`).join("")}
+    </nav>
+  </div></div>
+  <div class="wrap"><div id="banner"></div><main id="main"></main></div>`;
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { TAB = b.dataset.tab; location.hash = TAB; pendingKey = ""; settingsDirty = false;
+    document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b)); render(true); });
+  $("#autoT").onclick = () => act(() => api("/api/config", {auto_mode: !S.config.auto_mode}),
+    !S.config.auto_mode ? "Auto-Modus an: Signale werden direkt ausgeführt" : "Auto-Modus aus: Signale kommen als Vorschlag");
+  $("#kill").onclick = () => confirmBtn($("#kill"), "Wirklich alles schließen?", () =>
+    act(() => api("/api/flatten", {}), "Alles geschlossen, Handel pausiert"));
+}
+let ARMED = {key: null, until: 0};
+const armed = key => ARMED.key === key && Date.now() < ARMED.until;
+function confirmBtn(btn, question, fn) {
+  const key = btn.dataset.key || btn.id;
+  if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
+  if (armed(key)) { ARMED = {key: null, until: 0}; btn.textContent = btn.dataset.orig; fn(); return; }
+  ARMED = {key, until: Date.now() + 4000}; btn.textContent = question;
+  setTimeout(() => { if (ARMED.key === key && Date.now() >= ARMED.until) { ARMED = {key: null, until: 0}; } if (!armed(key) && document.body.contains(btn)) btn.textContent = btn.dataset.orig; }, 4100);
+}
+
+function header() {
+  const c = S.config, age = S.tv.last_msg ? (Date.now() / 1000 - S.tv.last_msg) : null;
+  const tvState = age == null ? ["bad", "TradingView: noch kein Signal"] : age < 900 ? ["ok", "TradingView verbunden · " + tm(S.tv.last_msg)] : ["warn", "TradingView: letzte Nachricht " + dtm(S.tv.last_msg)];
+  $("#pTv").innerHTML = `<span class="dot ${tvState[0]}"></span>${tvState[1]}`;
+  $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "tradovate" ? " " + (c.tradovate.env === "live" ? "LIVE" : "Demo") : ""}`;
+  $("#pBroker").title = S.broker.status;
+  $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? "Session offen" : "Session zu"}`;
+  $("#autoT").setAttribute("aria-checked", c.auto_mode);
+  $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
+    : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
+    + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
+        <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "");
+  if (S.update && S.update.available) {
+    $("#banner").innerHTML += `<div class="banner" style="background:var(--fill);color:var(--fg)">Update verfügbar: Version <b>${esc(S.update.version)}</b>${S.update.notes ? ` · ${esc(S.update.notes)}` : ""}
+      <button class="btn primary" id="updNow" style="margin-left:8px">Jetzt aktualisieren</button></div>`;
+    $("#updNow").onclick = () => runUpdate(() => api("/api/update/apply", {}));
+  }
+  const rs = $("#resume");
+  if ($("#cpNew")) { $("#cpNew").onclick = () => copyText(S.hook_url); $("#okNew").onclick = () => act(() => api("/api/hook-confirm", {}), "Gespeichert"); } if (rs) rs.onclick = () => act(() => api("/api/config", {paused: false}), "Handel fortgesetzt");
+}
+
+/* ───────── Cockpit ───────── */
+function cockpit(full) {
+  const m = $("#main"), t = S.today, lossUsed = t.max_loss > 0 ? Math.min(100, Math.max(0, -t.pnl / t.max_loss * 100)) : 0;
+  if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
+    <div id="setup"></div>
+    <section class="kpis" id="todayK"></section>
+    <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
+    <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
+    <div class="grid2">
+      <section class="section"><h2>Signale</h2><div class="panel scroll" id="sigBox"></div></section>
+      <section class="section"><h2>Aktivität</h2><div class="panel feed" id="feed"></div></section>
+    </div></div>`;
+  setupPanel();
+  $("#todayK").innerHTML = [
+    ["Kontostand", S.balance == null ? "–" : usd2(S.balance), ""],
+    ["P&L heute", usd(t.pnl), cls(t.pnl)],
+    ["Trades heute", `${t.trades} / ${t.max_trades}`, ""],
+    ["Tageslimit genutzt", t.max_loss > 0 ? Math.round(lossUsed) + " %" : "aus", lossUsed >= 80 ? "neg" : "", lossUsed],
+    ["Modus", S.config.auto_mode ? "Automatisch" : "Vorschläge", S.config.auto_mode ? "pos" : ""],
+  ].map(([l, v, c, meter]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span>${meter != null ? `<div class="meter"><i style="width:${meter}%"></i></div>` : ""}</div>`).join("");
+  $("#sugHint").textContent = S.config.auto_mode ? "Auto-Modus ist an: Signale werden ohne Rückfrage ausgeführt." : `Verfallen nach ${S.config.suggestion_timeout_sec} s ohne Antwort.`;
+
+  // Vorschläge nur neu aufbauen, wenn sich die Menge ändert (Eingaben bleiben erhalten)
+  const key = S.pending.map(p => p.id).join(",");
+  if (key !== pendingKey) {
+    pendingKey = key;
+    $("#sugs").innerHTML = S.pending.length ? `<div class="cards">${S.pending.map(sugCard).join("")}</div>`
+      : `<div class="empty">Keine offenen Vorschläge. ${S.config.auto_mode ? "Im Auto-Modus gehen Signale direkt in den Markt." : "Neue Signale aus TradingView erscheinen hier zum Annehmen oder Ablehnen."}</div>`;
+    S.pending.forEach(p => {
+      const card = $(`#s-${p.id}`), q = $(".q", card), sl = $(".sl", card), tp = $(".tp", card);
+      const upd = () => {
+        const inst = S.instruments[p.root], slv = parseFloat(sl.value), qv = parseInt(q.value) || 0;
+        const risk = isFinite(slv) ? Math.abs(p.entry - slv) * qv * inst.pv : NaN;
+        $(".risk", card).textContent = usd(risk);
+        const tpv = parseFloat(tp.value); $(".rr", card).textContent = isFinite(tpv) && isFinite(slv) ? num2(Math.abs(tpv - p.entry) / Math.abs(p.entry - slv)) + " R" : "–";
+      };
+      [q, sl, tp].forEach(i => i.oninput = upd); upd();
+      $(".acc", card).onclick = () => act(() => api(`/api/signal/${p.id}/accept`, {qty: q.value, sl: sl.value, tp: tp.value}), "Trade eröffnet");
+      $(".rej", card).onclick = () => act(() => api(`/api/signal/${p.id}/reject`, {}), "Vorschlag abgelehnt");
+    });
+  }
+  timers();
+
+  $("#posBox").innerHTML = S.positions.length ? `<div class="panel scroll"><table><thead><tr><th class="t">Kontrakt</th><th class="t">Strategie</th><th>Anz.</th><th>Einstieg</th><th>Kurs</th><th>Stop</th><th>Ziel</th><th>Offen</th><th></th></tr></thead><tbody>
+    ${S.positions.map(p => `<tr><td class="t"><span class="side ${p.side}" style="font-size:13px">${p.side === "long" ? "LONG" : "SHORT"}</span> ${esc(p.contract)}${p.is_test ? ' <span class="chip mute">Test</span>' : ""}</td>
+      <td class="t"><span class="chip">${esc(p.setup)}</span></td><td>${p.qty}</td><td>${px(p.entry)}</td><td>${px(p.last)}</td>
+      <td class="neg">${px(p.sl)}${p.sl === p.entry ? ' <span class="chip good">BE</span>' : ""}</td><td class="pos">${px(p.tp)}</td>
+      <td class="${cls(p.upnl)}">${usd(p.upnl)}</td>
+      <td><div class="rowbtns"><button class="btn be" data-id="${p.id}" ${p.sl === p.entry ? "disabled" : ""}>Break-even</button><button class="btn ghost-danger cl" data-id="${p.id}" data-key="cl-${p.id}" data-orig="Schließen">${armed("cl-" + p.id) ? "Sicher?" : "Schließen"}</button></div></td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">Keine offene Position.</div>`;
+  document.querySelectorAll("#posBox .be").forEach(b => b.onclick = () => act(() => api(`/api/position/${b.dataset.id}/breakeven`, {}), "Stop auf Break-even gezogen"));
+  document.querySelectorAll("#posBox .cl").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", () => act(() => api(`/api/position/${b.dataset.id}/close`, {}), "Position geschlossen")));
+
+  const stChip = s => ({"ausgeführt": "good", "offen": "", "abgelehnt": "mute", "verfallen": "mute", "ersetzt": "mute", "blockiert": "warn", "fehler": "bad"}[s] ?? "mute");
+  $("#sigBox").innerHTML = S.signals.length ? `<table><thead><tr><th class="t">Zeit</th><th class="t">Signal</th><th>Anz.</th><th>Stop</th><th class="t">Status</th><th class="t">Grund</th></tr></thead><tbody>
+    ${S.signals.slice(0, 15).map(s => `<tr><td class="t mono">${tm(s.ts)}</td><td class="t"><b class="side ${s.side}" style="font-size:12px">${s.side === "long" ? "L" : "S"}</b> ${esc(s.root)} <span class="chip">${esc(s.setup)}</span></td>
+      <td>${s.qty ?? "–"}</td><td>${px(s.sl)}</td><td class="t"><span class="chip ${stChip(s.status)}">${esc(s.status)}</span></td>
+      <td class="wrap">${esc(s.reason || (s.flags || []).join(" · "))}</td></tr>`).join("")}</tbody></table>`
+    : `<p class="hint">Noch keine Signale. Teste die Verbindung unter Einstellungen → TradingView.</p>`;
+  $("#feed").innerHTML = S.events.map(e => `<div><time>${tm(e.ts)}</time><span class="${e.level}">${esc(e.text)}</span></div>`).join("") || `<p class="hint">Noch keine Aktivität.</p>`;
+}
+let setupKey = "";
+function setupPanel() {
+  let hidden = false; try { hidden = localStorage.getItem("fvg-setup-hidden") === "1"; } catch (e) {}
+  const hasSignal = S.signals.some(x => !x.is_test) || !!S.tv.last_msg;
+  let pineCopied = false; try { pineCopied = localStorage.getItem("fvg-pine-copied") === "1"; } catch (e) {}
+  const steps = [
+    {done: !!S.hook_url, title: "Internet-Verbindung", body: S.hook_url ? "Aktiv. TradingView kann deine App erreichen." : `Wird automatisch aufgebaut … (${esc(S.tunnel.status)})`},
+    {done: hasSignal || pineCopied, title: "Script in TradingView", body: `Kopiere das Script, öffne in TradingView unten den <b>Pine Editor</b>, lösche den Inhalt, füge es ein und klicke <b>Zum Chart hinzufügen</b>. Chart: <b>NQ1!</b> oder <b>ES1!</b>, 5 Minuten.
+      <div style="margin-top:8px"><button class="btn" id="cpPine">Script kopieren</button></div>`},
+    {done: S.hook_confirmed, title: "Alert anlegen", body: `In TradingView auf den Wecker klicken → Bedingung <b>FVG Bot</b> → <b>Orderausführungen und alert()-Aufrufe</b>. Unter Benachrichtigungen <b>Webhook-URL</b> anhaken und diese Adresse einfügen:
+      <div class="copyrow" style="margin:8px 0"><div class="code">${S.hook_url ? esc(S.hook_url) : "kommt gleich …"}</div><button class="btn" id="cpHook" ${S.hook_url ? "" : "disabled"}>Kopieren</button></div>
+      Bei Nachricht diesen Text einsetzen: <div class="copyrow" style="margin:8px 0"><div class="code">{{strategy.order.alert_message}}</div><button class="btn" id="cpMsg">Kopieren</button></div>
+      <button class="btn primary" id="hookOk" ${S.hook_url ? "" : "disabled"}>Alert ist angelegt</button>`},
+    {done: hasSignal, title: "Erstes Signal", body: hasSignal ? "Signale kommen an. Fertig!" : `Sobald die Strategie handelt, erscheint hier ein Vorschlag. Probier es jetzt aus: <button class="btn" id="tryIt">Test-Signal senden</button>`},
+  ];
+  const allDone = steps.every(x => x.done);
+  const key = JSON.stringify([hidden, steps.map(x => [x.done, x.body])]);
+  if (key === setupKey) return; setupKey = key;
+  const box = $("#setup");
+  if (hidden || allDone) { box.innerHTML = hidden && !allDone ? `<p class="hint">Einrichtung ausgeblendet · <button class="btn" id="showSetup" style="padding:3px 8px;font-size:12px">Anzeigen</button></p>` : ""; 
+    const sh = $("#showSetup"); if (sh) sh.onclick = () => { try { localStorage.removeItem("fvg-setup-hidden"); } catch (e) {} setupKey = ""; setupPanel(); }; return; }
+  const next = steps.findIndex(x => !x.done);
+  box.innerHTML = `<section class="panel"><div class="section-h"><h2>Einrichtung · ${steps.filter(x => x.done).length} von ${steps.length}</h2><button class="btn" id="hideSetup" style="padding:4px 10px;font-size:12px">Ausblenden</button></div>
+    <ol class="wizard">${steps.map((x, i) => `<li class="${x.done ? "done" : i === next ? "now" : ""}"><span class="num">${x.done ? "✓" : i + 1}</span><div><b>${x.title}</b><div class="hint" style="font-size:13px;margin-top:2px">${x.body}</div></div></li>`).join("")}</ol></section>`;
+  $("#hideSetup").onclick = () => { try { localStorage.setItem("fvg-setup-hidden", "1"); } catch (e) {} setupKey = ""; setupPanel(); };
+  const b = id => $("#" + id);
+  if (b("cpPine")) b("cpPine").onclick = async () => { try { const r = await api("/api/pine"); copyText(r.source, "Script"); try { localStorage.setItem("fvg-pine-copied", "1"); } catch (e) {} setupKey = ""; setupPanel(); } catch (e) { toast(e.message); } };
+  if (b("cpHook")) b("cpHook").onclick = () => copyText(S.hook_url, "Adresse");
+  if (b("cpMsg")) b("cpMsg").onclick = () => copyText("{{strategy.order.alert_message}}", "Nachricht");
+  if (b("hookOk")) b("hookOk").onclick = () => act(() => api("/api/hook-confirm", {}), "Super, Alert ist verbunden");
+  if (b("tryIt")) b("tryIt").onclick = () => act(() => api("/api/test-signal", {fam: "NQ", side: "long"}), "Test-Signal gesendet");
+}
+function timers() {
+  (S.pending || []).forEach(p => { const el = $(`#s-${p.id} .timer`); if (el) { const s = Math.max(0, Math.round(p.expires - Date.now() / 1000)); el.textContent = `noch ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; } });
+}
+function sugCard(p) {
+  const inst = S.instruments[p.root];
+  return `<article class="sug ${p.side}" id="s-${p.id}">
+    <div class="sug-h"><span class="side ${p.side}">${p.side === "long" ? "LONG" : "SHORT"}</span><span class="mono">${esc(p.contract)}</span><span class="chip">${esc(p.setup)}</span>${p.is_test ? '<span class="chip mute">Test</span>' : ""}<span class="timer"></span></div>
+    <div class="lv"><div><span>Einstieg ca.</span><b>${px(p.entry)}</b></div><div><span>Risiko</span><b class="risk neg">–</b></div><div><span>Chance</span><b class="rr">–</b></div></div>
+    <div class="edit">
+      <label>Anzahl ${esc(p.root)}<input class="q" type="number" min="1" max="${S.config.sizing.max_qty}" step="1" value="${p.qty}"></label>
+      <label>Stop-Loss<input class="sl" type="number" step="${inst.tick}" value="${p.sl}"></label>
+      <label>Ziel<input class="tp" type="number" step="${inst.tick}" value="${p.tp}"></label>
+    </div>
+    ${p.flags && p.flags.length ? `<div class="flags">${p.flags.map(f => `<span class="chip warn">${esc(f)}</span>`).join("")}</div>` : ""}
+    <div class="actions"><button class="btn good acc">Annehmen</button><button class="btn rej">Ablehnen</button></div>
+  </article>`;
+}
+
+/* ───────── Statistik ───────── */
+function stats() {
+  const st = S.stats;
+  $("#main").innerHTML = `
+    <section class="kpis">${[
+      ["Netto-Gewinn", usd(st.net), cls(st.net)], ["Trades", st.n, ""], ["Trefferquote", pct(st.winrate), ""],
+      ["Profit-Faktor", num2(st.pf), st.pf >= 1 ? "pos" : st.pf != null ? "neg" : ""], ["Ø R pro Trade", num2(st.avg_r), cls(st.avg_r)],
+      ["Max. Drawdown", usd(st.max_dd), st.max_dd < 0 ? "neg" : ""], ["Ø Gewinn", usd(st.avg_win), "pos"], ["Ø Verlust", usd(st.avg_loss), "neg"],
+    ].map(([l, v, c]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span></div>`).join("")}</section>
+    <section class="panel"><div class="section-h"><h2>Equity</h2><p class="hint">Kumulierter Gewinn je abgeschlossenem Trade (${esc(S.broker.label)}, ohne Test-Trades)</p></div><div id="eq"></div></section>
+    <div class="grid2">
+      <section class="section"><h2>Nach Strategie</h2><div class="panel scroll">${st.n ? `<table><thead><tr><th class="t">Strategie</th><th>Trades</th><th>Treffer</th><th>Netto</th></tr></thead><tbody>
+        ${Object.entries(st.by_setup).sort((a, b) => b[1].net - a[1].net).map(([k, v]) => `<tr><td class="t"><span class="chip">${esc(k)}</span></td><td>${v.n}</td><td>${pct(v.w / v.n * 100)}</td><td class="${cls(v.net)}">${usd(v.net)}</td></tr>`).join("")}
+        </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
+      <section class="section"><h2>Letzte Trades</h2><div class="panel scroll">${st.trades.length ? `<table><thead><tr><th class="t">Geschlossen</th><th class="t">Trade</th><th>Ein</th><th>Aus</th><th class="t">Grund</th><th>Netto</th></tr></thead><tbody>
+        ${st.trades.slice(0, 40).map(t => `<tr><td class="t mono">${dtm(t.closed)}</td><td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td><td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="wrap" style="min-width:110px">${esc(t.close_reason)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}
+        </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
+    </div>`;
+  $("#eq").innerHTML = equitySvg(st.curve);
+}
+function equitySvg(curve) {
+  if (!curve.length) return '<p class="hint">Die Kurve erscheint nach dem ersten abgeschlossenen Trade.</p>';
+  const W = 900, H = 240, L = 60, R = 14, T = 14, B = 22, pts = [{e: 0}, ...curve];
+  const vals = pts.map(p => p.e), lo0 = Math.min(0, ...vals), hi0 = Math.max(0, ...vals);
+  const span = hi0 - lo0 || 100, stepRaw = span / 4, mag = 10 ** Math.floor(Math.log10(stepRaw)), step = [1, 2, 2.5, 5, 10].find(m => m * mag >= stepRaw) * mag;
+  const lo = Math.floor(lo0 / step) * step, hi = Math.ceil(hi0 / step) * step || step;
+  const x = i => L + (W - L - R) * i / Math.max(1, pts.length - 1), y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  let g = ""; for (let v = lo; v <= hi + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.e).toFixed(1)}`).join("");
+  const last = pts[pts.length - 1], col = last.e >= 0 ? "var(--pos)" : "var(--neg)";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity-Kurve">${g}
+    <path d="${line}L${x(pts.length - 1)},${y(Math.max(lo, 0))}L${x(0)},${y(Math.max(lo, 0))}Z" fill="var(--fill)"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="${x(pts.length - 1)}" cy="${y(last.e)}" r="4" fill="${col}"/>
+    <text x="${L}" y="${H - 4}">Start</text><text x="${W - R}" y="${H - 4}" text-anchor="end">Trade ${pts.length - 1}</text></svg>`;
+}
+
+/* ───────── Kalender ───────── */
+const CAL = {y: null, m: null, sel: null, detail: null};
+const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const kUsd = v => { const a = Math.abs(v); return (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + (a >= 1000 ? (a / 1000).toFixed(a >= 10000 ? 0 : 1).replace(".", ",") + "k" : Math.round(a)); };
+const sUsd = v => (v > 0 ? "+" : "") + usd(v);
+function calendar() {
+  const now = new Date();
+  if (CAL.y === null) { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); }
+  const D = S.daily || {}, first = new Date(CAL.y, CAL.m, 1), last = new Date(CAL.y, CAL.m + 1, 0);
+  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));   // Montag der ersten Woche
+  const todayIso = iso(now);
+  // Monatsübersicht
+  const mDays = Object.entries(D).filter(([k]) => k.startsWith(`${CAL.y}-${String(CAL.m + 1).padStart(2, "0")}`));
+  const mPnl = mDays.reduce((a, [, b]) => a + b.pnl, 0), wins = mDays.filter(([, b]) => b.pnl > 0), losses = mDays.filter(([, b]) => b.pnl < 0);
+  const mTrades = mDays.reduce((a, [, b]) => a + b.n, 0);
+  const best = mDays.reduce((a, x) => !a || x[1].pnl > a[1].pnl ? x : a, null), worst = mDays.reduce((a, x) => !a || x[1].pnl < a[1].pnl ? x : a, null);
+  const dLabel = k => new Date(k + "T12:00:00").toLocaleDateString("de-DE", {day: "numeric", month: "short"});
+  let cells = ["Mo", "Di", "Mi", "Do", "Fr", "Woche"].map(d => `<div class="dow">${d}</div>`).join("");
+  let wkNo = 0;
+  for (let w = new Date(start); w <= last; w.setDate(w.getDate() + 7)) {
+    let wkPnl = 0, wkN = 0, wkDays = 0, hasWeekday = false;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(w); d.setDate(w.getDate() + i);
+      const inMonth = d.getMonth() === CAL.m, k = iso(d), b = D[k];
+      if (inMonth && b) { wkPnl += b.pnl; wkN += b.n; wkDays++; }
+      if (i >= 5) continue;   // Wochenende fließt nur in die Wochensumme ein
+      if (inMonth) hasWeekday = true;
+      if (!inMonth) { cells += `<div class="day out"><span class="dn">${d.getDate()}</span></div>`; continue; }
+      const cls = b ? (b.pnl > 0 ? "win" : b.pnl < 0 ? "loss" : "") : "";
+      cells += `<${b ? `button type="button" data-day="${k}"` : "div"} class="day ${cls} ${k === todayIso ? "today" : ""} ${CAL.sel === k ? "sel" : ""}" ${b ? `aria-label="${d.getDate()}. ${MONTHS[CAL.m]}: ${sUsd(b.pnl)}"` : ""}>
+        <span class="dn">${d.getDate()}</span>
+        ${b ? `<span class="pl ${cls === "win" ? "pos" : cls === "loss" ? "neg" : ""}"><span class="f">${sUsd(b.pnl)}</span><span class="s">${kUsd(b.pnl)}</span></span>
+          <span class="meta">${b.n} ${b.n === 1 ? "Trade" : "Trades"} · ${Math.round(b.w / b.n * 100)} %</span>` : `<span class="meta">&nbsp;</span>`}
+      </${b ? "button" : "div"}>`;
+    }
+    wkNo++;
+    cells += `<div class="wk"><span class="dn"><span class="f">Woche ${wkNo}</span><span class="s">W${wkNo}</span></span>
+      <span class="pl ${wkPnl > 0 ? "pos" : wkPnl < 0 ? "neg" : ""}">${wkDays ? `<span class="f">${sUsd(wkPnl)}</span><span class="s">${kUsd(wkPnl)}</span>` : "–"}</span>
+      <span class="meta">${wkDays ? `${wkDays} ${wkDays === 1 ? "Tag" : "Tage"} · ${wkN} Trades` : "kein Handel"}</span></div>`;
+  }
+  $("#main").innerHTML = `
+    <section class="section"><div class="section-h"><div class="cal-h">
+        <button class="btn cal-nav" id="calPrev" aria-label="Vorheriger Monat">‹</button><h2>${MONTHS[CAL.m]} ${CAL.y}</h2><button class="btn cal-nav" id="calNext" aria-label="Nächster Monat">›</button>
+        <button class="btn" id="calToday" style="padding:6px 10px">Heute</button></div>
+      <p class="hint">Tage nach New-Yorker Handelsdatum, ohne Test-Trades</p></div>
+    <section class="kpis">${[
+      ["Monat", sUsd(mPnl), cls(mPnl)], ["Handelstage", mDays.length, ""],
+      ["Gewinntage", `${wins.length}${mDays.length ? ` · ${Math.round(wins.length / mDays.length * 100)} %` : ""}`, wins.length ? "pos" : ""],
+      ["Verlusttage", losses.length, losses.length ? "neg" : ""], ["Trades", mTrades, ""],
+      ["Bester Tag", best && best[1].pnl > 0 ? `${sUsd(best[1].pnl)}` : "–", "pos", best && best[1].pnl > 0 ? dLabel(best[0]) : ""],
+      ["Schlechtester Tag", worst && worst[1].pnl < 0 ? `${sUsd(worst[1].pnl)}` : "–", "neg", worst && worst[1].pnl < 0 ? dLabel(worst[0]) : ""],
+    ].map(([l, v, c, sub]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span>${sub ? `<span class="hint" style="font-size:11.5px">${sub}</span>` : ""}</div>`).join("")}</section>
+    <div class="cal" role="grid" aria-label="Handelskalender">${cells}</div></section>
+    <section class="section" id="dayBox">${CAL.detail || (mDays.length ? '<p class="hint">Tippe auf einen Tag, um seine Trades zu sehen.</p>' : '<div class="empty">In diesem Monat gibt es noch keine abgeschlossenen Trades.</div>')}</section>`;
+  const go = dm => { CAL.m += dm; if (CAL.m < 0) { CAL.m = 11; CAL.y--; } if (CAL.m > 11) { CAL.m = 0; CAL.y++; } CAL.sel = null; CAL.detail = null; calendar(); };
+  $("#calPrev").onclick = () => go(-1); $("#calNext").onclick = () => go(1);
+  $("#calToday").onclick = () => { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); CAL.sel = null; CAL.detail = null; calendar(); };
+  document.querySelectorAll(".cal button.day").forEach(b => b.onclick = () => openDay(b.dataset.day));
+}
+async function openDay(k) {
+  CAL.sel = k;
+  try {
+    const r = await api("/api/day/" + k), b = (S.daily || {})[k] || {pnl: 0, n: 0, w: 0};
+    const title = new Date(k + "T12:00:00").toLocaleDateString("de-DE", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+    CAL.detail = `<div class="section-h"><h2>${title}</h2><p class="hint"><span class="${cls(b.pnl)}" style="font-weight:600">${sUsd(b.pnl)}</span> · ${b.n} Trades · ${b.w} Gewinner</p></div>
+      <div class="panel scroll"><table><thead><tr><th class="t">Zeit</th><th class="t">Trade</th><th class="t">Strategie</th><th>Ein</th><th>Aus</th><th class="t">Grund</th><th>Netto</th></tr></thead><tbody>
+      ${r.trades.map(t => `<tr><td class="t mono">${tm(t.opened)}–${tm(t.closed)}</td><td class="t"><b class="side ${t.side}" style="font-size:12px">${t.side === "long" ? "L" : "S"}</b> ${t.qty}× ${esc(t.root)}</td>
+        <td class="t"><span class="chip">${esc(t.setup)}</span></td><td>${px(t.entry)}</td><td>${px(t.exit)}</td><td class="wrap" style="min-width:120px">${esc(t.close_reason)}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  } catch (e) { CAL.detail = `<p class="err-msg">${esc(e.message)}</p>`; }
+  calendar();
+  $("#dayBox").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+
+/* ───────── Lernmodul ───────── */
+function learn() {
+  const L = S.learning, p = L.params;
+  const stChip = s => ({"aktiv": "good", "halbe Größe": "warn", "pausiert": "bad", "aus": "bad", "lernt": "mute"}[s] || "mute");
+  $("#main").innerHTML = `
+    <section class="panel"><div class="section-h"><div><h2>So lernt der Bot</h2>
+      <p class="hint" style="max-width:75ch;margin-top:4px">Jedes Signal wird im Hintergrund als Schatten-Trade simuliert, auch abgelehnte und blockierte. Nach jeder Session wertet der Bot die letzten ${p.window} Schatten-Trades je Strategie aus.
+      Unter ${num2(p.half_below_r)} R im Schnitt gibt es halbe Größe, unter ${num2(p.pause_below_r)} R eine Pause. Erst ab ${p.min_trades} Trades greift die Bewertung.
+      Pausierte Strategien laufen im Schatten weiter und werden automatisch wieder freigegeben, wenn sie sich erholen. Das Risiko wird nie automatisch über deine Einstellung erhöht.</p></div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="hint">Letzte Auswertung: ${L.last_run ? dtm(L.last_run) : "noch keine"}</span><button class="btn primary" id="runL">Jetzt auswerten</button></div></div></section>
+    <section class="section"><h2>Strategien</h2><div class="panel scroll">${L.setups.length ? `<table><thead><tr><th class="t">Strategie</th><th class="t">Status</th><th>Ausgewertet</th><th>Gesamt</th><th>Treffer</th><th>Ø R</th><th>Σ R</th><th>Laufend</th><th class="t">Steuerung</th></tr></thead><tbody>
+      ${L.setups.map(s => `<tr><td class="t"><span class="chip">${esc(s.setup)}</span></td>
+        <td class="t"><span class="chip ${stChip(s.effective)}">${esc(s.effective)}</span>${s.manual !== "auto" ? ' <span class="hint">(manuell)</span>' : ""}</td>
+        <td>${s.n}</td><td>${s.total}</td><td>${pct(s.winrate)}</td><td class="${cls(s.avg_r)}">${num2(s.avg_r)}</td><td class="${cls(s.sum_r)}">${num2(s.sum_r)}</td><td>${s.open}</td>
+        <td class="t"><select data-setup="${esc(s.setup)}" class="rule" aria-label="Steuerung ${esc(s.setup)}">${[["auto", "Lernmodul entscheidet"], ["an", "Immer an"], ["aus", "Aus"]].map(([v, l]) => `<option value="${v}" ${s.manual === v ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}
+      </tbody></table>` : '<p class="hint">Noch keine Daten. Sobald Signale aus TradingView eintreffen, erscheinen hier alle Strategien.</p>'}</div></section>
+    <section class="section"><h2>Erkenntnisse</h2><div class="panel">${L.insights.length ? `<div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.insights.map(i => `<span class="chip ${i.kind === "bad" ? "bad" : i.kind === "good" ? "good" : "warn"}">${esc(i.text)}</span>`).join("")}</div>` : '<p class="hint">Noch keine Auffälligkeiten. Erkenntnisse zu Uhrzeiten erscheinen ab 6 Trades pro Stunde.</p>'}</div></section>`;
+  $("#runL").onclick = () => act(() => api("/api/learn", {}), "Auswertung fertig");
+  document.querySelectorAll(".rule").forEach(sel => sel.onchange = () =>
+    act(() => api("/api/config", {setup_rules: {[sel.dataset.setup]: sel.value}}), "Gespeichert"));
+}
+
+/* ───────── Einstellungen ───────── */
+function field(id, label, value, opts = {}) {
+  const attrs = Object.entries(opts.attrs || {}).map(([k, v]) => `${k}="${v}"`).join(" ");
+  const inp = opts.select ? `<select id="${id}">${opts.select.map(([v, l]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${l}</option>`).join("")}</select>`
+    : opts.check ? `<input id="${id}" type="checkbox" ${value ? "checked" : ""} style="justify-self:end;width:18px;height:18px">`
+    : `<input id="${id}" type="${opts.type || "number"}" value="${esc(value)}" ${attrs} ${opts.type === "password" ? 'autocomplete="new-password"' : ""}>`;
+  return `<div class="row"><label for="${id}">${label}${opts.help ? `<small>${opts.help}</small>` : ""}</label>${inp}</div>`;
+}
+const v = id => { const el = $("#" + id); return el.type === "checkbox" ? el.checked : el.value; };
+function saveBox(id) { return `<div class="save"><span id="${id}-msg"></span><button class="btn primary" id="${id}">Speichern</button></div>`; }
+function bindSave(id, build) {
+  $("#" + id).onclick = async () => {
+    const msg = $(`#${id}-msg`);
+    try { await api("/api/config", build()); msg.className = "ok-msg"; msg.textContent = "Gespeichert"; settingsDirty = false; await refresh(true); }
+    catch (e) { msg.className = "err-msg"; msg.textContent = e.message; }
+  };
+}
+function settings() {
+  const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, t = c.tradovate, L = c.learning;
+  const hook = S.hook_url || "wird automatisch erzeugt …";
+  const prev = fam => S.sizing_preview[fam].map((p, i) => {
+    const pts = (fam === "NQ" ? [10, 20, 40, 60] : [3, 5, 10, 15])[i];
+    return `<tr><td class="t">${pts} Pkt.</td><td class="t">${typeof p === "string" ? `<span class="hint">${esc(p)}</span>` : `${p[1]}× ${p[0]}`}</td><td class="neg">${typeof p === "string" ? "–" : usd(p[2])}</td></tr>`;
+  }).join("");
+  $("#main").innerHTML = `<div class="settings">
+    <section class="panel form"><h2>Positionsgröße</h2>
+      <div class="radios">${[["fixed", "Feste Anzahl"], ["risk_usd", "Risiko in $"], ["risk_pct", "Risiko in % vom Konto"]].map(([k, l]) =>
+        `<label><input type="radio" name="szm" value="${k}" ${sz.mode === k ? "checked" : ""}>${l}</label>`).join("")}</div>
+      ${field("fq", "Kontrakte (feste Anzahl)", sz.fixed_qty, {attrs: {min: 1, step: 1}})}
+      ${field("ru", "Risiko pro Trade ($)", sz.risk_usd, {attrs: {min: 10, step: 10}})}
+      ${field("rp", "Risiko pro Trade (%)", sz.risk_pct, {attrs: {min: 0.05, max: 5, step: 0.05}})}
+      ${field("ct", "Kontrakttyp", sz.contract_type, {select: [["auto", "Automatisch"], ["mini", "Nur Mini (NQ/ES)"], ["micro", "Nur Micro (MNQ/MES)"]], help: "Automatisch: Mini, wenn einer ins Risiko passt, sonst Micro"})}
+      ${field("mq", "Maximale Kontrakte", sz.max_qty, {attrs: {min: 1, step: 1}, help: "Obergrenze, egal was die Berechnung ergibt"})}
+      <div class="scroll"><table><thead><tr><th class="t">Stop NQ</th><th class="t">Größe</th><th>Risiko</th></tr></thead><tbody>${prev("NQ")}</tbody></table></div>
+      <div class="scroll"><table><thead><tr><th class="t">Stop ES</th><th class="t">Größe</th><th>Risiko</th></tr></thead><tbody>${prev("ES")}</tbody></table></div>
+      <p class="hint">Die Tabellen zeigen die gespeicherte Einstellung.</p>
+      ${saveBox("sSize")}</section>
+
+    <section class="panel form"><h2>Safe-Stop</h2>
+      <p class="hint">Keine Order ohne Stop-Loss. Fehlt der Stop im Signal oder liegt er auf der falschen Seite, setzt die App den Standard-Stop. Zu enge oder zu weite Stops werden auf Min/Max korrigiert.</p>
+      ${field("nqd", "NQ Standard-Stop (Punkte)", ss.NQ.default, {attrs: {step: 0.25, min: 1}})}
+      ${field("nqmin", "NQ Minimum", ss.NQ.min, {attrs: {step: 0.25, min: 0.25}})}
+      ${field("nqmax", "NQ Maximum", ss.NQ.max, {attrs: {step: 0.25, min: 1}})}
+      ${field("esd", "ES Standard-Stop (Punkte)", ss.ES.default, {attrs: {step: 0.25, min: 0.25}})}
+      ${field("esmin", "ES Minimum", ss.ES.min, {attrs: {step: 0.25, min: 0.25}})}
+      ${field("esmax", "ES Maximum", ss.ES.max, {attrs: {step: 0.25, min: 0.5}})}
+      ${field("rr", "Standard-Ziel (R)", ss.default_rr, {attrs: {step: 0.25, min: 0.5}, help: "Wenn das Signal kein Ziel mitschickt"})}
+      ${saveBox("sStop")}</section>
+
+    <section class="panel form"><h2>Risiko & Handelszeit</h2>
+      ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "0 = aus"})}
+      ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}
+      ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}})}
+      ${field("es", "Nur in der Handelszeit", r.enforce_session, {check: true})}
+      ${field("ss", "Start (New York)", r.session_start, {type: "time"})}
+      ${field("se", "Ende (New York)", r.session_end, {type: "time"})}
+      ${field("fe", "Zum Sessionende alles schließen", r.flat_at_session_end, {check: true})}
+      ${field("to", "Vorschlag verfällt nach (Sek.)", c.suggestion_timeout_sec, {attrs: {min: 15, step: 15}})}
+      ${field("fx", "Exit-Signalen aus TradingView folgen", c.follow_tv_exits, {check: true})}
+      ${saveBox("sRisk")}</section>
+
+    <section class="panel form"><h2>App</h2>
+      <div class="row"><label>FVG Trader beenden<small>Die App läuft im Hintergrund weiter, auch wenn du dieses Fenster schließt. Über das Desktop-Symbol öffnest du sie wieder.</small></label>
+        <button class="btn ghost-danger" id="quit" style="justify-self:end">App beenden</button></div>
+      ${S.platform.startsWith("win") ? `<div class="row"><label>Mit Windows starten<small>Die App läuft dann immer im Hintergrund, sobald dein PC an ist.</small></label>
+        <button class="tgl" id="asT" role="switch" aria-checked="${S.autostart}" style="justify-self:end" aria-label="Mit Windows starten"></button></div>` : ""}
+      <div class="form" style="gap:8px"><b style="font-weight:600">Updates · installiert: Version ${esc(S.version)}</b>
+        <p class="hint">${S.update.available ? `Version <b>${esc(S.update.version)}</b> ist verfügbar.` : S.update.error ? esc(S.update.error) : S.update.checked ? "Du hast die neueste Version." : "Die App sucht alle 6 Stunden nach Updates."}</p>
+        ${field("uu", "Update-Adresse", c.update_url, {type: "url", attrs: {placeholder: "https://…/version.json"}})}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <label class="btn" style="cursor:pointer">Update aus Datei<input type="file" id="updFile" accept=".cmd" hidden></label>
+          <button class="btn" id="updChk">Jetzt suchen</button>
+          ${S.update.available ? '<button class="btn primary" id="updGo">Jetzt aktualisieren</button>' : ""}
+          <button class="btn primary" id="uuSave">Speichern</button></div></div>
+      <div><b style="font-weight:600">Aufs Handy</b>
+        <p class="hint" style="margin-top:4px">Öffne diese Adresse am Handy, melde dich mit deinem Passwort an und wähle im Browser-Menü <b>Zum Startbildschirm</b> (iPhone: Teilen-Symbol, Android: ⋮). Dann hast du FVG Trader als App mit Symbol.</p>
+        <div class="copyrow" style="margin-top:8px"><div class="code">${esc((c.public_url || S.tunnel.url || "").replace(/\/+$/, "") || "kommt, sobald die Internet-Verbindung steht")}</div><button class="btn" id="cpPhone" ${c.public_url || S.tunnel.url ? "" : "disabled"}>Kopieren</button></div>
+        <p class="hint" style="margin-top:6px">Ohne eigene feste Adresse ändert sie sich bei jedem Neustart des PCs, dann das Symbol am Handy neu anlegen.</p></div></section>
+    <section class="panel form"><h2>Lernmodul</h2>
+      ${field("le", "Lernmodul aktiv", L.enabled, {check: true})}
+      ${field("lw", "Auswerten über letzte Trades", L.window, {attrs: {min: 5, max: 500, step: 1}})}
+      ${field("lm", "Mindest-Trades vor Bewertung", L.min_trades, {attrs: {min: 3, step: 1}})}
+      ${field("lh", "Halbe Größe unter Ø R", L.half_below_r, {attrs: {step: 0.05}})}
+      ${field("lp", "Pause unter Ø R", L.pause_below_r, {attrs: {step: 0.05}})}
+      ${saveBox("sLearn")}</section>
+
+    <section class="panel form"><h2>TradingView verbinden</h2>
+      <p class="hint">Internet-Verbindung: <span class="${S.tunnel.ok || c.public_url ? "pos" : "neg"}">${c.public_url ? "eigene feste Adresse" : esc(S.tunnel.status)}</span>. Die automatische Adresse ändert sich bei jedem Neustart der App. Die App erinnert dich dann, sie im Alert zu ersetzen.</p>
+      <div class="copyrow"><button class="btn" id="cpPine2">TradingView-Script kopieren</button></div>
+      ${field("pu", "Eigene feste Adresse (optional)", c.public_url, {type: "url", attrs: {placeholder: "leer = automatisch"}, help: "Nur nötig, wenn du z. B. ngrok mit fester Domain nutzt"})}
+      <div class="copyrow"><div class="code" id="hook">${esc(hook)}</div><button class="btn" id="cp">Kopieren</button></div>
+      <div class="copyrow"><div class="code" id="msgTpl">{{strategy.order.alert_message}}</div><button class="btn" id="cp2">Kopieren</button></div>
+      <div class="save" style="justify-content:space-between;flex-wrap:wrap"><div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="tL">Test: NQ Long</button><button class="btn" id="tS">Test: ES Short</button><button class="btn ghost-danger" id="rt">Neue URL erzeugen</button></div>
+        <span id="sTv-msg"></span><button class="btn primary" id="sTv">Speichern</button></div></section>
+
+    <section class="panel form"><h2>Broker</h2>
+      ${field("bk", "Ausführung über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["tradovate", "Tradovate"]]})}
+      <p class="hint">Status: <span class="${S.broker.ok ? "pos" : "neg"}">${esc(S.broker.status || "–")}</span></p>
+      <div id="tvd" ${c.broker === "tradovate" ? "" : "hidden"} class="form">
+        ${field("tenv", "Umgebung", t.env, {select: [["demo", "Demo (empfohlen)"], ["live", "LIVE – echtes Geld"]]})}
+        ${field("tu", "Benutzername", t.username, {type: "text", attrs: {autocomplete: "off"}})}
+        ${field("tpw", "Passwort", t.password, {type: "password"})}
+        ${field("tcid", "API cid", t.cid, {type: "text", help: "Aus Tradovate → Einstellungen → API-Zugang"})}
+        ${field("tsec", "API secret", t.secret, {type: "password"})}
+        ${field("tapp", "App-Name (optional)", t.app_id, {type: "text"})}
+        ${field("tacc", "Kontoname (optional)", t.account, {type: "text", help: "Leer = erstes Konto"})}
+        ${field("cnq", "NQ-Kontrakt (optional)", c.contracts.NQ, {type: "text", attrs: {placeholder: "automatisch, z. B. NQZ6"}})}
+        ${field("cmnq", "MNQ-Kontrakt (optional)", c.contracts.MNQ, {type: "text", attrs: {placeholder: "automatisch"}})}
+        ${field("ces", "ES-Kontrakt (optional)", c.contracts.ES, {type: "text", attrs: {placeholder: "automatisch"}})}
+        ${field("cmes", "MES-Kontrakt (optional)", c.contracts.MES, {type: "text", attrs: {placeholder: "automatisch"}})}
+      </div>
+      <div id="ppd" ${c.broker === "paper" ? "" : "hidden"} class="form">
+        ${field("pb", "Startkapital Paper ($)", c.paper.start_balance, {attrs: {min: 1000, step: 1000}})}
+        ${field("psl", "Slippage (Ticks)", c.paper.slippage_ticks, {attrs: {min: 0, step: 1}})}
+        ${field("pc", "Gebühr pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.05}})}
+      </div>
+      <div class="save" style="justify-content:space-between;flex-wrap:wrap"><div style="display:flex;gap:8px">
+        <button class="btn" id="bt">Verbindung testen</button>${c.broker === "paper" ? '<button class="btn ghost-danger" id="pr">Paper-Konto zurücksetzen</button>' : ""}</div>
+        <span id="sBroker-msg"></span><button class="btn primary" id="sBroker">Speichern</button></div></section>
+  </div>`;
+
+  $("#main").addEventListener("input", () => settingsDirty = true);
+  $("#bk").onchange = () => { $("#tvd").hidden = v("bk") !== "tradovate"; $("#ppd").hidden = v("bk") !== "paper"; };
+  bindSave("sSize", () => ({sizing: {mode: document.querySelector("input[name=szm]:checked").value, fixed_qty: v("fq"), risk_usd: v("ru"), risk_pct: v("rp"), contract_type: v("ct"), max_qty: v("mq")}}));
+  bindSave("sStop", () => ({safe_stop: {NQ: {default: v("nqd"), min: v("nqmin"), max: v("nqmax")}, ES: {default: v("esd"), min: v("esmin"), max: v("esmax")}, default_rr: parseFloat(v("rr"))}}));
+  bindSave("sRisk", () => ({risk: {max_daily_loss: parseFloat(v("mdl")), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), session_start: v("ss"), session_end: v("se"), flat_at_session_end: v("fe")}, suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx")}));
+  bindSave("sLearn", () => ({learning: {enabled: v("le"), window: v("lw"), min_trades: v("lm"), half_below_r: v("lh"), pause_below_r: v("lp")}}));
+  bindSave("sTv", () => ({public_url: v("pu").trim()}));
+  $("#cpPine2").onclick = async () => { try { const r = await api("/api/pine"); copyText(r.source, "Script"); } catch (e) { toast(e.message); } };
+  $("#uuSave").onclick = () => act(() => api("/api/config", {update_url: v("uu").trim()}).then(() => api("/api/update/check", {})), "Gespeichert").then(() => render(true));
+  $("#updChk").onclick = () => act(() => api("/api/update/check", {}).then(r => { toast(r.available ? `Version ${r.version} verfügbar` : r.error || "Du hast die neueste Version"); return r; })).then(() => render(true));
+  if ($("#updGo")) $("#updGo").onclick = () => runUpdate(() => api("/api/update/apply", {}));
+  $("#updFile").onchange = e => { const f = e.target.files[0]; if (!f) return;
+    runUpdate(async () => { const r = await fetch("/api/update/upload", {method: "POST", headers: {"X-Requested-With": "fvg"}, body: f});
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Update fehlgeschlagen"); return j; }); };
+  const cpPhone = $("#cpPhone"); if (cpPhone) cpPhone.onclick = () => copyText((c.public_url || S.tunnel.url || "").replace(/\/+$/, ""), "Adresse");
+  $("#quit").onclick = () => confirmBtn($("#quit"), S.positions.length ? "Positionen offen. Trotzdem?" : "Wirklich beenden?", async () => {
+    try { await api("/api/shutdown", {}); } catch (e) {}
+    document.body.innerHTML = `<div class="login"><form><h1>FVG Trader ist beendet</h1><p class="hint">Signale aus TradingView werden jetzt nicht verarbeitet. Zum Starten auf das Desktop-Symbol <b>FVG Trader</b> klicken.</p></form></div>`;
+  });
+  const as = $("#asT"); if (as) as.onclick = () => act(() => api("/api/autostart", {on: !S.autostart}), !S.autostart ? "Startet ab jetzt mit Windows" : "Autostart aus").then(() => render(true));
+  bindSave("sBroker", () => ({broker: v("bk"), tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), app_id: v("tapp"), account: v("tacc")},
+    contracts: {NQ: v("cnq"), MNQ: v("cmnq"), ES: v("ces"), MES: v("cmes")}, paper: {start_balance: parseFloat(v("pb")), slippage_ticks: parseInt(v("psl")), commission: parseFloat(v("pc"))}}));
+  const copy = (id, btn) => { const txt = $("#" + id).textContent;
+    navigator.clipboard.writeText(txt).then(() => toast("Kopiert"), () => { const r = document.createRange(); r.selectNodeContents($("#" + id)); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Markiert: mit Strg+C kopieren"); }); };
+  $("#cp").onclick = () => copy("hook"); $("#cp2").onclick = () => copy("msgTpl");
+  $("#tL").onclick = () => act(() => api("/api/test-signal", {fam: "NQ", side: "long"}).then(r => { TAB = "cockpit"; location.hash = "cockpit"; return r; }), "Test-Signal gesendet");
+  $("#tS").onclick = () => act(() => api("/api/test-signal", {fam: "ES", side: "short"}).then(r => { TAB = "cockpit"; location.hash = "cockpit"; return r; }), "Test-Signal gesendet");
+  $("#rt").onclick = () => confirmBtn($("#rt"), "Alte URL ungültig machen?", () => act(() => api("/api/token", {}), "Neue URL erzeugt: Alert in TradingView anpassen").then(() => render(true)));
+  $("#bt").onclick = () => act(() => api("/api/broker/test", {}).then(r => { toast(r.ok ? r.status : "Fehler: " + r.status); return r; })).then(() => render(true));
+  const pr = $("#pr"); if (pr) pr.onclick = () => confirmBtn(pr, "Alle Paper-Trades löschen?", () => act(() => api("/api/paper/reset", {}), "Paper-Konto zurückgesetzt").then(() => render(true)));
+}
+
+/* ───────── Laufzeit ───────── */
+function render(full) {
+  if (!S) return;
+  header();
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x.dataset.tab === TAB));
+  if (TAB === "cockpit") cockpit(full);
+  else if (full) ({calendar, stats, learn, settings}[TAB])();
+  else if (TAB === "stats" || TAB === "learn" || TAB === "calendar") ({calendar, stats, learn}[TAB])();
+}
+async function refresh(full) {
+  S = await api("/api/state");
+  notifyNew();
+  render(full);
+}
+function notifyNew() {
+  const ids = S.pending.map(p => p.id), fresh = ids.filter(id => !seenPending.has(id));
+  ids.forEach(id => seenPending.add(id));
+  if (firstLoad) { firstLoad = false; return; }
+  if (!fresh.length) return;
+  const p = S.pending.find(x => x.id === fresh[0]);
+  document.title = "● Neuer Vorschlag · FVG Trader";
+  setTimeout(() => document.title = "FVG Trader", 8000);
+  try { const a = new AudioContext(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = 880; g.gain.value = .08; o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + .18); } catch (e) {}
+  if ("Notification" in window && Notification.permission === "granted")
+    new Notification("Neuer Trade-Vorschlag", {body: `${p.side === "long" ? "LONG" : "SHORT"} ${p.qty}× ${p.root} · ${p.setup} · Stop ${px(p.sl)}`});
+}
+async function start() {
+  TAB = ["cockpit", "calendar", "stats", "learn", "settings"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "cockpit";
+  shell();
+  if ("Notification" in window && Notification.permission === "default") document.addEventListener("click", () => Notification.requestPermission(), {once: true});
+  try { await refresh(true); } catch (e) { return; }
+  startupUpdatePrompt();
+  setInterval(async () => {
+    if (TAB === "settings" && settingsDirty) return;
+    try { await refresh(false); } catch (e) {}
+  }, 2000);
+  setInterval(() => S && TAB === "cockpit" && timers(), 1000);
+}
+fetch("/api/auth").then(r => r.json()).then(a => a.logged_in ? start() : showLogin());
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,455 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+// Multi-Strategie Futures-Bot für NQ & ES (auch MNQ / MES)
+// Strategien: FVG, inverse FVG, Silver Bullet (FVG 10–11 NY), Opening Range Breakout, Liquidity Sweep (Vortag), VWAP-Reclaim
+// Verbindung zur FVG-Trader-App: Alert mit „Orderausführungen und alert()-Aufrufe“, Webhook = App-URL
+// Chart: NQ1! oder ES1!, Timeframe 5m (empfohlen) oder 1m/3m
+// Auto-Trading: Alert auf diese Strategie, Nachricht = {{strategy.order.alert_message}}, Webhook-URL deines Brokers/Connectors
+//@version=6
+strategy("FVG Bot · Multi-Strategie [NQ·ES]", shorttitle = "FVG Bot", overlay = true,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 2.25,
+     slippage = 1, pyramiding = 0, max_boxes_count = 400, max_labels_count = 100,
+     calc_on_every_tick = false, process_orders_on_close = false)
+
+// ───────────────────────── Inputs ─────────────────────────
+grpSetup = "① Setup"
+useFVG      = input.bool(true,  "FVG-Retest handeln",                     group = grpSetup)
+useIFVG     = input.bool(true,  "Inverse FVG (iFVG) handeln",             group = grpSetup)
+minGapAtr   = input.float(0.15, "Min. Gap-Größe (× ATR)", minval = 0, step = 0.05, group = grpSetup)
+atrLen      = input.int(14,     "ATR-Länge", minval = 1,                  group = grpSetup)
+maxAge      = input.int(60,     "Max. Alter einer Zone (Bars)", minval = 5, group = grpSetup)
+maxZones    = input.int(20,     "Max. aktive Zonen", minval = 2, maxval = 100, group = grpSetup)
+needConfirm = input.bool(true,  "Bestätigungskerze (Close über/unter Zonenmitte)", group = grpSetup)
+
+grpStrat = "① b Weitere Strategien"
+useSB       = input.bool(true,  "Silver Bullet (FVG im Fenster 10–11 NY)", group = grpStrat)
+sbWin       = input.session("1000-1100", "Silver-Bullet-Fenster",          group = grpStrat)
+useORB      = input.bool(true,  "Opening Range Breakout",                  group = grpStrat)
+orWin       = input.session("0930-0945", "Opening Range",                  group = grpStrat)
+orbLastMin  = input.int(11 * 60, "ORB nur bis (Minute NY, 660 = 11:00)", minval = 0, maxval = 1439, group = grpStrat)
+useSweep    = input.bool(true,  "Liquidity Sweep Vortageshoch/-tief",      group = grpStrat)
+useVWAP     = input.bool(true,  "VWAP-Reclaim",                            group = grpStrat)
+vwapLook    = input.int(6,      "VWAP: Kerzen vorher auf der anderen Seite", minval = 2, group = grpStrat)
+
+grpRisk = "② Risiko"
+rr          = input.float(2.0,  "Ziel (R-Vielfaches)", minval = 0.5, step = 0.25, group = grpRisk)
+slBufTicks  = input.int(4,      "Stop-Puffer (Ticks)", minval = 0,        group = grpRisk)
+minRiskTk   = input.int(8,      "Min. Stop-Abstand (Ticks)", minval = 1,  group = grpRisk)
+maxRiskAtr  = input.float(3.0,  "Max. Stop-Abstand (× ATR)", minval = 0.5, step = 0.25, group = grpRisk)
+sizing      = input.string("Feste Kontrakte", "Positionsgröße", options = ["Feste Kontrakte", "Risiko in $"], group = grpRisk)
+fixedQty    = input.int(1,      "Kontrakte (fest)", minval = 1,           group = grpRisk)
+riskUsd     = input.float(500,  "Risiko pro Trade ($)", minval = 10,      group = grpRisk)
+maxQty      = input.int(5,      "Max. Kontrakte", minval = 1,             group = grpRisk)
+useBE       = input.bool(false, "Stop auf Break-even ab 1R",              group = grpRisk)
+maxTradesDay= input.int(3,      "Max. Trades pro Tag", minval = 1,        group = grpRisk)
+maxDayLoss  = input.float(1000, "Tagesverlust-Limit ($, 0 = aus)", minval = 0, group = grpRisk)
+
+grpTime = "③ Handelszeiten (New York)"
+sess1       = input.session("0930-1130", "Session 1",                     group = grpTime)
+useSess2    = input.bool(true,  "Session 2 aktiv",                        group = grpTime)
+sess2       = input.session("1330-1530", "Session 2",                     group = grpTime)
+flatHour    = input.int(15,     "Alles schließen um (Stunde NY)", minval = 0, maxval = 23, group = grpTime)
+flatMin     = input.int(50,     "… Minute", minval = 0, maxval = 59,      group = grpTime)
+
+grpBias = "④ Trendfilter"
+useBias     = input.bool(true,  "Nur mit HTF-Trend handeln",              group = grpBias)
+biasTf      = input.timeframe("60", "Bias-Timeframe",                     group = grpBias)
+biasLen     = input.int(50,     "Bias-EMA-Länge", minval = 2,             group = grpBias)
+
+grpNews = "⑤ News-Filter"
+blockFomc   = input.string("Ab 13:45 NY", "FOMC-Tage",  options = ["Ganzer Tag", "Ab 13:45 NY", "Ignorieren"], group = grpNews)
+blockCpi    = input.string("Bis 10:00 NY", "CPI-Tage",  options = ["Ganzer Tag", "Bis 10:00 NY", "Ignorieren"], group = grpNews)
+blockNfp    = input.string("Bis 10:00 NY", "NFP-Tage",  options = ["Ganzer Tag", "Bis 10:00 NY", "Ignorieren"], group = grpNews)
+block10     = input.bool(true,  "10:00-Daten sperren (09:50–10:10 NY)",   group = grpNews)
+customDates = input.string("",  "Eigene Sperrtage (JJJJMMTT, kommagetrennt)", group = grpNews)
+
+grpVis = "⑥ Anzeige & Alerts"
+showZones   = input.bool(true,  "Zonen zeichnen",                         group = grpVis)
+showEma     = input.bool(true,  "Bias-EMA zeichnen",                      group = grpVis)
+showDash    = input.bool(true,  "Dashboard anzeigen",                     group = grpVis)
+dashPosStr  = input.string("Oben rechts", "Dashboard-Position", options = ["Oben rechts", "Oben links", "Unten rechts", "Unten links"], group = grpVis)
+whSymbol    = input.string("",  "Webhook-Symbol (leer = Chart-Symbol)",   group = grpVis)
+sendBars    = input.bool(true,  "Kerzen-Daten an die App senden (Paper-Trading & Lernmodul)", group = grpVis)
+
+// ───────────────────────── Farben ─────────────────────────
+cBull  = #26a69a
+cBear  = #ef5350
+cIBull = #2962ff
+cIBear = #ff9800
+cMuted = #9598a1
+
+// ───────────────────────── Zeit & Kalender ─────────────────────────
+TZ    = "America/New_York"
+nyMin = hour(time, TZ) * 60 + minute(time, TZ)
+dKey  = year(time, TZ) * 10000 + month(time, TZ) * 100 + dayofmonth(time, TZ)
+newDay = ta.change(dKey) != 0
+
+var array<int> FOMC = array.from(
+     20240131, 20240320, 20240501, 20240612, 20240731, 20240918, 20241107, 20241218,
+     20250129, 20250319, 20250507, 20250618, 20250730, 20250917, 20251029, 20251210,
+     20260128, 20260318, 20260429, 20260617, 20260729, 20260916, 20261028, 20261209,
+     20270127, 20270317, 20270428, 20270609, 20270728, 20270915, 20271027, 20271208)
+
+var array<int> CPI = array.from(
+     20240111, 20240213, 20240312, 20240410, 20240515, 20240612, 20240711, 20240814, 20240911, 20241010, 20241113, 20241211,
+     20250115, 20250212, 20250312, 20250410, 20250513, 20250611, 20250715, 20250812, 20250911, 20251024, 20251218,
+     20260113, 20260213, 20260311, 20260410, 20260512, 20260610, 20260714, 20260812, 20260911, 20261014, 20261110, 20261210,
+     20270113, 20270211, 20270310, 20270413, 20270512, 20270610, 20270714, 20270811, 20270914, 20271014, 20271110, 20271210)
+
+// Arbeitsmarktbericht: Regel = 1. Freitag im Monat; Sondertermine (Shutdown 2025 etc.) hier
+var array<int> NFP_EXTRA = array.from(20251120, 20251216, 20260109)
+var array<int> NFP_SKIP  = array.from(20251003, 20251107)
+
+var array<int> CUSTOM = array.new<int>()
+if barstate.isfirst and str.length(customDates) > 0
+    for p in str.split(customDates, ",")
+        float v = str.tonumber(str.replace_all(p, " ", ""))
+        if not na(v)
+            CUSTOM.push(int(v))
+
+isFomc   = FOMC.includes(dKey)
+isCpi    = CPI.includes(dKey)
+isNfp    = (dayofweek(time, TZ) == dayofweek.friday and dayofmonth(time, TZ) <= 7 and not NFP_SKIP.includes(dKey)) or NFP_EXTRA.includes(dKey)
+isCustom = CUSTOM.includes(dKey)
+
+var string newsReason = "frei"
+newsBlock = false
+newsReason := "frei"
+if isCustom
+    newsBlock := true
+    newsReason := "Eigener Sperrtag"
+if isFomc and blockFomc != "Ignorieren" and (blockFomc == "Ganzer Tag" or nyMin >= 13 * 60 + 45)
+    newsBlock := true
+    newsReason := "FOMC"
+if isCpi and blockCpi != "Ignorieren" and (blockCpi == "Ganzer Tag" or nyMin < 10 * 60)
+    newsBlock := true
+    newsReason := "CPI"
+if isNfp and blockNfp != "Ignorieren" and (blockNfp == "Ganzer Tag" or nyMin < 10 * 60)
+    newsBlock := true
+    newsReason := "NFP"
+if block10 and nyMin >= 9 * 60 + 50 and nyMin < 10 * 60 + 10
+    newsBlock := true
+    newsReason := "10:00-Daten"
+
+inSess = not na(time(timeframe.period, sess1, TZ)) or (useSess2 and not na(time(timeframe.period, sess2, TZ)))
+flatAt = flatHour * 60 + flatMin
+
+// ───────────────────────── Indikatoren ─────────────────────────
+atr    = ta.atr(atrLen)
+htfEma = request.security(syminfo.tickerid, biasTf, ta.ema(close, biasLen)[1], lookahead = barmerge.lookahead_on)
+biasL  = not useBias or close > htfEma
+biasS  = not useBias or close < htfEma
+plot(showEma and useBias ? htfEma : na, "Bias-EMA", color = color.new(cMuted, 20), linewidth = 2)
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+vw   = ta.vwap(hlc3)
+inSB = not na(time(timeframe.period, sbWin, TZ))
+inOR = not na(time(timeframe.period, orWin, TZ))
+var float orH = na
+var float orL = na
+if inOR and not inOR[1]
+    orH := high
+    orL := low
+else if inOR
+    orH := math.max(orH, high)
+    orL := math.min(orL, low)
+orReady = not inOR and not na(orH) and dayofmonth(time, TZ) == dayofmonth(time[1], TZ)
+plot(useVWAP ? vw : na, "VWAP", color = color.new(cIBull, 40))
+plot(useSweep ? pdh : na, "Vortageshoch", color = color.new(cBear, 50), style = plot.style_stepline)
+plot(useSweep ? pdl : na, "Vortagestief", color = color.new(cBull, 50), style = plot.style_stepline)
+plot(useORB and orReady ? orH : na, "OR-Hoch", color = color.new(cIBear, 30), style = plot.style_linebr)
+plot(useORB and orReady ? orL : na, "OR-Tief", color = color.new(cIBear, 30), style = plot.style_linebr)
+
+// ───────────────────────── Zonen ─────────────────────────
+type Zone
+    float top
+    float bottom
+    int   dir
+    bool  inverse = false
+    int   born
+    bool  used = false
+    box   bx
+
+var array<Zone> zones = array.new<Zone>()
+
+zoneColor(Zone z) =>
+    z.inverse ? (z.dir == 1 ? cIBull : cIBear) : (z.dir == 1 ? cBull : cBear)
+
+closeBox(Zone z) =>
+    if not na(z.bx)
+        z.bx.set_right(bar_index)
+        z.bx.set_bgcolor(color.new(zoneColor(z), 94))
+        z.bx.set_border_color(color.new(zoneColor(z), 85))
+
+addZone(float t, float b, int d) =>
+    Zone z = Zone.new(top = t, bottom = b, dir = d, born = bar_index)
+    if showZones
+        c = zoneColor(z)
+        z.bx := box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(c, 55), bgcolor = color.new(c, 82))
+    zones.push(z)
+    if zones.size() > maxZones
+        closeBox(zones.shift())
+
+// Neue Gaps erkennen (Kerzen [2] und [0] überlappen nicht)
+minGap = math.max(minGapAtr * atr, syminfo.mintick * 2)
+if bar_index > 2
+    if low > high[2] and low - high[2] >= minGap
+        addZone(low, high[2], 1)
+    if high < low[2] and low[2] - high >= minGap
+        addZone(low[2], high, -1)
+
+// Zonen pflegen: Invalidierung → Flip zu iFVG, Alter, Ausdehnung
+if zones.size() > 0
+    for i = zones.size() - 1 to 0
+        Zone z = zones.get(i)
+        bool remove = false
+        if z.born < bar_index
+            if bar_index - z.born > maxAge
+                remove := true
+            else if not z.inverse
+                if (z.dir == 1 and close < z.bottom) or (z.dir == -1 and close > z.top)
+                    if useIFVG
+                        closeBox(z)
+                        z.dir     := -z.dir
+                        z.inverse := true
+                        z.born    := bar_index
+                        z.used    := false
+                        if showZones
+                            c = zoneColor(z)
+                            z.bx := box.new(bar_index, z.top, bar_index + 1, z.bottom, border_color = color.new(c, 55), bgcolor = color.new(c, 82))
+                    else
+                        remove := true
+            else
+                if (z.dir == 1 and close < z.bottom) or (z.dir == -1 and close > z.top)
+                    remove := true
+        if remove
+            closeBox(z)
+            zones.remove(i)
+        else if not na(z.bx)
+            z.bx.set_right(bar_index + 1)
+
+// ───────────────────────── Tages-Risiko ─────────────────────────
+var float dayStart    = 0.0
+var int   tradesToday = 0
+var bool  doneOrbL = false
+var bool  doneOrbS = false
+var bool  doneSwL  = false
+var bool  doneSwS  = false
+if newDay
+    dayStart    := strategy.netprofit
+    tradesToday := 0
+    doneOrbL    := false
+    doneOrbS    := false
+    doneSwL     := false
+    doneSwS     := false
+dayPnl  = strategy.netprofit + strategy.openprofit - dayStart
+lossHit = maxDayLoss > 0 and dayPnl <= -maxDayLoss
+
+// ───────────────────────── Webhook-JSON ─────────────────────────
+sym = whSymbol == "" ? syminfo.ticker : whSymbol
+jsonEntry(string action, int qty, float sl, float tp, string setup) =>
+    '{"type":"entry","ticker":"' + sym + '","action":"' + action + '","setup":"' + setup + '","time":' + str.tostring(time) +
+     ',"quantity":' + str.tostring(qty) +
+     ',"price":' + str.tostring(close, format.mintick) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sl, format.mintick) + '}' +
+     ',"takeProfit":{"limitPrice":' + str.tostring(tp, format.mintick) + '}}'
+jsonExit(string setup) =>
+    '{"type":"exit","ticker":"' + sym + '","action":"exit","setup":"' + setup + '","price":' + str.tostring(close, format.mintick) + '}'
+
+// ───────────────────────── Einstieg ─────────────────────────
+var float tSL   = na
+var float tTP   = na
+var float tRisk = na
+var string tId  = ""
+var bool  beDone = false
+
+canTrade = inSess and not newsBlock and not lossHit and tradesToday < maxTradesDay and nyMin < flatAt and strategy.position_size == 0
+
+// ta-Funktionen global berechnen (nicht in if-Blöcken)
+bool  wasBelow = ta.highest(close - vw, vwapLook)[1] < 0
+bool  wasAbove = ta.lowest(close - vw, vwapLook)[1] > 0
+float swingLo  = ta.lowest(low, 5)
+float swingHi  = ta.highest(high, 5)
+
+// Kandidaten in fester Reihenfolge prüfen, der erste gültige wird gehandelt
+bool   sigOn   = false
+bool   sigLong = false
+float  sigSL   = na
+string sigName = ""
+float  maxRisk = maxRiskAtr * atr
+float  minRisk = minRiskTk * syminfo.mintick
+float  buf     = slBufTicks * syminfo.mintick
+
+if canTrade and zones.size() > 0
+    for i = zones.size() - 1 to 0
+        Zone z = zones.get(i)
+        bool allowed = z.inverse ? useIFVG : (useFVG or (useSB and inSB))
+        if not sigOn and allowed and not z.used and z.born < bar_index
+            float mid = math.avg(z.top, z.bottom)
+            bool longSig  = z.dir == 1  and biasL and low  <= z.top    and close > z.bottom and (not needConfirm or (close > open and close >= mid))
+            bool shortSig = z.dir == -1 and biasS and high >= z.bottom and close < z.top    and (not needConfirm or (close < open and close <= mid))
+            if longSig or shortSig
+                float sl = longSig ? math.min(z.bottom, low) - buf : math.max(z.top, high) + buf
+                float risk = math.abs(close - sl)
+                if risk >= minRisk and risk <= maxRisk
+                    sigOn   := true
+                    sigLong := longSig
+                    sigSL   := sl
+                    sigName := z.inverse ? "iFVG" : (useSB and inSB) ? "Silver Bullet" : "FVG"
+                    z.used  := true
+
+if canTrade and not sigOn and useSweep and not na(pdh)
+    if not doneSwL and biasL and low < pdl and close > pdl and close > open
+        sigOn   := true
+        sigLong := true
+        sigSL   := low - buf
+        sigName := "Sweep"
+        doneSwL := true
+    else if not doneSwS and biasS and high > pdh and close < pdh and close < open
+        sigOn   := true
+        sigLong := false
+        sigSL   := high + buf
+        sigName := "Sweep"
+        doneSwS := true
+
+if canTrade and not sigOn and useORB and orReady and nyMin < orbLastMin
+    float orMid = math.avg(orH, orL)
+    if not doneOrbL and biasL and close > orH and close[1] <= orH
+        sigOn    := true
+        sigLong  := true
+        sigSL    := math.max(orMid, close - maxRisk) - buf
+        sigName  := "ORB"
+        doneOrbL := true
+    else if not doneOrbS and biasS and close < orL and close[1] >= orL
+        sigOn    := true
+        sigLong  := false
+        sigSL    := math.min(orMid, close + maxRisk) + buf
+        sigName  := "ORB"
+        doneOrbS := true
+
+if canTrade and not sigOn and useVWAP
+    if biasL and wasBelow and close > vw and close > open
+        sigOn   := true
+        sigLong := true
+        sigSL   := swingLo - buf
+        sigName := "VWAP"
+    else if biasS and wasAbove and close < vw and close < open
+        sigOn   := true
+        sigLong := false
+        sigSL   := swingHi + buf
+        sigName := "VWAP"
+
+if sigOn
+    float risk = math.abs(close - sigSL)
+    if risk >= minRisk and risk <= maxRisk
+        float tp  = sigLong ? close + rr * risk : close - rr * risk
+        int qty   = sizing == "Feste Kontrakte" ? fixedQty : math.max(1, math.min(maxQty, int(math.floor(riskUsd / (risk * syminfo.pointvalue)))))
+        string id = sigName + (sigLong ? " Long" : " Short")
+        strategy.entry(id, sigLong ? strategy.long : strategy.short, qty = qty, alert_message = jsonEntry(sigLong ? "buy" : "sell", qty, sigSL, tp, id))
+        strategy.exit("Exit " + id, from_entry = id, stop = sigSL, limit = tp, alert_message = jsonExit(id))
+        tSL         := sigSL
+        tTP         := tp
+        tRisk       := risk
+        tId         := id
+        beDone      := false
+        tradesToday += 1
+
+// Break-even
+if useBE and not beDone and strategy.position_size != 0
+    float ep = strategy.position_avg_price
+    if (strategy.position_size > 0 and high >= ep + tRisk) or (strategy.position_size < 0 and low <= ep - tRisk)
+        tSL    := ep
+        beDone := true
+        strategy.exit("Exit " + tId, from_entry = tId, stop = tSL, limit = tTP, alert_message = jsonExit(tId))
+
+// Flat zum Sessionende, vor FOMC und bei Tageslimit
+if strategy.position_size != 0
+    if nyMin >= flatAt or nyMin < 9 * 60 + 30
+        strategy.close_all(comment = "Sessionende", alert_message = jsonExit(""))
+    else if isFomc and blockFomc != "Ignorieren" and nyMin >= 13 * 60 + 50
+        strategy.close_all(comment = "FOMC", alert_message = jsonExit(""))
+    else if lossHit
+        strategy.close_all(comment = "Tageslimit", alert_message = jsonExit(""))
+
+plot(strategy.position_size != 0 ? tSL : na, "Stop",   color = cBear, style = plot.style_linebr)
+plot(strategy.position_size != 0 ? tTP : na, "Target", color = cBull, style = plot.style_linebr)
+bgcolor(inSess and newsBlock ? color.new(cIBear, 88) : na, title = "News-Sperre")
+
+// Kerzen-Daten für die App (Paper-Trading prüft damit Stop/Ziel, das Lernmodul die Schatten-Trades)
+if sendBars and barstate.isrealtime and barstate.isconfirmed
+    alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) +
+         ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
+         ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) + '}', alert.freq_once_per_bar_close)
+
+// ───────────────────────── Statistik je Setup ─────────────────────────
+var array<string> stName = array.from("FVG", "iFVG", "Silver Bullet", "ORB", "Sweep", "VWAP")
+var array<int>   stCnt  = array.new<int>(6, 0)
+var array<int>   stWin  = array.new<int>(6, 0)
+var array<float> stPnl  = array.new<float>(6, 0.0)
+var int seen = 0
+if strategy.closedtrades > seen
+    for i = seen to strategy.closedtrades - 1
+        string eid = strategy.closedtrades.entry_id(i)
+        int   k = 0
+        for j = 0 to 5
+            if str.startswith(eid, stName.get(j) + " ")
+                k := j
+        float p = strategy.closedtrades.profit(i)
+        stCnt.set(k, stCnt.get(k) + 1)
+        stPnl.set(k, stPnl.get(k) + p)
+        if p > 0
+            stWin.set(k, stWin.get(k) + 1)
+    seen := strategy.closedtrades
+
+// ───────────────────────── Dashboard ─────────────────────────
+dashPos = switch dashPosStr
+    "Oben links"   => position.top_left
+    "Unten rechts" => position.bottom_right
+    "Unten links"  => position.bottom_left
+    => position.top_right
+
+var table dash = table.new(dashPos, 2, 21, bgcolor = color.new(#131722, 8), border_color = color.new(#363a45, 0), border_width = 1, frame_color = color.new(#363a45, 0), frame_width = 1)
+
+money(float v) =>
+    (v < 0 ? "-$" : "$") + str.tostring(math.abs(v), "#,##0")
+pct(float v) =>
+    na(v) ? "–" : str.tostring(v, "0.0") + "%"
+row(int r, string k, string v, color vc) =>
+    table.cell(dash, 0, r, k, text_color = cMuted, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, r, v, text_color = vc, text_size = size.small, text_halign = text.align_right)
+
+if showDash and barstate.islast
+    int ct      = strategy.closedtrades
+    float wr    = ct > 0 ? float(strategy.wintrades) / ct * 100 : na
+    float pf    = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+    float avgT  = ct > 0 ? strategy.netprofit / ct : na
+    int nF = 0
+    int nI = 0
+    for z in zones
+        if z.inverse
+            nI += 1
+        else
+            nF += 1
+    string pos  = strategy.position_size > 0 ? "LONG " + str.tostring(strategy.position_size) : strategy.position_size < 0 ? "SHORT " + str.tostring(math.abs(strategy.position_size)) : "Flat"
+    color posC  = strategy.position_size > 0 ? cBull : strategy.position_size < 0 ? cBear : color.white
+
+    table.cell(dash, 0, 0, "FVG Bot · " + syminfo.ticker + " · " + timeframe.period, text_color = color.white, text_size = size.normal, text_halign = text.align_left)
+    table.merge_cells(dash, 0, 0, 1, 0)
+    row(1,  "Position",          pos, posC)
+    row(2,  "Session",           inSess ? "aktiv" : "geschlossen", inSess ? cBull : cMuted)
+    row(3,  "News-Filter",       newsBlock ? "gesperrt · " + newsReason : "frei", newsBlock ? cIBear : cBull)
+    row(4,  "HTF-Bias",          not useBias ? "aus" : close > htfEma ? "bullisch" : "bärisch", not useBias ? cMuted : close > htfEma ? cBull : cBear)
+    row(5,  "Aktive Zonen",      str.tostring(nF) + " FVG · " + str.tostring(nI) + " iFVG", color.white)
+    row(6,  "Trades heute",      str.tostring(tradesToday) + " / " + str.tostring(maxTradesDay), color.white)
+    row(7,  "P&L heute",         money(dayPnl), dayPnl >= 0 ? cBull : cBear)
+    row(8,  "─────",             "", cMuted)
+    row(9,  "Netto-Gewinn",      money(strategy.netprofit), strategy.netprofit >= 0 ? cBull : cBear)
+    row(10, "Trades gesamt",     str.tostring(ct), color.white)
+    row(11, "Trefferquote",      pct(wr), color.white)
+    row(12, "Profit-Faktor",     na(pf) ? "–" : str.tostring(pf, "0.00"), not na(pf) and pf >= 1 ? cBull : cBear)
+    row(13, "Ø Trade",           na(avgT) ? "–" : money(avgT), not na(avgT) and avgT >= 0 ? cBull : cBear)
+    row(14, "Max. Drawdown",     money(-strategy.max_drawdown), cBear)
+    for j = 0 to 5
+        int   n = stCnt.get(j)
+        float w = n > 0 ? float(stWin.get(j)) / n * 100 : na
+        row(15 + j, stName.get(j), n == 0 ? "–" : str.tostring(n) + " · " + pct(w) + " · " + money(stPnl.get(j)), n == 0 ? cMuted : stPnl.get(j) >= 0 ? cBull : cBear)
