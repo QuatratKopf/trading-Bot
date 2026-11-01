@@ -634,6 +634,37 @@ def _running_version():
         return None
 
 
+def _port_owners():
+    """Windows: Prozess-IDs, die den App-Port belegen (netstat, unabhängig von der Systemsprache)."""
+    import subprocess
+    try:
+        out = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, errors="replace",
+                             timeout=20, creationflags=0x08000000).stdout
+    except Exception:  # noqa: BLE001
+        return set()
+    pids = set()
+    for line in out.splitlines():
+        t = line.split()
+        if len(t) >= 5 and t[1].endswith(f":{PORT}") and t[2] in ("0.0.0.0:0", "[::]:0") and t[-1].isdigit():
+            if int(t[-1]) not in (0, os.getpid()):
+                pids.add(int(t[-1]))
+    return pids
+
+
+def _kill_port_owners():
+    import subprocess
+    killed = []
+    for _ in range(5):
+        pids = _port_owners()
+        if not pids:
+            break
+        for pid in pids:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=20, creationflags=0x08000000)
+            killed.append(str(pid))
+        time.sleep(1)
+    return killed
+
+
 def _kill_other_instances():
     """Windows: alle anderen FVG-Trader-Prozesse beenden (alte Versionen, andere Kopien der Datei)."""
     import subprocess
@@ -660,16 +691,20 @@ def main():
             print(f"FVG Trader {rv} läuft bereits, das Fenster wird geöffnet.", flush=True)
             open_app_window(f"http://localhost:{PORT}")
             return
-        killed = _kill_other_instances()   # ältere oder hängende Instanzen ablösen
+        print(f"Start: laufende Instanz = {rv or 'keine'}", flush=True)
+        killed = _kill_port_owners() + _kill_other_instances()   # ältere oder hängende Instanzen ablösen
         if killed:
-            print(f"Ältere FVG-Trader-Prozesse beendet: {', '.join(killed)}", flush=True)
+            print(f"Ältere FVG-Trader-Prozesse beendet: {', '.join(sorted(set(killed)))}", flush=True)
             time.sleep(1.5)
+        still = _port_owners()
+        if still:
+            print(f"Port {PORT} noch belegt von: {', '.join(map(str, still))}", flush=True)
     for attempt in range(60):   # nach einem Update kann der Port noch kurz von der alten Version belegt sein
         try:
             srv = AppServer((HOST, PORT), Handler)
             break
         except OSError:
-            if "--hintergrund" in sys.argv and attempt < 59:
+            if ("--hintergrund" in sys.argv or (sys.platform.startswith("win") and attempt < 15)) and attempt < 59:
                 time.sleep(1)
                 continue
             srv = None

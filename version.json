@@ -1,6 +1,6 @@
 {
-  "version": "1.9.5",
+  "version": "1.9.6",
   "file": "FVG-Trader.cmd",
-  "sha256": "38fbd0730d5c467fb8dddb81bba73fdb667052f1bab985446b6860b5e85eb52d",
-  "notes": "Beendet beim Start automatisch alte FVG-Trader-Instanzen"
+  "sha256": "8065587123d6124d9c1b8be5b189db5975daaa8413e33e1448334959f3e1d617",
+  "notes": "Beendet beim Start zuverlässig alle alten FVG-Trader (über den belegten Port)"
 }

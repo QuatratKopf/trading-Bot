@@ -40,6 +40,8 @@ if not defined PYEXE (
   pause
   exit /b 1
 )
+rem Alte FVG-Trader-Instanzen beenden: wer den App-Port 8787 belegt, wird geschlossen
+for /f "tokens=2,3,5" %%A in ('netstat -ano -p tcp ^| findstr /c:":8787 "') do if "%%B"=="0.0.0.0:0" if not "%%C"=="0" taskkill /F /T /PID %%C >nul 2>&1
 set "PYW="
 if /i "%PYEXE:~-6%"=="py.exe" for %%I in ("%PYEXE%") do if exist "%%~dpIpyw.exe" set "PYW=%%~dpIpyw.exe"
 if /i "%PYEXE:~-10%"=="python.exe" for %%I in ("%PYEXE%") do if exist "%%~dpIpythonw.exe" set "PYW=%%~dpIpythonw.exe"
