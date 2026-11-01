@@ -76,6 +76,8 @@ DEFAULT_CONFIG = {
         "sessions": {"asia": False, "london": False, "ny_am": True, "ny_lunch": False, "ny_pm": True},
         "flat_at_session_end": True,
     },
+    "exit_rules": {},          # Strategie -> übernommene Ausstiegs-Variante (Varianten-Labor)
+    "rule_filters": [],        # übernommene Regeln aus dem Regel-Finder
     "challenge": {             # Fremdkapital / Prop-Firm-Challenge
         "enabled": False, "name": "", "phase": "Challenge", "start_balance": 50000.0, "start_day": "",
         "profit_target": 3000.0, "max_dd": 2000.0, "dd_type": "eod", "lock_at_start": True,
@@ -234,6 +236,78 @@ def summarize_day(bars, day):
     return out
 
 
+# ───────────────────────── Varianten-Labor: Ausstiegs-Varianten je Signal ─────────────────────────
+VARIANTS = {
+    "1R": {"tp": 1.0}, "1,5R": {"tp": 1.5}, "2R": {"tp": 2.0}, "3R": {"tp": 3.0},
+    "2R + BE": {"tp": 2.0, "be": 1.0}, "3R + BE": {"tp": 3.0, "be": 1.0},
+    "Trailing 1R": {"trail": 1.0}, "Bis Session-Ende": {},
+}
+PAPER_ONLY_VARIANTS = ("Trailing 1R", "Bis Session-Ende")   # brauchen eine Order ohne festes Ziel
+
+
+def manage_stop(side, entry, risk, stop, best, rule):
+    """Neuer Stop nach Break-even-/Trailing-Regel (oder unverändert)."""
+    d = 1 if side == "long" else -1
+    gain = (best - entry) * d
+    new = stop
+    if rule.get("be") and gain >= rule["be"] * risk:
+        new = max(new, entry) if d > 0 else min(new, entry)
+    if rule.get("trail") and gain >= rule["trail"] * risk:
+        t = best - d * rule["trail"] * risk
+        new = max(new, t) if d > 0 else min(new, t)
+    return new
+
+
+# ───────────────────────── Regel-Finder: Marktlage beim Signal ─────────────────────────
+FEATURES = {
+    "side": "Richtung", "hour": "Uhrzeit (NY)", "weekday": "Wochentag", "session": "Session",
+    "gap": "Opening-Gap", "london": "London-Range", "ib": "Initial Balance", "asia": "Asien-Range",
+    "pd": "Lage zum Vortag", "on": "Lage zum Overnight", "mo": "Midnight Open", "ro": "RTH-Open",
+}
+WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def describe_cond(f, v):
+    if f == "side":
+        return "Long" if v == "long" else "Short"
+    if f == "hour":
+        return f"{v}–{int(v) + 1} Uhr NY"
+    if f == "weekday":
+        return WD[int(v)] if str(v).isdigit() else v
+    if f == "session":
+        return TRADING_SESSIONS[v][0] if v in TRADING_SESSIONS else "außerhalb der Sessions"
+    if f == "gap":
+        return {"hoch": "Gap hoch", "runter": "Gap runter", "keins": "kein Gap"}.get(v, v)
+    if f in ("london", "ib", "asia"):
+        name = {"london": "London", "ib": "IB", "asia": "Asien"}[f]
+        return f"{name} noch nicht gebrochen" if v == "keiner" else f"{name} {v} zuerst gebrochen"
+    if f == "pd":
+        return {"ueber": "über Vortageshoch", "unter": "unter Vortagestief", "innen": "innerhalb Vortagesrange"}.get(v, v)
+    if f == "on":
+        return {"ueber": "über Overnight-Hoch", "unter": "unter Overnight-Tief", "innen": "in der Overnight-Range"}.get(v, v)
+    if f == "mo":
+        return "über Midnight Open" if v == "ueber" else "unter Midnight Open"
+    if f == "ro":
+        return "über RTH-Open" if v == "ueber" else "unter RTH-Open"
+    return f"{f}={v}"
+
+
+def _mean(x):
+    return sum(x) / len(x) if x else 0.0
+
+
+def _welch_t(a, b):
+    """t-Wert für den Unterschied zweier Gruppen. Nutzt die Streuung aller Signale, damit kleine Gruppen
+    mit lauter gleichen Ergebnissen (z. B. 8 Verluste in Folge) nicht künstlich sicher wirken."""
+    if len(a) < 2 or len(b) < 2:
+        return 0.0
+    allv = a + b
+    m = _mean(allv)
+    sd = math.sqrt(sum((x - m) ** 2 for x in allv) / (len(allv) - 1))
+    se = sd * math.sqrt(1 / len(a) + 1 / len(b))
+    return (_mean(a) - _mean(b)) / se if se > 1e-9 else 0.0
+
+
 class Engine:
     def __init__(self, data_dir):
         os.makedirs(data_dir, exist_ok=True)
@@ -339,6 +413,20 @@ class Engine:
         L["pause_below_r"], L["half_below_r"] = float(L["pause_below_r"]), float(L["half_below_r"])
         if not (5 <= L["window"] <= 500 and 3 <= L["min_trades"] <= L["window"] and L["pause_below_r"] < L["half_below_r"]):
             raise ValueError("Lernmodul: Fenster 5–500, Mindest-Trades ≤ Fenster, Pause-Schwelle < Halbe-Größe-Schwelle")
+        er = c.get("exit_rules") or {}
+        c["exit_rules"] = {str(k)[:40]: v for k, v in er.items() if v in VARIANTS}
+        rf = c.get("rule_filters") or []
+        if not isinstance(rf, list) or len(rf) > 50:
+            raise ValueError("Regel-Finder: höchstens 50 Regeln")
+        clean = []
+        for r in rf:
+            if r.get("action") not in ("avoid", "only") or not r.get("conds"):
+                raise ValueError("Regel-Finder: ungültige Regel")
+            conds = [[str(f), str(v)] for f, v in r["conds"] if f in FEATURES][:3]
+            clean.append({"setup": str(r.get("setup", ""))[:40], "conds": conds, "action": r["action"],
+                          "label": str(r.get("label", ""))[:160], "added": float(r.get("added") or time.time()),
+                          "active": bool(r.get("active", True))})
+        c["rule_filters"] = clean
         ch = c["challenge"]
         for k in ("start_balance", "profit_target", "max_dd", "daily_loss", "consistency_pct", "guard_buffer"):
             ch[k] = float(ch[k] or 0)
@@ -446,6 +534,49 @@ class Engine:
                 self._close_shadow(sh, sh["sl"])
             elif (bar["high"] >= sh["tp"]) if long_ else (bar["low"] <= sh["tp"]):
                 self._close_shadow(sh, sh["tp"])
+        bar_ny = ny_time(bar["time"] / 1000) if bar.get("time") else None
+        if bar_ny:
+            for sh in self.db.open_shadows():
+                if sh["fam"] == fam and bar_ny >= self._session_end(sh):
+                    self._close_shadow(sh, bar["open"])
+        for v in self.db.open_variants():
+            if v["fam"] != fam or not self._bar_after(v, bar):
+                continue
+            if bar_ny and bar_ny >= self._session_end(v):
+                self._close_variant(v, bar["open"])   # alles, was noch offen ist, endet mit der New-York-Session
+                continue
+            long_ = v["side"] == "long"
+            if (bar["low"] <= v["stop"]) if long_ else (bar["high"] >= v["stop"]):
+                self._close_variant(v, v["stop"])
+                continue
+            if v["tp"] is not None and ((bar["high"] >= v["tp"]) if long_ else (bar["low"] <= v["tp"])):
+                self._close_variant(v, v["tp"])
+                continue
+            best = max(v["best"], bar["high"]) if long_ else min(v["best"], bar["low"])
+            stop = manage_stop(v["side"], v["entry"], v["risk"], v["stop"], best, VARIANTS.get(v["var"], {}))
+            if best != v["best"] or stop != v["stop"]:
+                self.db.update_variant(v["id"], best=best, stop=stop)
+        # Break-even/Trailing für Bot-Positionen mit übernommenem Ausstieg (wirkt ab der nächsten Kerze)
+        for pos in self.db.open_positions():
+            rule = VARIANTS.get(pos.get("mgmt") or "")
+            if not rule or not (rule.get("be") or rule.get("trail")) or family(pos["root"]) != fam or not self._bar_after(pos, bar):
+                continue
+            long_ = pos["side"] == "long"
+            if (bar["low"] <= pos["sl"]) if long_ else (bar["high"] >= pos["sl"]):
+                continue   # Stop wird gleich ausgelöst bzw. vom Broker ausgeführt
+            risk = abs(pos["entry"] - (pos["initial_sl"] or pos["sl"]))
+            prev = pos.get("best") or pos["entry"]
+            best = max(prev, bar["high"]) if long_ else min(prev, bar["low"])
+            new = round_tick(manage_stop(pos["side"], pos["entry"], risk, pos["sl"], best, rule), INSTR[pos["root"]]["tick"])
+            if new != pos["sl"]:
+                try:
+                    self.broker.modify_stop(pos, new)
+                    self.db.update_position(pos["id"], sl=new, best=best)
+                    self.db.log(f"Stop {pos['root']} nachgezogen auf {new:.2f} ({pos['mgmt']})")
+                except BrokerError as e:
+                    self.db.log(f"Stop nachziehen fehlgeschlagen: {e}", "error")
+            elif best != prev:
+                self.db.update_position(pos["id"], best=best)
         if self.broker.name == "paper":
             for pos in self.db.open_positions():
                 if family(pos["root"]) != fam or pos["broker"] != "paper" or not self._bar_after(pos, bar):
@@ -504,12 +635,36 @@ class Engine:
 
         sl, tp, flags = self._safe_stop(fam, side, price, self._num(p.get("stopLoss") or p.get("sl")),
                                          self._num(p.get("takeProfit") or p.get("tp")))
+        sig_ts = base["bar_time"] / 1000 if base["bar_time"] and abs(base["bar_time"] / 1000 - time.time()) < 400 * 86400 else None
+        try:
+            ctx = self.context(fam, side, price, sig_ts)
+        except Exception as e:  # noqa: BLE001
+            ctx = {"side": side}
+            self.db.log(f"Marktlage nicht bestimmbar: {e}", "warn")
         if not is_test:
-            now_ny = ny_time()
-            self.db.add_shadow({"id": uuid.uuid4().hex[:10], "signal_id": sid, "setup": base["setup"], "fam": fam,
+            now_ny = ny_time(sig_ts)
+            shid = uuid.uuid4().hex[:10]
+            self.db.add_shadow({"id": shid, "signal_id": sid, "setup": base["setup"], "fam": fam,
                                 "side": side, "entry": price, "sl": sl, "tp": tp, "opened": time.time(),
                                 "status": "offen", "ny_hour": now_ny.hour, "ny_weekday": now_ny.weekday(),
-                                "bar_time": base["bar_time"]})
+                                "bar_time": base["bar_time"], "ctx": json.dumps(ctx)})
+            risk = abs(price - sl)
+            if risk > 0:
+                d = 1 if side == "long" else -1
+                self.db.add_variants([{
+                    "id": uuid.uuid4().hex[:12], "shadow_id": shid, "setup": base["setup"], "fam": fam, "side": side,
+                    "var": k, "entry": price, "stop": sl, "risk": risk,
+                    "tp": price + d * v["tp"] * risk if v.get("tp") else None, "best": price,
+                    "opened": time.time(), "status": "offen", "bar_time": base["bar_time"]} for k, v in VARIANTS.items()])
+        # Vom Varianten-Labor übernommener Ausstieg für diese Strategie
+        mgmt = (self.cfg.get("exit_rules") or {}).get(base["setup"])
+        if mgmt in VARIANTS and not (mgmt in PAPER_ONLY_VARIANTS and self.broker.name != "paper"):
+            v = VARIANTS[mgmt]
+            d = 1 if side == "long" else -1
+            tick = INSTR[fam]["tick"]
+            tp = round_tick(price + d * v["tp"] * abs(price - sl), tick) if v.get("tp") else None
+            base["mgmt"] = mgmt
+            flags.append(f"Ausstieg {mgmt} (Varianten-Labor)")
         sized = self._size(fam, price, sl)
         base.update(sl=sl, tp=tp, flags=flags)
         if isinstance(sized, str):
@@ -530,6 +685,8 @@ class Engine:
             guard = f"Strategie {base['setup']} ist ausgeschaltet"
         elif rule == "pausiert":
             guard = f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)"
+        if not guard and not is_test:
+            guard = self.rule_block(base["setup"], ctx)
         guard = guard or self._guards(fam, base.get("risk_usd"))
         if guard:
             base.update(status="blockiert", reason=guard)
@@ -688,9 +845,10 @@ class Engine:
             "side": sig["side"], "setup": sig["setup"], "qty": sig["qty"], "entry": round_tick(fill, tick),
             "sl": sig["sl"], "tp": sig["tp"], "initial_sl": sig["sl"], "opened": time.time(),
             "status": "offen", "broker_ref": ref, "is_test": sig.get("is_test", 0),
-            "bar_time": sig.get("bar_time")})
+            "bar_time": sig.get("bar_time"), "mgmt": sig.get("mgmt"), "best": round_tick(fill, tick)})
         self.db.update_signal(sig["id"], status="ausgeführt", reason="")
-        self.db.log(f"{sig['side'].upper()} {sig['qty']}× {root} gefüllt @ {fill:.2f} · Stop {sig['sl']:.2f} · Ziel {sig['tp']:.2f}")
+        self.db.log(f"{sig['side'].upper()} {sig['qty']}× {root} gefüllt @ {fill:.2f} · Stop {sig['sl']:.2f} · "
+                    + (f"Ziel {sig['tp']:.2f}" if sig["tp"] else f"ohne festes Ziel ({sig.get('mgmt')})"))
         return {"ok": True, "status": "ausgeführt", "position": pid}
 
     def accept(self, sid, overrides=None):
@@ -827,6 +985,20 @@ class Engine:
         self.db.update_shadow(sh["id"], status="geschlossen", closed=time.time(), exit=exit_price,
                               r=round((exit_price - sh["entry"]) * d / risk, 3))
 
+    @staticmethod
+    def _session_end(obj):
+        """16:00 NY des Handelstags, an dem das Signal kam (Abend-Signale gehören zum nächsten Tag)."""
+        t = ny_time(obj["bar_time"] / 1000) if obj.get("bar_time") else ny_time(obj["opened"])
+        day = t.date() if t.time() < dt.time(16) else t.date() + dt.timedelta(days=1)
+        while day.weekday() >= 5:
+            day += dt.timedelta(days=1)
+        return dt.datetime.combine(day, dt.time(16))
+
+    def _close_variant(self, v, exit_price):
+        d = 1 if v["side"] == "long" else -1
+        self.db.update_variant(v["id"], status="geschlossen", closed=time.time(), exit=exit_price,
+                               r=round((exit_price - v["entry"]) * d / (v["risk"] or 1e-9), 3))
+
     def setup_rule(self, setup):
         manual = self.cfg["setup_rules"].get(setup, "auto")
         if manual == "aus":
@@ -916,6 +1088,10 @@ class Engine:
                     last = (self.last_bar.get(sh["fam"]) or {}).get("close")
                     if last:
                         self._close_shadow(sh, last)
+                for v in self.db.open_variants():
+                    last = (self.last_bar.get(v["fam"]) or {}).get("close")
+                    if last:
+                        self._close_variant(v, last)
                 self.learn()
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
@@ -1022,6 +1198,166 @@ class Engine:
         rows = self.db.rows("SELECT setup, side, r, ny_hour, ny_weekday, opened, closed FROM shadow "
                             "WHERE status='geschlossen' AND r IS NOT NULL ORDER BY closed")
         return {"trades": rows[-5000:]}
+
+    # ───────── Lernlabor: Marktlage, Varianten, Regeln ─────────
+    def context(self, fam, side, price, now=None):
+        """Marktlage beim Signal (für den Regel-Finder). Nur Dinge, die zu diesem Zeitpunkt schon feststehen."""
+        t = ny_time(now)
+        ctx = {"side": side, "hour": t.hour, "weekday": t.weekday(),
+               "session": next((k for k in TRADING_SESSIONS if in_session(k, t)), "keine")}
+        bars = [x for x in self._bars_ny(fam, 6) if x["ny"] <= t]
+        if not bars or price is None:
+            return ctx
+        day = t.date() if t.time() < dt.time(18) else t.date() + dt.timedelta(days=1)
+        while day.weekday() >= 5:
+            day += dt.timedelta(days=1)
+        T = summarize_day(bars, day)
+        ev, hm = T["events"], t.time()
+        if T.get("pdh") is not None:
+            ctx["pd"] = "ueber" if price > T["pdh"] else "unter" if price < T["pdl"] else "innen"
+        if T.get("onh") is not None and hm >= dt.time(9, 30):
+            ctx["on"] = "ueber" if price > T["onh"] else "unter" if price < T["onl"] else "innen"
+        if T.get("mid_open") is not None and dt.time(0, 30) <= hm < dt.time(18):
+            ctx["mo"] = "ueber" if price >= T["mid_open"] else "unter"
+        if T.get("rth_open") is not None and dt.time(9, 35) <= hm < dt.time(18):
+            ctx["ro"] = "ueber" if price >= T["rth_open"] else "unter"
+            if "gap" in ev:
+                ctx["gap"] = ev["gap"]["dir"]
+        for k, start in (("asia", dt.time(0)), ("london", dt.time(5)), ("ib", dt.time(10, 30))):
+            if start <= hm < dt.time(18) and T.get(f"{k}_done"):
+                e = ev.get(k) or {}
+                ctx[k] = e.get("first") or "keiner"
+        return ctx
+
+    def rule_block(self, setup, ctx):
+        for r in self.cfg.get("rule_filters") or []:
+            if not r.get("active", True) or r["setup"] not in (setup, "*"):
+                continue
+            match = all(str(ctx.get(f)) == str(v) for f, v in r["conds"])
+            if r["action"] == "avoid" and match:
+                return f"Regel-Finder: {setup} meiden, wenn {r['label']}"
+            if r["action"] == "only" and not match:
+                return f"Regel-Finder: {setup} nur, wenn {r['label']}"
+        return None
+
+    def _lab_shadows(self):
+        rows = self.db.rows("SELECT id, setup, side, r, ny_hour, ny_weekday, opened, ctx FROM shadow "
+                            "WHERE status='geschlossen' AND r IS NOT NULL ORDER BY opened")
+        for x in rows:
+            try:
+                c = json.loads(x["ctx"]) if x["ctx"] else {}
+            except ValueError:
+                c = {}
+            c.setdefault("side", x["side"])
+            c.setdefault("hour", x["ny_hour"])
+            c.setdefault("weekday", x["ny_weekday"])
+            x["c"] = {k: str(v) for k, v in c.items() if v is not None}
+        return rows
+
+    def variant_view(self, min_n=20):
+        base, by = {}, {}
+        for s in self._lab_shadows():
+            base.setdefault(s["setup"], []).append((s["opened"], s["r"]))
+        for v in self.db.closed_variants():
+            by.setdefault(v["setup"], {}).setdefault(v["var"], []).append((v["opened"], v["r"]))
+        applied = self.cfg.get("exit_rules") or {}
+        out = []
+        for setup in sorted(set(base) | set(by)):
+            def summ(lst):
+                lst = sorted(lst)
+                rs = [r for _, r in lst]
+                k = int(len(rs) * 0.6)
+                return {"n": len(rs), "avg": round(_mean(rs), 3), "wr": round(sum(1 for r in rs if r > 0) / len(rs) * 100, 1) if rs else None,
+                        "sum": round(sum(rs), 2), "a1": round(_mean(rs[:k]), 3) if k else None, "a2": round(_mean(rs[k:]), 3) if rs[k:] else None}
+            cols = {"Signal-Ziel": summ(base.get(setup, []))}
+            for k in VARIANTS:
+                cols[k] = summ(by.get(setup, {}).get(k, []))
+            cur_key = applied.get(setup) if applied.get(setup) in VARIANTS else "Signal-Ziel"
+            cur = cols[cur_key]
+            rec = None
+            for k, c in cols.items():
+                if k == cur_key or c["n"] < min_n or c["a1"] is None or c["a2"] is None or cur["n"] == 0:
+                    continue
+                if c["avg"] >= cur["avg"] + 0.15 and c["a1"] > (cur["a1"] or 0) and c["a2"] > (cur["a2"] or 0) and c["avg"] > 0:
+                    if not rec or c["avg"] > cols[rec]["avg"]:
+                        rec = k
+            out.append({"setup": setup, "cols": cols, "applied": cur_key, "rec": rec,
+                        "paper_only": list(PAPER_ONLY_VARIANTS)})
+        return {"setups": out, "variants": ["Signal-Ziel"] + list(VARIANTS), "min_n": min_n,
+                "broker": self.broker.name}
+
+    def rules_find(self, min_scope=20, min_n=12):
+        rows = self._lab_shadows()
+        by = {}
+        for x in rows:
+            by.setdefault(x["setup"], []).append(x)
+        found, watch, tests = [], [], 0
+        for setup, lst in sorted(by.items()):
+            n = len(lst)
+            if n < min_scope:
+                continue
+            k = int(n * 0.6)
+            vals = {}
+            for x in lst:
+                for f, v in x["c"].items():
+                    if f in FEATURES:
+                        vals.setdefault((f, v), 0)
+                        vals[(f, v)] += 1
+            singles = [fv for fv, c in vals.items() if c >= min_n and c <= n - min_n // 2]
+            conds = [(a,) for a in singles]
+            for i, a in enumerate(singles):
+                for b in singles[i + 1:]:
+                    if a[0] != b[0]:
+                        conds.append((a, b))
+            single_eff = {}
+            for cond in conds:
+                m = [x for x in lst if all(x["c"].get(f) == v for f, v in cond)]
+                if len(m) < min_n:
+                    continue
+                tests += 1
+                ids = {x["id"] for x in m}
+                rest = [x for x in lst if x["id"] not in ids]
+                mi, ri = [x["r"] for x in lst[:k] if x["id"] in ids], [x["r"] for x in lst[:k] if x["id"] not in ids]
+                mo, ro = [x["r"] for x in lst[k:] if x["id"] in ids], [x["r"] for x in lst[k:] if x["id"] not in ids]
+                ma, ra = [x["r"] for x in m], [x["r"] for x in rest]
+                t = _welch_t(ma, ra)
+                d_all = _mean(ma) - _mean(ra)
+                if len(cond) == 1:
+                    single_eff[cond[0]] = d_all
+                elif abs(d_all) < max(abs(single_eff.get(c, 0)) for c in cond) + 0.1:
+                    continue   # Kombination bringt nichts über die Einzelbedingung hinaus
+                d1 = _mean(mi) - _mean(ri) if mi and ri else None
+                d2 = _mean(mo) - _mean(ro) if mo and ro else None
+                action = "avoid" if d_all < 0 else "only"
+                item = {"setup": setup, "conds": [list(c) for c in cond], "action": action,
+                        "label": " und ".join(describe_cond(f, v) for f, v in cond),
+                        "n": len(m), "n_all": n, "avg_match": round(_mean(ma), 3), "avg_rest": round(_mean(ra), 3),
+                        "wr_match": round(sum(1 for r in ma if r > 0) / len(ma) * 100, 1),
+                        "d1": round(d1, 3) if d1 is not None else None, "d2": round(d2, 3) if d2 is not None else None,
+                        "n_oos": len(mo), "t": round(t, 2),
+                        "effect": round(-sum(ma) if action == "avoid" else -sum(ra), 2)}
+                ok_oos = d1 is not None and d2 is not None and len(mo) >= 4 and (
+                    (action == "avoid" and d1 <= -0.25 and d2 <= -0.15 and _mean(ma) < 0) or
+                    (action == "only" and d1 >= 0.25 and d2 >= 0.15 and _mean(ma) > 0.1))
+                if ok_oos and abs(t) >= 2.5 and item["effect"] > 0:
+                    found.append(item)
+                elif abs(t) >= 1.6 and abs(d_all) >= 0.3 and item["effect"] > 0:
+                    watch.append(item)
+        key = lambda x: -abs(x["t"])  # noqa: E731
+        found.sort(key=key)
+        watch.sort(key=key)
+        seen = {json.dumps([r["setup"], r["conds"], r["action"]]) for r in self.cfg.get("rule_filters") or []}
+        for x in found + watch:
+            x["applied"] = json.dumps([x["setup"], x["conds"], x["action"]]) in seen
+        # Bilanz der übernommenen Regeln seit Übernahme (was sie geblockt hätten)
+        active = []
+        for r in self.cfg.get("rule_filters") or []:
+            lst = [x for x in by.get(r["setup"], []) if x["opened"] >= r.get("added", 0)]
+            hit = [x for x in lst if all(x["c"].get(f) == str(v) for f, v in r["conds"])]
+            blocked = hit if r["action"] == "avoid" else [x for x in lst if x not in hit]
+            active.append(dict(r, since_n=len(lst), blocked_n=len(blocked), blocked_r=round(sum(x["r"] for x in blocked), 2)))
+        return {"found": found[:20], "watch": watch[:6], "tests": tests, "signals": len(rows),
+                "setups": {s: len(v) for s, v in by.items()}, "min_scope": min_scope, "active": active}
 
     # ───────── Kalender: Bot-Trades + eigene Trades ─────────
     def _calendar_trades(self):

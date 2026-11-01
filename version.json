@@ -1,6 +1,6 @@
 {
-  "version": "2.4.0",
-  "file": "releases/FVG-Trader-2.4.0.cmd",
-  "sha256": "5013e66ebf5e3339a9af22c12afefba21c650fe504416fec3c843d9700fbcd20",
-  "notes": "Neuer Reiter Fremdkapital: Prop-Firm-Challenge live (Verlustgrenze EOD/Intraday/statisch, Profitziel, Tageslimit, Konsistenz, Bot-Schutz) plus Karte im Cockpit"
+  "version": "2.5.0",
+  "file": "releases/FVG-Trader-2.5.0.cmd",
+  "sha256": "4c9a8465c9e8b86fe51ed3f33ae80565cf8f08fe5034a17c98c9714e058e690f",
+  "notes": "Lernlabor: Varianten-Labor (8 Ausstiegs-Varianten je Signal, Empfehlung mit Gegenprobe, übernehmbar) und Regel-Finder (Marktlage je Signal, Regeln mit Gegenprobe, übernehmbar als Filter)"
 }

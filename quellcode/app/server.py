@@ -595,6 +595,18 @@ def session_stats(h, fam):
         h._send(200, engine.session_stats(None if fam == "auto" else fam))
 
 
+@route("GET", r"/api/lab/variants")
+def lab_variants(h):
+    with engine.lock:
+        h._send(200, engine.variant_view())
+
+
+@route("GET", r"/api/lab/rules")
+def lab_rules(h):
+    with engine.lock:
+        h._send(200, engine.rules_find())
+
+
 @route("GET", r"/api/edge")
 def edge(h):
     h._send(200, engine.edge_data())

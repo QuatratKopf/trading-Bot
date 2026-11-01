@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS signals (
     ticker TEXT, root TEXT, contract TEXT, side TEXT, setup TEXT,
     entry REAL, sl REAL, tp REAL, qty INTEGER, risk_usd REAL,
     flags TEXT, status TEXT, reason TEXT, expires REAL,
-    is_test INTEGER DEFAULT 0, raw TEXT, bar_time REAL
+    is_test INTEGER DEFAULT 0, raw TEXT, bar_time REAL, mgmt TEXT
 );
 CREATE TABLE IF NOT EXISTS positions (
     id TEXT PRIMARY KEY,
@@ -19,13 +19,19 @@ CREATE TABLE IF NOT EXISTS positions (
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
     status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
-    source TEXT, trade_day TEXT, note TEXT
+    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,
     signal_id TEXT, setup TEXT, fam TEXT, side TEXT,
     entry REAL, sl REAL, tp REAL, opened REAL, closed REAL, exit REAL, r REAL,
-    status TEXT, ny_hour INTEGER, ny_weekday INTEGER, bar_time REAL
+    status TEXT, ny_hour INTEGER, ny_weekday INTEGER, bar_time REAL, ctx TEXT
+);
+CREATE TABLE IF NOT EXISTS variants (
+    id TEXT PRIMARY KEY,
+    shadow_id TEXT, setup TEXT, fam TEXT, side TEXT, var TEXT,
+    entry REAL, stop REAL, risk REAL, tp REAL, best REAL,
+    opened REAL, closed REAL, exit REAL, r REAL, status TEXT, bar_time REAL
 );
 CREATE TABLE IF NOT EXISTS bars (
     id TEXT PRIMARY KEY,
@@ -155,6 +161,25 @@ class DB:
 
     def closed_shadows(self):
         return self.rows("SELECT * FROM shadow WHERE status='geschlossen' ORDER BY closed")
+
+    # --- Varianten-Labor ---
+    def add_variants(self, rows):
+        if not rows:
+            return
+        cols = list(rows[0].keys())
+        with self.lock:
+            self.con.executemany(f"INSERT INTO variants ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                                 [list(r.values()) for r in rows])
+            self.con.commit()
+
+    def open_variants(self):
+        return self.rows("SELECT * FROM variants WHERE status='offen'")
+
+    def update_variant(self, vid, **kw):
+        self._exec(f"UPDATE variants SET {','.join(k + '=?' for k in kw)} WHERE id=?", list(kw.values()) + [vid])
+
+    def closed_variants(self):
+        return self.rows("SELECT setup, var, side, r, opened, closed FROM variants WHERE status='geschlossen' ORDER BY opened")
 
     # --- Kerzen (für Key Levels und Session-Muster) ---
     def add_bar(self, fam, t, o, h, l, c):

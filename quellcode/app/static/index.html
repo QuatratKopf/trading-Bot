@@ -425,6 +425,27 @@ svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 svg.chart{width:100%;height:auto}
 @media (max-width:820px){ .ch-big{grid-template-columns:repeat(2,minmax(0,1fr))} .ch-big > div:nth-child(3){border-left:0} .ch-big > div:nth-child(n+3){border-top:1px solid var(--line)} .ch-big b{font-size:21px} .ch-hr{align-items:flex-start} }
 @media (max-width:560px){ .chc-g{grid-template-columns:repeat(2,minmax(0,1fr))} .chc-g > div:last-child{display:none} .chc-g b{font-size:17px} }
+.vt th small{font-size:9.5px;letter-spacing:.04em;text-transform:none;font-weight:400}
+.vt td.vc{text-align:center}
+.vt td.vc b{display:block;font-size:14px}
+.vt td.vc small{display:block;font-size:10.5px;color:var(--muted)}
+.vt td.best{box-shadow:inset 0 0 0 1.5px rgba(47,211,154,.55);border-radius:6px}
+.vt td.cur{background:var(--fill)}
+.vt td.t small{display:block;font-size:11px}
+.vrec{display:flex;flex-direction:column;gap:6px;align-items:flex-start;white-space:normal;min-width:190px;font-family:var(--f-body);font-size:12.5px}
+.lab-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600;margin:14px 0 4px}
+.rf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.rf{border:1px solid var(--line);border-left:3px solid var(--pos);border-radius:10px;background:var(--raise);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.rf.avoid{border-left-color:var(--neg)} .rf.weak{opacity:.75;border-left-color:var(--line2)}
+.rf-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rf-l{font-size:15px;font-weight:600}
+.rf-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+.rf-g div{display:flex;flex-direction:column;gap:1px;min-width:0} .rf-g .l{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.rf-g b{font-family:var(--f-mono);font-size:14px} .rf-g small{font-size:10.5px;color:var(--muted)}
+.rf-act{display:flex;flex-direction:column;gap:6px}
+.rfa{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--raise);font-size:13px}
+.rfa small{display:block} .rfa.off{opacity:.55}
+@media (max-width:560px){ .rf-g{grid-template-columns:repeat(2,minmax(0,1fr))} .rfa{grid-template-columns:auto minmax(0,1fr)} .rfa .btn{grid-column:auto} .rf-grid{grid-template-columns:1fr} }
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -1588,10 +1609,25 @@ async function importDialog(file) {
 }
 
 /* ───────── Lernmodul ───────── */
+let LTAB = "strategien";
+try { LTAB = localStorage.getItem("fvg-ltab") || "strategien"; } catch (e) {}
 function learn() {
+  if (!$("#lnWrap")) {
+    $("#main").innerHTML = `<div id="lnWrap" style="display:contents">
+      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["regeln", "Regel-Finder"]].map(([k, l]) =>
+        `<button type="button" role="tab" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
+      <div id="lnBody" style="display:contents"></div></div>`;
+    document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab", LTAB); } catch (e) {}
+      document.querySelectorAll("[data-lt]").forEach(x => x.setAttribute("aria-selected", x === b)); $("#lnBody").innerHTML = ""; learn(); });
+  }
+  if (LTAB === "varianten") return labVariants();
+  if (LTAB === "regeln") return labRules();
+  learnStrategies();
+}
+function learnStrategies() {
   const L = S.learning, p = L.params;
   const stChip = s => ({"aktiv": "good", "halbe Größe": "warn", "pausiert": "bad", "aus": "bad", "lernt": "mute"}[s] || "mute");
-  $("#main").innerHTML = `
+  $("#lnBody").innerHTML = `
     <section class="panel"><div class="section-h"><div><h2>So lernt der Bot</h2>
       <p class="hint" style="max-width:75ch;margin-top:4px">Jedes Signal wird im Hintergrund als Schatten-Trade simuliert, auch abgelehnte und blockierte. Nach jeder Session wertet der Bot die letzten ${p.window} Schatten-Trades je Strategie aus.
       Unter ${num2(p.half_below_r)} R im Schnitt gibt es halbe Größe, unter ${num2(p.pause_below_r)} R eine Pause. Erst ab ${p.min_trades} Trades greift die Bewertung.
@@ -1607,6 +1643,86 @@ function learn() {
   $("#runL").onclick = () => act(() => api("/api/learn", {}), "Auswertung fertig");
   document.querySelectorAll(".rule").forEach(sel => sel.onchange = () =>
     act(() => api("/api/config", {setup_rules: {[sel.dataset.setup]: sel.value}}), "Gespeichert"));
+}
+
+
+/* ───────── Lernlabor Stufe 1: Varianten-Labor ───────── */
+const LAB = {v: null, vat: 0, r: null, rat: 0};
+async function labVariants(force) {
+  const body = $("#lnBody");
+  if (!force && LAB.v && Date.now() - LAB.vat < 60000 && body.querySelector(".lab-v")) return;
+  if (!LAB.v) body.innerHTML = '<div class="empty">Varianten werden ausgewertet …</div>';
+  try { LAB.v = await api("/api/lab/variants"); LAB.vat = Date.now(); } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (TAB !== "learn" || LTAB !== "varianten") return;
+  const V = LAB.v, cols = V.variants;
+  const cell = (c, best, isCur, isRec) => !c.n ? '<td class="muted">–</td>'
+    : `<td class="vc ${best ? "best" : ""} ${isCur ? "cur" : ""} ${isRec ? "rec" : ""}" title="${c.n} Signale · Trefferquote ${pct(c.wr)} · Σ ${num2(c.sum)} R · 1. Teil ${num2(c.a1)} / 2. Teil ${num2(c.a2)}">
+        <b class="${cls(c.avg)}">${c.avg > 0 ? "+" : ""}${num2(c.avg)}</b><small>${Math.round(c.wr)} % · ${c.n}</small></td>`;
+  body.innerHTML = `<section class="panel lab-v">
+    <div class="section-h"><div><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">Varianten-Labor</h2>
+      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Für jedes Signal rechnet die App im Hintergrund ${cols.length - 1} Ausstiegs-Varianten mit: feste Ziele von 1R bis 3R, Stop auf Break-even ab +1R, Trailing-Stop und Halten bis Session-Ende. Die Zahl ist das <b>Ø R pro Signal</b> (darunter Trefferquote und Anzahl). <b>Grün umrandet</b> = beste Variante, <b>blau</b> = aktuell genutzt.
+      Eine Empfehlung gibt es erst ab ${V.min_n} Signalen, wenn die Variante im Schnitt mindestens 0,15 R besser ist <b>und</b> in beiden Zeit-Hälften vorne liegt, damit es kein Zufall ist.</p></div>
+      <button class="btn" id="labVRef">Neu berechnen</button></div>
+    ${V.setups.length ? `<div class="scroll"><table class="vt"><thead><tr><th class="t">Strategie</th>${cols.map(k => `<th>${k === "Signal-Ziel" ? "Signal-Ziel<br><small>aus TradingView</small>" : esc(k)}</th>`).join("")}<th class="t">Empfehlung</th></tr></thead><tbody>
+      ${V.setups.map(r => { const bestK = cols.filter(k => r.cols[k].n >= 5).sort((a, b) => r.cols[b].avg - r.cols[a].avg)[0];
+        return `<tr><td class="t"><b>${esc(r.setup)}</b><small class="hint">${r.cols["Signal-Ziel"].n} Signale</small></td>
+          ${cols.map(k => cell(r.cols[k], k === bestK, k === r.applied, k === r.rec)).join("")}
+          <td class="t">${r.rec ? `<div class="vrec"><span>Wechsel auf <b>${esc(r.rec)}</b>: ${r.cols[r.rec].avg > 0 ? "+" : ""}${num2(r.cols[r.rec].avg)} R statt ${num2(r.cols[r.applied].avg)} R</span>
+              ${V.broker !== "paper" && r.paper_only.includes(r.rec) ? '<small class="hint">nur mit Paper-Trading möglich</small>' : `<button class="btn primary vapply" data-s="${esc(r.setup)}" data-v="${esc(r.rec)}">Übernehmen</button>`}</div>`
+            : r.applied !== "Signal-Ziel" ? `<div class="vrec"><span>Nutzt <b>${esc(r.applied)}</b></span><button class="btn vapply" data-s="${esc(r.setup)}" data-v="Signal-Ziel">Zurück auf Signal-Ziel</button></div>`
+            : `<span class="hint">${r.cols["Signal-Ziel"].n < V.min_n ? `sammelt noch (${r.cols["Signal-Ziel"].n}/${V.min_n})` : "Signal-Ziel ist gut so"}</span>`}</td></tr>`; }).join("")}
+    </tbody></table></div>` : '<div class="empty">Noch keine Signale. Sobald TradingView Signale und Kerzen schickt, laufen die Varianten automatisch mit.</div>'}
+    <p class="hint">„Übernehmen“ ändert, wie der Bot bei dieser Strategie aussteigt: Ziel, Break-even oder Trailing. Der Einstieg bleibt gleich. Trailing und „Bis Session-Ende“ gehen nur mit Paper-Trading, weil Tradovate dafür eine Order ohne festes Ziel bräuchte.</p>
+  </section>`;
+  $("#labVRef").onclick = () => labVariants(true);
+  body.querySelectorAll(".vapply").forEach(b => b.onclick = async () => {
+    try { await api("/api/config", {exit_rules: {[b.dataset.s]: b.dataset.v}}); toast(b.dataset.v === "Signal-Ziel" ? "Zurück auf das Signal-Ziel" : `${b.dataset.s}: Ausstieg ${b.dataset.v} übernommen`); S = await api("/api/state"); labVariants(true); }
+    catch (e) { toast(e.message); }
+  });
+}
+
+/* ───────── Lernlabor Stufe 2: Regel-Finder ───────── */
+async function labRules(force) {
+  const body = $("#lnBody");
+  if (!force && LAB.r && Date.now() - LAB.rat < 60000 && body.querySelector(".lab-r")) return;
+  if (!LAB.r) body.innerHTML = '<div class="empty">Regel-Finder sucht …</div>';
+  try { LAB.r = await api("/api/lab/rules"); LAB.rat = Date.now(); } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (TAB !== "learn" || LTAB !== "regeln") return;
+  const R = LAB.r;
+  const card = (x, strong) => `<div class="rf ${x.action} ${strong ? "" : "weak"}">
+    <div class="rf-h"><span class="chip ${x.action === "avoid" ? "bad" : "good"}">${x.action === "avoid" ? "Meiden" : "Nur dann handeln"}</span><b>${esc(x.setup)}</b><span class="hint">${x.action === "avoid" ? "meiden, wenn" : "nur, wenn"}</span></div>
+    <div class="rf-l">${esc(x.label)}</div>
+    <div class="rf-g">
+      <div><span class="l">Wenn zutrifft</span><b class="${cls(x.avg_match)}">${x.avg_match > 0 ? "+" : ""}${num2(x.avg_match)} R</b><small>${x.n} Signale · ${Math.round(x.wr_match)} %</small></div>
+      <div><span class="l">Sonst</span><b class="${cls(x.avg_rest)}">${x.avg_rest > 0 ? "+" : ""}${num2(x.avg_rest)} R</b><small>${x.n_all - x.n} Signale</small></div>
+      <div><span class="l">Gegenprobe</span><b class="${x.d2 != null && Math.sign(x.d2) === Math.sign(x.avg_match - x.avg_rest) ? "pos" : "neg"}">${x.d2 == null ? "–" : (x.d2 > 0 ? "+" : "") + num2(x.d2) + " R"}</b><small>neueste ${x.n_oos} Signale</small></div>
+      <div><span class="l">Hätte gebracht</span><b class="pos">+${num2(x.effect)} R</b><small>Sicherheit t = ${num2(Math.abs(x.t))}</small></div>
+    </div>
+    ${strong ? (x.applied ? '<span class="chip good" style="align-self:flex-start">übernommen ✓</span>' : `<button class="btn primary rfapply" data-i="${R.found.indexOf(x)}" style="align-self:flex-start">Regel übernehmen</button>`) : '<span class="hint">Beobachten: noch nicht genug Belege, um sie zu übernehmen.</span>'}
+  </div>`;
+  const cnt = Object.entries(R.setups);
+  body.innerHTML = `<section class="panel lab-r">
+    <div class="section-h"><div><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">Regel-Finder</h2>
+      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Bei jedem Signal merkt sich die App die Marktlage: Richtung, Uhrzeit, Wochentag, Session, Gap, ob Asien/London/IB schon gebrochen sind, Lage zu Vortageshoch/-tief, Overnight-Range, Midnight Open und RTH-Open.
+      Der Regel-Finder sucht Bedingungen (einzeln und als Paar), unter denen eine Strategie klar besser oder schlechter läuft. <b>Vorgeschlagen</b> wird eine Regel nur, wenn sie in den älteren 60 % der Signale gefunden wurde <b>und</b> in den neuesten 40 % (Gegenprobe) genauso hält, mit hoher Sicherheit (t ≥ 2,5). Getestet wurden ${R.tests} Bedingungen aus ${R.signals} Signalen.</p></div>
+      <button class="btn" id="labRRef">Neu suchen</button></div>
+    ${cnt.length ? `<div class="flags">${cnt.map(([k, n]) => `<span class="chip ${n >= R.min_scope ? "" : "mute"}">${esc(k)}: ${n}${n < R.min_scope ? ` / ${R.min_scope}` : ""}</span>`).join("")}</div>` : ""}
+    ${R.active.length ? `<h3 class="lab-h">Übernommene Regeln</h3><div class="rf-act">${R.active.map((r, i) => `<div class="rfa ${r.active ? "" : "off"}">
+        <span class="chip ${r.action === "avoid" ? "bad" : "good"}">${r.action === "avoid" ? "Meiden" : "Nur dann"}</span>
+        <div><b>${esc(r.setup)}</b> ${r.action === "avoid" ? "meiden, wenn" : "nur, wenn"} ${esc(r.label)}<small class="hint">seit ${new Date(r.added * 1000).toLocaleDateString("de-DE")} · ${r.blocked_n} von ${r.since_n} Signalen geblockt${r.blocked_n ? ` · die hätten ${r.blocked_r > 0 ? "+" : ""}${num2(r.blocked_r)} R gebracht` : ""}</small></div>
+        <button class="btn" data-ra="${i}">${r.active ? "Pausieren" : "Aktivieren"}</button><button class="btn ghost-danger" data-rd="${i}" data-key="rd-${i}">Entfernen</button></div>`).join("")}</div>
+      <p class="hint">Gute Regel: Die geblockten Signale hätten zusammen <b>negativ</b> abgeschnitten. Hätten sie viel Plus gebracht, die Regel lieber pausieren.</p>` : ""}
+    <h3 class="lab-h">Gefundene Regeln</h3>
+    ${R.found.length ? `<div class="rf-grid">${R.found.map(x => card(x, true)).join("")}</div>` : `<div class="empty">${R.signals < 40 ? `Noch zu wenig Signale. Der Regel-Finder braucht mindestens ${R.min_scope} abgeschlossene Signale je Strategie, richtig aussagekräftig wird es ab etwa 60–100.` : "Aktuell keine Regel, die die Gegenprobe sicher besteht. Das ist gut: lieber keine Regel als eine zufällige."}</div>`}
+    ${R.watch.length ? `<h3 class="lab-h">Zum Beobachten</h3><div class="rf-grid">${R.watch.map(x => card(x, false)).join("")}</div>` : ""}
+  </section>`;
+  $("#labRRef").onclick = () => labRules(true);
+  const saveRules = async (list, msg) => { try { await api("/api/config", {rule_filters: list}); toast(msg); S = await api("/api/state"); labRules(true); } catch (e) { toast(e.message); } };
+  const cur = () => (S.config.rule_filters || []).map(r => ({...r}));
+  body.querySelectorAll(".rfapply").forEach(b => b.onclick = () => { const x = R.found[+b.dataset.i];
+    saveRules([...cur(), {setup: x.setup, conds: x.conds, action: x.action, label: x.label, added: Date.now() / 1000, active: true}], "Regel übernommen: der Bot filtert ab jetzt"); });
+  body.querySelectorAll("[data-ra]").forEach(b => b.onclick = () => { const l = cur(); l[+b.dataset.ra].active = !l[+b.dataset.ra].active; saveRules(l, l[+b.dataset.ra].active ? "Regel aktiv" : "Regel pausiert"); });
+  body.querySelectorAll("[data-rd]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", () => { const l = cur(); l.splice(+b.dataset.rd, 1); saveRules(l, "Regel entfernt"); }));
 }
 
 /* ───────── Einstellungen ───────── */
