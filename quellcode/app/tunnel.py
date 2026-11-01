@@ -166,8 +166,14 @@ class Tunnel:
             except Exception as e:  # noqa: BLE001
                 self.ok = False
                 if not self._fast:   # beim gewollten Neustart ist ein Lesefehler normal
-                    self.status = f"Fehler: {e}"
-                    self.log(f"Internet-Verbindung: {e}", "error")
+                    txt = str(e)
+                    if "225" in txt or "Virus" in txt or "unerwünschte Software" in txt or "virus" in txt:
+                        txt = ("Windows Defender hat ngrok blockiert. In Windows-Sicherheit → Viren- & Bedrohungsschutz → "
+                               "Schutzverlauf den ngrok-Eintrag zulassen, oder den ngrok-Schlüssel entfernen.")
+                    self.status = f"Fehler: {txt}"
+                    if txt != getattr(self, "_last_logged", None):
+                        self._last_logged = txt
+                        self.log(f"Internet-Verbindung: {txt}", "error")
             if self._fast:   # nach Schlüssel-Änderung sofort neu verbinden
                 self._fast, delay = False, 5
                 self._wake.clear()

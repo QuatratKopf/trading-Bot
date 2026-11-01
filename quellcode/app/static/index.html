@@ -820,7 +820,7 @@ function settings() {
 
   ${sec("TradingView", "Verbindung zwischen deiner Strategie und dem Bot.", `
     <div class="row"><label>Internet-Verbindung<small>${c.public_url ? "Eigene Adresse aus „Erweitert“." : S.tunnel.fixed ? "Feste Adresse: bleibt nach Neustarts gleich, der Alert muss nie wieder angepasst werden." : "Die Adresse wechselt bei jedem Neustart. Mit einem ngrok-Schlüssel wird sie fest."}</small></label>
-      <div class="inline">${S.tunnel.ok || c.public_url ? '<span class="chip good">aktiv</span>' : `<span class="chip bad">${esc(S.tunnel.status)}</span>`}
+      <div class="inline">${S.tunnel.ok || c.public_url ? '<span class="chip good">aktiv</span>' : `<span class="chip bad" style="white-space:normal;text-align:left;max-width:100%">${esc(S.tunnel.status)}</span>`}
         <span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span></div></div>
     ${field("ngt", "ngrok-Schlüssel für feste Adresse", (c.tunnel || {}).ngrok_token, {type: "password", help: "Kostenlos: ngrok.com → registrieren → im Dashboard „Your Authtoken“ kopieren und hier einfügen"})}
     <div><span class="lbl">Webhook-Adresse für den Alert</span><div class="copyrow"><div class="code" id="hook">${esc(S.hook_url || "wird automatisch erzeugt …")}</div><button class="btn" id="cp" ${S.hook_url ? "" : "disabled"}>Kopieren</button></div></div>

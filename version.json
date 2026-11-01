@@ -1,6 +1,6 @@
 {
-  "version": "1.9.6",
+  "version": "1.9.7",
   "file": "FVG-Trader.cmd",
-  "sha256": "8065587123d6124d9c1b8be5b189db5975daaa8413e33e1448334959f3e1d617",
-  "notes": "Beendet beim Start zuverlässig alle alten FVG-Trader (über den belegten Port)"
+  "sha256": "a28ea973db50e758ae6fb92ddba820efa89228f77dcbf47ce9a8f64f392a4eb0",
+  "notes": "Verständliche Meldung, wenn Windows Defender ngrok blockiert"
 }
