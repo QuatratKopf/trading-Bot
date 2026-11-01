@@ -1,6 +1,6 @@
 {
-  "version": "1.9.4",
+  "version": "1.9.5",
   "file": "FVG-Trader.cmd",
-  "sha256": "0fdb4df2b9c46b7baa969222dea1e66ed4a4e390a0537d071c915c15804a43ff",
-  "notes": "Update-Anzeige bleibt nicht mehr hängen"
+  "sha256": "38fbd0730d5c467fb8dddb81bba73fdb667052f1bab985446b6860b5e85eb52d",
+  "notes": "Beendet beim Start automatisch alte FVG-Trader-Instanzen"
 }

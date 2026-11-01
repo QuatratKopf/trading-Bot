@@ -1991,7 +1991,7 @@ STATIC = os.path.join(ROOT, "app", "static")
 HOST = os.environ.get("FVG_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FVG_PORT", "8787"))
 BACKGROUND = "--hintergrund" in sys.argv
-APP_VERSION = "1.9.4"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "1.9.5"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
@@ -2203,6 +2203,11 @@ def icon(h, size):
 @route("GET", r"/sw\.js", auth=False)
 def sw(h):
     h._send(200, SERVICE_WORKER.encode(), "text/javascript; charset=utf-8")
+
+
+@route("GET", r"/api/version", auth=False)
+def version(h):
+    h._send(200, {"version": APP_VERSION, "pid": os.getpid()})
 
 
 @route("GET", r"/api/auth", auth=False)
@@ -2581,9 +2586,48 @@ class AppServer(ThreadingHTTPServer):
         super().server_bind()
 
 
+def _running_version():
+    """Fragt eine eventuell laufende Instanz nach ihrer Version. None = nichts läuft, "alt" = ältere Version ohne Abfrage."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{PORT}/api/version", timeout=2) as r:
+            return json.loads(r.read()).get("version") or "alt"
+    except urllib.error.HTTPError:
+        return "alt"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _kill_other_instances():
+    """Windows: alle anderen FVG-Trader-Prozesse beenden (alte Versionen, andere Kopien der Datei)."""
+    import subprocess
+    if not sys.platform.startswith("win"):
+        return []
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(python|pythonw|py|pyw)\\.exe$' -and "
+          "$_.CommandLine -like '*FVG-Trader*' -and $_.ProcessId -ne %d -and $_.ProcessId -ne %d } | "
+          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }") % (os.getpid(), os.getppid())
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                             timeout=40, creationflags=0x08000000).stdout
+        return [x for x in out.split() if x.isdigit()]
+    except Exception as e:  # noqa: BLE001
+        print(f"Aufräumen alter Instanzen fehlgeschlagen: {e}", flush=True)
+        return []
+
+
 def main():
     global SRV
     srv = None
+    if sys.platform.startswith("win"):
+        rv = _running_version()
+        if rv and rv != "alt" and _vtuple(rv) >= _vtuple(APP_VERSION) and not BACKGROUND:
+            print(f"FVG Trader {rv} läuft bereits, das Fenster wird geöffnet.", flush=True)
+            open_app_window(f"http://localhost:{PORT}")
+            return
+        killed = _kill_other_instances()   # ältere oder hängende Instanzen ablösen
+        if killed:
+            print(f"Ältere FVG-Trader-Prozesse beendet: {', '.join(killed)}", flush=True)
+            time.sleep(1.5)
     for attempt in range(60):   # nach einem Update kann der Port noch kurz von der alten Version belegt sein
         try:
             srv = AppServer((HOST, PORT), Handler)
@@ -2599,7 +2643,7 @@ def main():
         print(f"\n  FVG Trader läuft bereits, das Fenster wird geöffnet.\n")
         open_app_window(f"http://localhost:{PORT}")
         return
-    engine.db.log(f"FVG Trader {APP_VERSION} gestartet")
+    engine.db.log(f"FVG Trader {APP_VERSION} gestartet ({LAUNCHER})")
     print(f"FVG Trader {APP_VERSION} gestartet", flush=True)
     if not os.environ.get("FVG_NO_TUNNEL"):
         tunnel.start()
