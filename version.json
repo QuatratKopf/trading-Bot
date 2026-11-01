@@ -1,6 +1,6 @@
 {
-  "version": "1.9.0",
+  "version": "1.9.1",
   "file": "FVG-Trader.cmd",
-  "sha256": "e91a41ecc1e2c2ac9d8515fc3ea33c1b589a8fd65a59615a0ea6b247e2e4e5ea",
-  "notes": "Neu: feste Adresse über ngrok, Alert muss nach Neustart nicht mehr angepasst werden"
+  "sha256": "b0a424fb3fc18e0f2de17715f3e999f35cda30bb744e0ad23fdfe451d25c098f",
+  "notes": "Prüft ngrok-Schlüssel und Adressfeld, korrigiert falsch eingetragene Werte"
 }

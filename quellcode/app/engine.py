@@ -147,6 +147,8 @@ class Engine:
         if os.path.exists(self.cfg_path):
             with open(self.cfg_path, encoding="utf-8") as f:
                 cfg = deep_merge(cfg, json.load(f))
+        if cfg.get("public_url") and not re.match(r"^https?://", cfg["public_url"].strip()):
+            cfg["public_url"] = ""
         if not cfg.get("update_url") or "QuatratKopf/trading-bot/" in cfg["update_url"]:
             cfg["update_url"] = DEFAULT_UPDATE_URL
         if not cfg["webhook_token"]:
@@ -221,6 +223,17 @@ class Engine:
         L["pause_below_r"], L["half_below_r"] = float(L["pause_below_r"]), float(L["half_below_r"])
         if not (5 <= L["window"] <= 500 and 3 <= L["min_trades"] <= L["window"] and L["pause_below_r"] < L["half_below_r"]):
             raise ValueError("Lernmodul: Fenster 5–500, Mindest-Trades ≤ Fenster, Pause-Schwelle < Halbe-Größe-Schwelle")
+        pu = (c.get("public_url") or "").strip()
+        if pu and not re.match(r"^https?://[^\s/]+\.[^\s]+$", pu):
+            raise ValueError("„Eigene feste Adresse“ muss eine Internetadresse sein (https://…). "
+                             "Einen ngrok-Schlüssel bitte oben im Bereich TradingView eintragen und dieses Feld leer lassen.")
+        tok = ((c.get("tunnel") or {}).get("ngrok_token") or "").strip()
+        if tok and tok != MASK:
+            if tok.startswith("cr_"):
+                raise ValueError("Das ist eine ngrok-Zugangs-ID (beginnt mit cr_), nicht der Authtoken. "
+                                 "Den Authtoken findest du im ngrok-Dashboard unter „Your Authtoken“.")
+            if len(tok) < 30 or " " in tok:
+                raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
         for k in ("session_start", "session_end"):
