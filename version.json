@@ -1,6 +1,6 @@
 {
-  "version": "1.9.7",
+  "version": "1.9.8",
   "file": "FVG-Trader.cmd",
-  "sha256": "a28ea973db50e758ae6fb92ddba820efa89228f77dcbf47ce9a8f64f392a4eb0",
-  "notes": "Verständliche Meldung, wenn Windows Defender ngrok blockiert"
+  "sha256": "93361eedf3824bcbda9911c9ce43c2a53d17cc9fba67e4085ee5e73b0660c813",
+  "notes": "Kein Konsolenfenster beim Neustart, Fenster schließt beim Beenden, App nur in einem Fenster"
 }

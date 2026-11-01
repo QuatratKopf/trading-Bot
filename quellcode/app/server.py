@@ -401,9 +401,9 @@ def restart():
             helper = os.path.join(DATA, "neustart.cmd")
             with open(helper, "w", encoding="ascii", errors="replace") as f:
                 f.write("@echo off\r\n"
-                        "rem Startet FVG Trader nach einem Update neu\r\n"
+                        "rem Startet FVG Trader nach einem Update neu (unsichtbar, ohne Konsolenfenster)\r\n"
                         "ping -n 3 127.0.0.1 >nul\r\n"
-                        f'start "" /min "{LAUNCHER}" --hintergrund\r\n')
+                        f'call "{LAUNCHER}" --hintergrund\r\n')
             flags = 0x08000000 | 0x00000200   # kein Fenster, eigene Prozessgruppe
             try:
                 subprocess.Popen(["cmd.exe", "/c", helper], creationflags=flags | 0x01000000,   # aus dem Job lösen

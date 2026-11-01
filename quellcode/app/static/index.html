@@ -244,6 +244,8 @@ const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
 const tm = ts => new Date(ts * 1000).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"});
 const dtm = ts => new Date(ts * 1000).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
 
+// Reiter in der Adresse merken, ohne neue Verlaufseinträge (sonst darf sich das App-Fenster nicht schließen)
+const setHash = t => { try { history.replaceState(null, "", "#" + t); } catch (e) { location.hash = t; } };
 let S = null, TAB = "cockpit", pendingKey = "", seenPending = new Set(), firstLoad = true, settingsDirty = false;
 
 async function api(path, body) {
@@ -365,7 +367,7 @@ function shell() {
     </nav>
   </div></div>
   <div class="wrap"><div id="banner"></div><main id="main"></main></div>`;
-  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { TAB = b.dataset.tab; location.hash = TAB; pendingKey = ""; settingsDirty = false;
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { TAB = b.dataset.tab; setHash(TAB); pendingKey = ""; settingsDirty = false;
     document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b)); render(true); });
   $("#autoT").onclick = () => act(() => api("/api/config", {auto_mode: !S.config.auto_mode}),
     !S.config.auto_mode ? "Auto-Modus an: Signale werden direkt ausgeführt" : "Auto-Modus aus: Signale kommen als Vorschlag");
@@ -941,11 +943,12 @@ function settings() {
   const as = $("#asT"); if (as) as.onclick = () => act(() => api("/api/autostart", {on: !S.autostart}), !S.autostart ? "Startet ab jetzt mit Windows" : "Autostart aus").then(() => render(true));
   $("#quit").onclick = () => confirmBtn($("#quit"), S.positions.length ? "Positionen offen. Trotzdem?" : "Wirklich beenden?", async () => {
     try { await api("/api/shutdown", {}); } catch (e) {}
-    document.body.innerHTML = `<div class="login"><form><h1>FVG Trader ist beendet</h1><p class="hint">Signale aus TradingView werden jetzt nicht verarbeitet. Zum Starten auf das Desktop-Symbol <b>FVG Trader</b> klicken.</p></form></div>`;
+    document.body.innerHTML = `<div class="login"><form><h1>FVG Trader ist beendet</h1><p class="hint">Signale aus TradingView werden jetzt nicht verarbeitet. Zum Starten auf das Desktop-Symbol <b>FVG Trader</b> klicken.</p><p class="hint">Du kannst dieses Fenster jetzt schließen.</p></form></div>`;
+    setTimeout(() => { try { window.close(); } catch (e) {} }, 600);
   });
   $("#cp").onclick = () => copyText(S.hook_url, "Adresse"); $("#cp2").onclick = () => copyText("{{strategy.order.alert_message}}", "Nachricht");
   $("#cpPine2").onclick = async () => { try { const r = await api("/api/pine"); copyText(r.source, "Script"); } catch (e) { toast(e.message); } };
-  $("#tL").onclick = () => act(() => api("/api/test-signal", {fam: "NQ", side: "long"}).then(r => { TAB = "cockpit"; location.hash = "cockpit"; return r; }), "Test-Signal gesendet");
+  $("#tL").onclick = () => act(() => api("/api/test-signal", {fam: "NQ", side: "long"}).then(r => { TAB = "cockpit"; setHash("cockpit"); return r; }), "Test-Signal gesendet");
   const pr = $("#pr"); if (pr) pr.onclick = () => confirmBtn(pr, "Alle Paper-Trades löschen?", () => act(() => api("/api/paper/reset", {}), "Paper-Konto zurückgesetzt").then(() => render(true)));
   const cpPhone = $("#cpPhone"); if (cpPhone) cpPhone.onclick = () => copyText(phoneUrl, "Adresse");
   $("#rt").onclick = () => confirmBtn($("#rt"), "Alte Adresse wird ungültig. Sicher?", () => act(() => api("/api/token", {}), "Neue Adresse erzeugt: im TradingView-Alert ersetzen").then(() => render(true)));
@@ -971,6 +974,25 @@ async function showLog() {
   $("#logCopy").onclick = () => copyText(`FVG Trader ${r.version}\n--- App-Log ---\n${r.log.slice(-120).join("\n")}\n--- Aktivität ---\n${r.events.slice(-60).join("\n")}`, "Protokoll");
   $("#logClose").onclick = close;
 }
+
+/* ───────── Nur ein Fenster ───────── */
+// Wird FVG Trader ein zweites Mal geöffnet, übernimmt das neue Fenster; das alte schließt sich oder wird gesperrt.
+const WIN_ID = Math.random().toString(36).slice(2);
+let BLOCKED = false;
+const BC = "BroadcastChannel" in window ? new BroadcastChannel("fvg-trader-fenster") : null;
+function claimWindow() { BLOCKED = false; const o = $("#winBlock"); if (o) o.remove(); if (BC) BC.postMessage({t: "claim", id: WIN_ID}); }
+function blockWindow() {
+  if (BLOCKED) return;
+  BLOCKED = true;
+  try { window.close(); } catch (e) {}
+  document.body.insertAdjacentHTML("beforeend", `<div id="winBlock" style="position:fixed;inset:0;z-index:60;background:var(--bg);display:grid;place-items:center;padding:16px">
+    <div class="panel" style="max-width:380px;display:flex;flex-direction:column;gap:12px;text-align:center">
+      <h2 style="font-size:19px">In einem anderen Fenster geöffnet</h2>
+      <p class="hint" style="margin:0">FVG Trader läuft schon in einem anderen Fenster. Du kannst dieses hier schließen.</p>
+      <button class="btn primary" id="winHere">Hier weiterverwenden</button></div></div>`);
+  $("#winHere").onclick = () => { claimWindow(); refresh(true); };
+}
+if (BC) BC.onmessage = e => { if (e.data && e.data.t === "claim" && e.data.id !== WIN_ID) blockWindow(); };
 
 /* ───────── Laufzeit ───────── */
 function render(full) {
@@ -1010,11 +1032,13 @@ async function start() {
   if ("Notification" in window && Notification.permission === "default") document.addEventListener("click", () => Notification.requestPermission(), {once: true});
   try { await refresh(true); } catch (e) { return; }
   startupUpdatePrompt();
+  claimWindow();
   setInterval(async () => {
+    if (BLOCKED) return;
     if (TAB === "settings" && settingsDirty) return;
     try { await refresh(false); } catch (e) {}
   }, 2000);
-  setInterval(() => S && TAB === "cockpit" && timers(), 1000);
+  setInterval(() => !BLOCKED && S && TAB === "cockpit" && timers(), 1000);
 }
 fetch("/api/auth").then(r => r.json()).then(a => a.logged_in ? start() : showLogin());
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
