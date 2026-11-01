@@ -67,7 +67,12 @@ DEFAULT_CONFIG = {
         "half_below_r": 0.10,
     },
     "setup_rules": {},         # Strategie -> auto | an | aus
+    "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
 }
+
+# $ pro Punkt für eigene Trades aus dem Broker-Import
+POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
+               "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
 MASK = "••••••••"
 
@@ -128,6 +133,8 @@ class Engine:
         self.broker_status = ""
         self.broker_ok = False
         self._balance_cache = (0, None)
+        self._sync_client = None
+        self.sync_state = {"last": None, "added": 0, "error": "", "next": 0}
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
         threading.Thread(target=self._loop, daemon=True).start()
@@ -179,6 +186,8 @@ class Engine:
             if broker_changed:
                 self.broker = BROKERS[self.cfg["broker"]](self.cfg)
                 self._connect_broker()
+                self._sync_client = None
+                self.sync_state["next"] = 0
             return self.public_cfg()
 
     @staticmethod
@@ -751,6 +760,9 @@ class Engine:
                             self._close(pos, None, "Sessionende")
                         except ValueError:
                             pass
+            if self.cfg["own_sync"].get("tradovate") and time.time() >= self.sync_state["next"]:
+                self.sync_state["next"] = time.time() + 600
+                threading.Thread(target=self.own_sync, daemon=True).start()
             if self.broker.name != "paper" and self.broker_ok:
                 mine = [p for p in self.db.open_positions() if p["broker"] == self.broker.name]
                 try:
@@ -855,6 +867,67 @@ class Engine:
                                     "note": str(b.get("note") or "")[:120]})
             self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {pnl:+,.0f} $")
             return {"ok": True, "id": pid}
+
+    # ───────── Eigene Trades automatisch aus Tradovate ─────────
+    def test_tradovate(self):
+
+        try:
+            return {"ok": True, "status": BROKERS["tradovate"](self.cfg).connect()}
+        except BrokerError as e:
+            return {"ok": False, "status": str(e)}
+
+    def own_sync(self):
+
+        if not self.cfg["own_sync"].get("tradovate"):
+            raise ValueError("Automatische Übernahme ist ausgeschaltet")
+        st = self.sync_state
+        st["next"] = time.time() + 600
+        try:
+            if self._sync_client is None:
+                self._sync_client = BROKERS["tradovate"](self.cfg)
+            trips = self._sync_client.round_trips()
+        except BrokerError as e:
+            st.update(error=str(e), last=time.time())
+            self._sync_client = None
+            return dict(st, ok=False)
+        with self.lock:
+            bot_orders = set()
+            for p in self.db.rows("SELECT broker_ref FROM positions WHERE broker='tradovate'"):
+                try:
+                    ref = json.loads(p["broker_ref"] or "{}")
+                except ValueError:
+                    ref = {}
+                bot_orders |= {ref.get(k) for k in ("orderId", "stopId", "tpId")} - {None}
+            existing = {(p.get("broker_ref") or {}).get("key") for p in self.db.closed_positions() if p["broker"] == "eigen"}
+            added = 0
+            for t in trips:
+                key = f"tradovate-pair-{t['id']}"
+                if key in existing or any(o in bot_orders for o in t["order_ids"]):
+                    continue
+                try:
+                    tb = dt.datetime.fromisoformat(str(t["buy_ts"]).replace("Z", "+00:00")).timestamp()
+                    ts = dt.datetime.fromisoformat(str(t["sell_ts"]).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    continue
+                m = re.match(r"^(MNQ|MES|MYM|M2K|MGC|MCL|SIL|NQ|ES|YM|RTY|GC|CL|SI)", str(t["contract"]).upper())
+                root = m.group(1) if m else str(t["contract"])[:8]
+                pv = POINT_VALUE.get(root)
+                if pv is None:
+                    continue
+                long_ = tb <= ts
+                qty = int(t["qty"])
+                td = t.get("trade_date") or {}
+                day = f"{td['year']}-{td['month']:02d}-{td['day']:02d}" if td.get("year") else str(ny_date(max(tb, ts)))
+                self._own_insert({"root": root, "side": "long" if long_ else "short", "qty": qty,
+                                  "entry": t["buy"] if long_ else t["sell"], "exit": t["sell"] if long_ else t["buy"],
+                                  "pnl": (t["sell"] - t["buy"]) * qty * pv, "opened": min(tb, ts), "closed": max(tb, ts),
+                                  "day": day, "key": key, "note": "Tradovate (ohne Gebühren)"})
+                existing.add(key)
+                added += 1
+            st.update(last=time.time(), added=added, error="")
+            if added:
+                self.db.log(f"Tradovate: {added} eigene Trades übernommen")
+        return dict(st, ok=True)
 
     def own_delete(self, pid):
         with self.lock:
@@ -995,6 +1068,7 @@ class Engine:
                 "stats": self.stats(),
                 "learning": self.learning_view(),
                 "daily": self.daily(),
+                "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
                 "sizing_preview": {fam: [self.size_preview(fam, pts) for pts in
                                          ((10, 20, 40, 60) if fam == "NQ" else (3, 5, 10, 15))]
                                    for fam in ("NQ", "ES")},

@@ -311,7 +311,10 @@ def check_update():
         UPDATE.update(available=newer, version=info["version"], notes=info.get("notes", ""), error="",
                       checked=time.time(), file=urllib.parse.urljoin(src, info["file"]), sha256=info["sha256"])
     except Exception as e:  # noqa: BLE001
-        UPDATE.update(error=f"Update-Prüfung fehlgeschlagen: {e}", checked=time.time())
+        engine.db.log(f"Update-Prüfung: {e}", "warn")
+        msg = "Keine Update-Info gefunden. Ist das GitHub-Repository öffentlich?" if "404" in str(e) or "22" in str(e) \
+            else "Update-Server nicht erreichbar. Besteht eine Internetverbindung?"
+        UPDATE.update(error=msg, checked=time.time())
     return UPDATE
 
 
@@ -425,6 +428,16 @@ def own_add(h):
 def own_import(h):
     b = h._json()
     h._send(200, engine.own_import(str(b.get("csv") or ""), bool(b.get("subtract_fees", True))))
+
+
+@route("POST", r"/api/own/sync")
+def own_sync(h):
+    h._send(200, engine.own_sync())
+
+
+@route("POST", r"/api/tradovate/test")
+def tradovate_test(h):
+    h._send(200, engine.test_tradovate())
 
 
 @route("POST", r"/api/own/([a-f0-9]+)/delete")

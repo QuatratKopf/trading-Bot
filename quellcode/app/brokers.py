@@ -228,6 +228,36 @@ class TradovateBroker:
                 closed.append((pos, self._exit_price(pos)))
         return closed
 
+    def round_trips(self):
+        """Abgeschlossene Trades (Fill-Paare) des Kontos: Kauf-Fill + Verkaufs-Fill."""
+        self._ensure_token()
+        pairs = self._req("GET", "/fillPair/list") or []
+        if not pairs:
+            return []
+
+        def items(path, ids):
+            ids, out = [i for i in ids if i is not None], []
+            for k in range(0, len(ids), 100):
+                out += self._req("GET", f"{path}?ids={','.join(str(i) for i in ids[k:k + 100])}") or []
+            return {x["id"]: x for x in out if isinstance(x, dict) and "id" in x}
+
+        fills = items("/fill/items", {p.get("buyFillId") for p in pairs} | {p.get("sellFillId") for p in pairs})
+        positions = items("/position/items", {p.get("positionId") for p in pairs})
+        contracts = items("/contract/items", {f.get("contractId") for f in fills.values()})
+        trips = []
+        for p in pairs:
+            b, s_ = fills.get(p.get("buyFillId")), fills.get(p.get("sellFillId"))
+            if not b or not s_:
+                continue
+            pos = positions.get(p.get("positionId"))
+            if pos and self.account_id and pos.get("accountId") not in (None, self.account_id):
+                continue
+            trips.append({"id": p["id"], "contract": (contracts.get(b.get("contractId")) or {}).get("name", "?"),
+                          "qty": p.get("qty") or b.get("qty") or 1, "buy": p.get("buyPrice", b.get("price")),
+                          "sell": p.get("sellPrice", s_.get("price")), "buy_ts": b.get("timestamp"), "sell_ts": s_.get("timestamp"),
+                          "order_ids": [b.get("orderId"), s_.get("orderId")], "trade_date": b.get("tradeDate")})
+        return trips
+
     def balance(self):
         res = self._req("POST", "/cashBalance/getcashbalancesnapshot", {"accountId": self.account_id})
         return res.get("totalCashValue") if isinstance(res, dict) else None

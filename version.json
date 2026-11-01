@@ -1,6 +1,6 @@
 {
-  "version": "1.7.0",
+  "version": "1.8.0",
   "file": "FVG-Trader.cmd",
-  "sha256": "ec8ebd1c01f7eaab2556de8dcf3c92cbbf5ea961433d7a0f438884010c9c05ae",
-  "notes": "Neu: eigene Trades im Kalender (eintragen oder CSV-Import) und Filter Bot/Eigene"
+  "sha256": "ff6f2cb569e899b831d25a110f62bed88c7f7e8b353fe1a8dc065bb857c00174",
+  "notes": "Einstellungen aufgeräumt, Knopf „Jetzt aktualisieren“, Tradovate verknüpfen: eigene Trades automatisch im Kalender"
 }
