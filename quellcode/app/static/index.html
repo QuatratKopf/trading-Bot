@@ -301,8 +301,8 @@ async function runUpdate(doIt) {
         }
       }
     } catch (e) {}
-    if (secs > 45) {
-      msg("Fast geschafft", `Version <b>${esc(target || "neu")}</b> ist installiert, nur der automatische Neustart hat nicht geklappt.<br>Starte FVG Trader einfach über das <b>Desktop-Symbol</b>.`,
+    if (secs > 30) {
+      msg("Update installiert ✓", `Version <b>${esc(target || "neu")}</b> ist installiert.<br>Schließ dieses Fenster und starte FVG Trader über das <b>Desktop-Symbol</b>.`,
         '<button class="btn" id="updRetry">Erneut verbinden</button>');
       $("#updRetry").onclick = () => location.reload(); return;
     }

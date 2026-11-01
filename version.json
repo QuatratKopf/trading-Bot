@@ -1,6 +1,6 @@
 {
-  "version": "1.9.3",
+  "version": "1.9.4",
   "file": "FVG-Trader.cmd",
-  "sha256": "9b8bc01c8944b329e4d59bed1644515b29a2fbf99a692a0a65274a79a5d46551",
-  "notes": "Desktop-Symbol zeigt immer auf die aktuelle Datei, Dateipfad in den Einstellungen"
+  "sha256": "0fdb4df2b9c46b7baa969222dea1e66ed4a4e390a0537d071c915c15804a43ff",
+  "notes": "Update-Anzeige bleibt nicht mehr hängen"
 }
