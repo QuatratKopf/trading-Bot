@@ -1,6 +1,6 @@
 {
-  "version": "2.0.1",
-  "file": "releases/FVG-Trader-2.0.1.cmd",
-  "sha256": "475199ab3597025b0ed9c9218955377ddc14ddcfea5c1eb6b23346bb24e655a3",
-  "notes": "Desktop-Symbol wird neu angelegt, wenn es fehlt; Knopf „Desktop-Symbol anlegen“"
+  "version": "2.1.0",
+  "file": "releases/FVG-Trader-2.1.0.cmd",
+  "sha256": "c6c3d90351ca83e1b772b92810273fbd9792839e61db796e952259bc21cce2d1",
+  "notes": "Neues, cleaneres Design: Seitenleiste mit Symbolen, Leiste unten am Handy, Kapitel in den Einstellungen"
 }
