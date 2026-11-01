@@ -923,6 +923,8 @@ function settings() {
       <div class="inline"><span class="mono" style="font-size:11.5px;word-break:break-all;text-align:right">${esc(S.launcher || "–")}</span></div></div>
     <div class="row"><label>Nach Updates suchen und installieren<small>${S.update.available && S.update.notes ? esc(S.update.notes) : "Deine Einstellungen und Trades bleiben erhalten."}</small></label>
       <button class="btn primary" id="updNowSet">Jetzt aktualisieren</button></div>
+    ${S.platform.startsWith("win") ? `<div class="row"><label>Desktop-Symbol<small>Legt „FVG Trader“ auf dem Desktop und im Startmenü neu an.</small></label>
+      <button class="btn" id="mkIcon">Desktop-Symbol anlegen</button></div>` : ""}
     ${S.platform.startsWith("win") ? `<div class="row"><label>Mit Windows starten<small>Der Bot läuft nach dem Hochfahren still im Hintergrund.</small></label>
       <button class="tgl" id="asT" role="switch" aria-checked="${S.autostart}" aria-label="Mit Windows starten"></button></div>` : ""}
     <div class="row"><label>FVG Trader beenden<small>Ohne Beenden läuft der Bot im Hintergrund weiter, auch wenn das Fenster zu ist.</small></label>
@@ -1075,6 +1077,7 @@ function settings() {
     } catch (e) { toast(e.message); }
     b.disabled = false; b.textContent = "Jetzt aktualisieren"; refresh(true);
   };
+  const mk = $("#mkIcon"); if (mk) mk.onclick = () => act(() => api("/api/shortcut", {}), "Desktop-Symbol angelegt");
   const as = $("#asT"); if (as) as.onclick = () => act(() => api("/api/autostart", {on: !S.autostart}), !S.autostart ? "Startet ab jetzt mit Windows" : "Autostart aus").then(() => render(true));
   $("#quit").onclick = () => confirmBtn($("#quit"), S.positions.length ? "Positionen offen. Trotzdem?" : "Wirklich beenden?", async () => {
     try { await api("/api/shutdown", {}); } catch (e) {}

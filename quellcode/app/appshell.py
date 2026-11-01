@@ -155,13 +155,14 @@ def ensure_desktop_shortcut(launcher, data_dir, log):
         return
     flag = os.path.join(data_dir, "verknuepfung.txt")
     try:
-        with open(flag, encoding="utf-8") as f:
-            if f.read().strip() == launcher:
-                return
-    except OSError:
-        pass
-    try:
         desktop, programs = _folders()[:2]
+        try:
+            with open(flag, encoding="utf-8") as f:
+                same = f.read().strip() == launcher
+        except OSError:
+            same = False
+        if same and os.path.exists(os.path.join(desktop, "FVG Trader.lnk")):
+            return   # Symbol vorhanden und zeigt auf diese Datei
         make_shortcuts([os.path.join(desktop, "FVG Trader.lnk"), os.path.join(programs, "FVG Trader.lnk")],
                        launcher, icon_file(data_dir))
         if autostart_enabled():   # Autostart startet still im Hintergrund

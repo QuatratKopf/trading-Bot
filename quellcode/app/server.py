@@ -470,6 +470,18 @@ def update_upload(h):
     h._send(200, {"ok": True, "version": v})
 
 
+@route("POST", r"/api/shortcut")
+def shortcut(h):
+    if not sys.platform.startswith("win"):
+        raise ValueError("Desktop-Symbole gibt es nur unter Windows")
+    try:
+        os.remove(os.path.join(DATA, "verknuepfung.txt"))
+    except OSError:
+        pass
+    ensure_desktop_shortcut(LAUNCHER, DATA, engine.db.log)
+    h._send(200, {"ok": True})
+
+
 @route("POST", r"/api/shutdown")
 def shutdown(h):
     engine.db.log("App beendet")

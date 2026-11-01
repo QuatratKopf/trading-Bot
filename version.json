@@ -1,6 +1,6 @@
 {
-  "version": "2.0.0",
-  "file": "releases/FVG-Trader-2.0.0.cmd",
-  "sha256": "4927bb05c4dfa55622d90c2b763c17bd2fe73ef64460a198b53f7e8a0258fb96",
-  "notes": "Neu: Sessions (Asien, London, NY) zum Anhaken, Performance-Ring im Cockpit, Tages-P&L-Grafik, schönere Statistik"
+  "version": "2.0.1",
+  "file": "releases/FVG-Trader-2.0.1.cmd",
+  "sha256": "475199ab3597025b0ed9c9218955377ddc14ddcfea5c1eb6b23346bb24e655a3",
+  "notes": "Desktop-Symbol wird neu angelegt, wenn es fehlt; Knopf „Desktop-Symbol anlegen“"
 }
