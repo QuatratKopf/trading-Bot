@@ -1,6 +1,6 @@
 {
-  "version": "1.8.2",
+  "version": "1.9.0",
   "file": "FVG-Trader.cmd",
-  "sha256": "767c2fef3f335e8dd83790b45b016eabb483a608a6faf6dc8725935f481df179",
-  "notes": "Neu: Protokoll in den Einstellungen (App-Log anzeigen, kopieren, Ordner öffnen)"
+  "sha256": "e91a41ecc1e2c2ac9d8515fc3ea33c1b589a8fd65a59615a0ea6b247e2e4e5ea",
+  "notes": "Neu: feste Adresse über ngrok, Alert muss nach Neustart nicht mehr angepasst werden"
 }

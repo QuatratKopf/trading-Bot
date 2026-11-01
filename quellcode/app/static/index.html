@@ -766,7 +766,9 @@ const v = id => { const el = $("#" + id); return !el ? undefined : el.type === "
 const num = id => { const x = parseFloat(v(id)); return isFinite(x) ? x : undefined; };
 const sec = (title, hint, body, id = "") => `<section class="set-sec" ${id ? `id="${id}"` : ""}><div class="set-h"><h2>${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ""}</div><div class="set-b">${body}</div></section>`;
 
+let settingsKey = "";
 function settings() {
+  settingsKey = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart]);
   const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, t = c.tradovate, L = c.learning;
   const phoneUrl = (c.public_url || S.tunnel.url || "").replace(/\/+$/, "");
   const prev = fam => S.sizing_preview[fam].map((p, i) => {
@@ -813,7 +815,10 @@ function settings() {
     ${field("le", "Lernmodul aktiv", L.enabled, {check: true, help: "Schwache Strategien bekommen halbe Größe oder Pause"})}`)}
 
   ${sec("TradingView", "Verbindung zwischen deiner Strategie und dem Bot.", `
-    <div class="row"><label>Status</label><div class="inline">${S.hook_url ? '<span class="chip good">verbunden</span>' : `<span class="chip bad">${esc(S.tunnel.status)}</span>`}</div></div>
+    <div class="row"><label>Internet-Verbindung<small>${c.public_url ? "Eigene Adresse aus „Erweitert“." : S.tunnel.fixed ? "Feste Adresse: bleibt nach Neustarts gleich, der Alert muss nie wieder angepasst werden." : "Die Adresse wechselt bei jedem Neustart. Mit einem ngrok-Schlüssel wird sie fest."}</small></label>
+      <div class="inline">${S.tunnel.ok || c.public_url ? '<span class="chip good">aktiv</span>' : `<span class="chip bad">${esc(S.tunnel.status)}</span>`}
+        <span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span></div></div>
+    ${field("ngt", "ngrok-Schlüssel für feste Adresse", (c.tunnel || {}).ngrok_token, {type: "password", help: "Kostenlos: ngrok.com → registrieren → im Dashboard „Your Authtoken“ kopieren und hier einfügen"})}
     <div><span class="lbl">Webhook-Adresse für den Alert</span><div class="copyrow"><div class="code" id="hook">${esc(S.hook_url || "wird automatisch erzeugt …")}</div><button class="btn" id="cp" ${S.hook_url ? "" : "disabled"}>Kopieren</button></div></div>
     <div><span class="lbl">Alert-Nachricht</span><div class="copyrow"><div class="code" id="msgTpl">{{strategy.order.alert_message}}</div><button class="btn" id="cp2">Kopieren</button></div></div>
     <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button></div>`)}
@@ -840,7 +845,7 @@ function settings() {
 
   ${sec("Aufs Handy", "Adresse am Handy öffnen, anmelden und „Zum Startbildschirm“ wählen.", `
     <div class="copyrow"><div class="code">${esc(phoneUrl || "kommt, sobald die Internet-Verbindung steht")}</div><button class="btn" id="cpPhone" ${phoneUrl ? "" : "disabled"}>Kopieren</button></div>
-    <p class="hint" style="margin:0">Ändert sich bei jedem Neustart des PCs.</p>`)}
+    <p class="hint" style="margin:0">${S.tunnel.fixed || c.public_url ? "Feste Adresse: das Symbol am Handy funktioniert dauerhaft." : "Ändert sich bei jedem Neustart des PCs. Mit ngrok-Schlüssel (TradingView-Bereich) bleibt sie fest."}</p>`)}
 
   ${sec("Protokoll", "Hilfreich, wenn etwas nicht klappt: Log anzeigen, kopieren und mir in den Chat schicken.", `
     <div class="inline wrap-gap"><button class="btn" id="logShow">App-Log anzeigen</button><button class="btn" id="logFolder">Ordner öffnen</button></div>
@@ -878,8 +883,8 @@ function settings() {
   // Änderungen sammeln, eine Speichern-Leiste
   let mode = sz.mode;
   const dirty = () => { settingsDirty = true; $("#savebar").hidden = false; };
-  $("#main").addEventListener("input", e => { if (e.target.matches("[data-cfg]")) dirty(); });
-  $("#main").addEventListener("change", e => { if (e.target.matches("[data-cfg]")) dirty(); });
+  $("#main").oninput = e => { if (e.target.matches("[data-cfg]")) dirty(); };
+  $("#main").onchange = e => { if (e.target.matches("[data-cfg]")) dirty(); };
   document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
     mode = b.dataset.mode; document.querySelectorAll("[data-mode]").forEach(x => x.setAttribute("aria-pressed", x === b));
     $('[data-row="fq"]').hidden = mode !== "fixed"; $('[data-row="ru"]').hidden = mode !== "risk_usd"; $('[data-row="rp"]').hidden = mode !== "risk_pct"; dirty(); });
@@ -897,6 +902,7 @@ function settings() {
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc")},
       own_sync: {tradovate: v("osync")},
+      tunnel: {ngrok_token: (v("ngt") || "").trim()},
     };
     await api("/api/config", patch); settingsDirty = false;
   };
@@ -965,10 +971,16 @@ async function showLog() {
 /* ───────── Laufzeit ───────── */
 function render(full) {
   if (!S) return;
+  if (full && TAB !== "settings" && $("#main")) { $("#main").oninput = null; $("#main").onchange = null; }
   header();
   document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x.dataset.tab === TAB));
   if (TAB === "cockpit") cockpit(full);
   else if (full) ({calendar, stats, learn, settings}[TAB])();
+  else if (TAB === "settings" && !settingsDirty && !document.activeElement.matches("input,select")) {
+    // Status-Anzeigen live nachziehen (Verbindung, Broker, Updates, Abruf), ohne Eingaben zu stören
+    const key = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart]);
+    if (key !== settingsKey) { const open = $("details.adv") && $("details.adv").open, y = scrollY; settings(); if (open) $("details.adv").open = true; scrollTo(0, y); }
+  }
   else if (TAB === "stats" || TAB === "learn" || TAB === "calendar") ({calendar, stats, learn}[TAB])();
 }
 async function refresh(full) {

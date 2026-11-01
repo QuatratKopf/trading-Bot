@@ -68,12 +68,14 @@ DEFAULT_CONFIG = {
     },
     "setup_rules": {},         # Strategie -> auto | an | aus
     "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
+    "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
 
 # $ pro Punkt für eigene Trades aus dem Broker-Import
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
+SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("tunnel", "ngrok_token"))
 MASK = "••••••••"
 
 
@@ -160,17 +162,17 @@ class Engine:
 
     def public_cfg(self):
         c = copy.deepcopy(self.cfg)
-        for k in SECRET_FIELDS:
-            if c["tradovate"].get(k):
-                c["tradovate"][k] = MASK
+        for sec, k in SECRET_PATHS:
+            if c.get(sec, {}).get(k):
+                c[sec][k] = MASK
         return c
 
     def update_cfg(self, patch):
         with self.lock:
-            t = (patch or {}).get("tradovate") or {}
-            for k in SECRET_FIELDS:
-                if t.get(k) == MASK:
-                    t.pop(k)
+            for sec, k in SECRET_PATHS:
+                part = (patch or {}).get(sec) or {}
+                if part.get(k) == MASK:
+                    part.pop(k)
             new = deep_merge(self.cfg, patch)
             self._validate_cfg(new)
             broker_changed = new["broker"] != self.cfg["broker"] or new["tradovate"] != self.cfg["tradovate"]

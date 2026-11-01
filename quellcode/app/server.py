@@ -65,7 +65,7 @@ sys.stdout = _Tee(sys.stdout, _logf)
 sys.stderr = _Tee(sys.stderr, _logf)
 
 engine = Engine(DATA)
-tunnel = Tunnel(DATA, PORT, engine.db.log)
+tunnel = Tunnel(DATA, PORT, engine.db.log, get_token=lambda: (engine.cfg.get("tunnel") or {}).get("ngrok_token", ""))
 LAUNCHER = os.environ.get("FVG_LAUNCHER") or os.path.abspath(sys.argv[0])
 AUTH_FILE = os.path.join(DATA, "auth.json")
 SESSION_FILE = os.path.join(DATA, "sessions.json")
@@ -541,7 +541,12 @@ def autostart(h):
 
 @route("POST", r"/api/config")
 def config(h):
-    h._send(200, engine.update_cfg(h._json()))
+    before = (engine.cfg.get("tunnel") or {}).get("ngrok_token", "")
+    res = engine.update_cfg(h._json())
+    if (engine.cfg.get("tunnel") or {}).get("ngrok_token", "") != before and not os.environ.get("FVG_NO_TUNNEL"):
+        tunnel.restart()
+        engine.db.log("Internet-Verbindung wird mit " + ("fester Adresse (ngrok)" if engine.cfg["tunnel"]["ngrok_token"] else "wechselnder Adresse") + " neu aufgebaut")
+    h._send(200, res)
 
 
 @route("POST", r"/api/token")

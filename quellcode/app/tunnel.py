@@ -1,7 +1,11 @@
-"""Öffentliche Adresse für TradingView ohne Account: Cloudflare Quick Tunnel (cloudflared).
+"""Öffentliche Adresse für TradingView.
 
-Lädt cloudflared beim ersten Start automatisch herunter und startet es im Hintergrund.
+- Mit ngrok-Schlüssel: feste Adresse (kostenlose ngrok-Dev-Domain, bleibt nach Neustarts gleich).
+- Ohne Schlüssel: Cloudflare Quick Tunnel ohne Account (Adresse wechselt bei jedem Neustart).
+
+Die benötigten Programme lädt die App beim ersten Bedarf selbst herunter.
 """
+import io
 import os
 import platform
 import re
@@ -13,104 +17,170 @@ import tarfile
 import threading
 import time
 import urllib.request
+import zipfile
 
-BASE = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
+CLOUDFLARED = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
+NGROK = "https://bin.equinox.io/c/bNyj1mQVY4c/"
 
 
 class Tunnel:
-    def __init__(self, data_dir, port, log):
+    def __init__(self, data_dir, port, log, get_token=lambda: ""):
         self.dir = os.path.join(data_dir, "bin")
         self.port = port
         self.log = log
+        self.get_token = get_token
         self.url = None
         self.status = "wird vorbereitet"
         self.ok = False
         self.proc = None
+        self.provider = None
+        self._stopped = False
+        self._fast = False
+        self._wake = threading.Event()
 
     def info(self):
-        return {"url": self.url, "status": self.status, "ok": self.ok}
+        return {"url": self.url, "status": self.status, "ok": self.ok, "provider": self.provider,
+                "fixed": self.provider == "ngrok"}
 
     def start(self):
         threading.Thread(target=self._run, daemon=True).start()
 
-    # ───────── cloudflared besorgen ─────────
-    def _asset(self):
-        mach = platform.machine().lower()
-        arm = mach in ("arm64", "aarch64")
-        if sys.platform.startswith("win"):
-            return "cloudflared-windows-amd64.exe", "cloudflared.exe", False
-        if sys.platform == "darwin":
-            return ("cloudflared-darwin-arm64.tgz" if arm else "cloudflared-darwin-amd64.tgz"), "cloudflared", True
-        return ("cloudflared-linux-arm64" if arm else "cloudflared-linux-amd64"), "cloudflared", False
+    def restart(self):
+        """Nach Änderung des ngrok-Schlüssels: laufende Verbindung beenden, die Schleife baut neu auf."""
+        self.url, self.ok, self.status = None, False, "verbindet neu"
+        self._fast = True
+        self._wake.set()
+        proc = self.proc
+        if proc and proc.poll() is None:
+            proc.terminate()
 
-    def _download(self, url, dest):
+            def _ensure_dead():
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                try:
+                    proc.stdout.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            threading.Thread(target=_ensure_dead, daemon=True).start()
+
+    # ───────── Programme besorgen ─────────
+    @staticmethod
+    def _arch():
+        return "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+
+    def _download(self, url):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "FVG-Trader"})
-            with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
-                shutil.copyfileobj(r, f)
-            return
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return r.read()
         except Exception as e:  # z. B. fehlende Zertifikate bei Python auf dem Mac
             if shutil.which("curl"):
-                subprocess.run(["curl", "-fsSL", "-o", dest, url], check=True, timeout=180)
-                return
+                return subprocess.run(["curl", "-fsSL", url], check=True, timeout=180, capture_output=True).stdout
             raise e
 
-    def _binary(self):
-        found = shutil.which("cloudflared")
+    def _install(self, name, url, member_suffix=None, archive=None, size=""):
+        found = shutil.which(name)
         if found:
             return found
-        asset, name, is_tgz = self._asset()
         os.makedirs(self.dir, exist_ok=True)
-        path = os.path.join(self.dir, name)
+        path = os.path.join(self.dir, name + (".exe" if sys.platform.startswith("win") else ""))
         if os.path.exists(path):
             return path
-        self.status = "lädt Verbindungsprogramm (einmalig, ca. 30 MB)"
+        self.status = f"lädt Verbindungsprogramm (einmalig{size})"
+        data = self._download(url)
+        if archive == "zip":
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                member = next(m for m in z.namelist() if m.rstrip("/").endswith(member_suffix))
+                data = z.read(member)
+        elif archive == "tgz":
+            with tarfile.open(fileobj=io.BytesIO(data)) as t:
+                member = next(m for m in t.getmembers() if m.name.endswith(member_suffix))
+                data = t.extractfile(member).read()
         tmp = path + ".download"
-        self._download(BASE + asset, tmp)
-        if is_tgz:
-            with tarfile.open(tmp) as t:
-                member = next(m for m in t.getmembers() if m.name.endswith("cloudflared"))
-                with t.extractfile(member) as src, open(path, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-            os.remove(tmp)
-        else:
-            os.replace(tmp, path)
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
         if not sys.platform.startswith("win"):
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         return path
 
+    def _cloudflared(self):
+        a = self._arch()
+        if sys.platform.startswith("win"):
+            return self._install("cloudflared", CLOUDFLARED + "cloudflared-windows-amd64.exe", size=", ca. 30 MB")
+        if sys.platform == "darwin":
+            return self._install("cloudflared", CLOUDFLARED + f"cloudflared-darwin-{a}.tgz", "cloudflared", "tgz", ", ca. 30 MB")
+        return self._install("cloudflared", CLOUDFLARED + f"cloudflared-linux-{a}", size=", ca. 30 MB")
+
+    def _ngrok(self):
+        a = self._arch()
+        if sys.platform.startswith("win"):
+            return self._install("ngrok", NGROK + "ngrok-v3-stable-windows-amd64.zip", "ngrok.exe", "zip", ", ca. 10 MB")
+        if sys.platform == "darwin":
+            return self._install("ngrok", NGROK + f"ngrok-v3-stable-darwin-{a}.zip", "ngrok", "zip", ", ca. 10 MB")
+        return self._install("ngrok", NGROK + f"ngrok-v3-stable-linux-{a}.tgz", "ngrok", "tgz", ", ca. 10 MB")
+
     # ───────── Tunnel betreiben (startet bei Abbruch neu) ─────────
     def _run(self):
         delay = 5
-        while True:
+        while not self._stopped:
+            token = (self.get_token() or "").strip()
+            self.provider = "ngrok" if token else "cloudflare"
             try:
-                exe = self._binary()
-                self.status = "verbindet"
                 flags = 0x08000000 if sys.platform.startswith("win") else 0   # kein extra Fenster unter Windows
-                self.proc = subprocess.Popen(
-                    [exe, "tunnel", "--no-autoupdate", "--url", f"http://localhost:{self.port}"],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                    creationflags=flags)
-                for line in self.proc.stdout:
-                    m = re.search(r"https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com", line)
-                    if m and m.group(0) != self.url:
-                        self.url = m.group(0)
-                        self.ok = True
-                        self.status = "aktiv"
-                        self.log(f"Internet-Verbindung aktiv: {self.url}")
-                        delay = 5
-                    elif m:
-                        self.ok = True
-                        self.status = "aktiv"
+                if token:
+                    exe = self._ngrok()
+                    cmd = [exe, "http", str(self.port), "--log", "stdout", "--log-format", "logfmt"]
+                    env = dict(os.environ, NGROK_AUTHTOKEN=token)
+                    pattern = r"url=(https://[^\s\"]+)"
+                else:
+                    exe = self._cloudflared()
+                    cmd = [exe, "tunnel", "--no-autoupdate", "--url", f"http://localhost:{self.port}"]
+                    env = None
+                    pattern = r"(https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)"
+                self.status = "verbindet"
+                self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                             errors="replace", creationflags=flags, env=env)
+                last_err = ""
+                for line in iter(self.proc.stdout.readline, ""):
+                    if "ERR_NGROK" in line or "lvl=eror" in line or "lvl=crit" in line:
+                        m = re.search(r'err="?([^"]+)', line)
+                        last_err = (m.group(1) if m else line.strip())[:200]
+                        if "ERR_NGROK_105" in line or "authtoken" in line.lower():
+                            last_err = "ngrok-Schlüssel ist ungültig. Bitte im ngrok-Dashboard neu kopieren."
+                    m = re.search(pattern, line)
+                    if m:
+                        url = m.group(1).rstrip("/")
+                        self._last_logged = None
+                        if url != self.url:
+                            self.url = url
+                            self.log(f"Internet-Verbindung aktiv ({'feste Adresse' if token else 'wechselnde Adresse'}): {url}")
+                        self.ok, self.status, delay = True, "aktiv", 5
                 self.ok = False
-                self.status = "getrennt, verbinde neu"
+                self.status = f"Fehler: {last_err}" if last_err else "getrennt, verbinde neu"
+                if last_err and last_err != getattr(self, "_last_logged", None):
+                    self._last_logged = last_err
+                    self.log(f"Internet-Verbindung: {last_err}", "error")
             except Exception as e:  # noqa: BLE001
                 self.ok = False
-                self.status = f"Fehler: {e}"
-                self.log(f"Internet-Verbindung: {e}", "error")
-            time.sleep(delay)
+                if not self._fast:   # beim gewollten Neustart ist ein Lesefehler normal
+                    self.status = f"Fehler: {e}"
+                    self.log(f"Internet-Verbindung: {e}", "error")
+            if self._fast:   # nach Schlüssel-Änderung sofort neu verbinden
+                self._fast, delay = False, 5
+                self._wake.clear()
+                time.sleep(1)
+                continue
+            self._wake.wait(delay)
+            if self._wake.is_set():
+                self._wake.clear()
+                self._fast, delay = False, 5
+                continue
             delay = min(delay * 2, 120)
 
     def stop(self):
+        self._stopped = True
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
