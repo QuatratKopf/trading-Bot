@@ -223,6 +223,14 @@ def webhook(h, token):
     except ValueError as e:
         engine.db.log(f"Webhook abgelehnt: {e}", "error")
         return h._send(400, {"error": str(e)})
+    # Kommt hier etwas an, nutzt der TradingView-Alert die aktuelle Adresse: Erinnerung automatisch abhaken
+    cur = hook_url()
+    if cur and engine.cfg.get("hook_confirmed") != cur:
+        try:
+            engine.update_cfg({"hook_confirmed": cur})
+            engine.db.log("TradingView sendet an die aktuelle Webhook-Adresse")
+        except ValueError:
+            pass
     h._send(200, res)
 
 

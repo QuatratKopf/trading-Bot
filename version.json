@@ -1,6 +1,6 @@
 {
-  "version": "2.1.0",
-  "file": "releases/FVG-Trader-2.1.0.cmd",
-  "sha256": "c6c3d90351ca83e1b772b92810273fbd9792839e61db796e952259bc21cce2d1",
-  "notes": "Neues, cleaneres Design: Seitenleiste mit Symbolen, Leiste unten am Handy, Kapitel in den Einstellungen"
+  "version": "2.1.1",
+  "file": "releases/FVG-Trader-2.1.1.cmd",
+  "sha256": "d97a6bee0884848542520605d87cdfe522cf0f031d7d80361bf79c5e9162cf4e",
+  "notes": "Erinnerung an die Webhook-Adresse verschwindet automatisch, sobald TradingView Daten schickt"
 }
