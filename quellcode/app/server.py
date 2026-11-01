@@ -603,15 +603,28 @@ def paper_reset(h):
     h._send(200, {"ok": True})
 
 
+class AppServer(ThreadingHTTPServer):
+    """Belegt den Port exklusiv. Unter Windows erlaubt Python sonst, dass mehrere Instanzen denselben Port teilen –
+    dann laufen unbemerkt alte Versionen weiter."""
+    daemon_threads = True
+    allow_reuse_address = not sys.platform.startswith("win")
+
+    def server_bind(self):
+        import socket
+        if sys.platform.startswith("win") and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def main():
     global SRV
     srv = None
-    for attempt in range(10):   # nach einem Update kann der Port kurz noch belegt sein
+    for attempt in range(60):   # nach einem Update kann der Port noch kurz von der alten Version belegt sein
         try:
-            srv = ThreadingHTTPServer((HOST, PORT), Handler)
+            srv = AppServer((HOST, PORT), Handler)
             break
         except OSError:
-            if "--hintergrund" in sys.argv and attempt < 9:
+            if "--hintergrund" in sys.argv and attempt < 59:
                 time.sleep(1)
                 continue
             srv = None

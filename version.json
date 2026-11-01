@@ -1,6 +1,6 @@
 {
-  "version": "1.9.1",
+  "version": "1.9.2",
   "file": "FVG-Trader.cmd",
-  "sha256": "b0a424fb3fc18e0f2de17715f3e999f35cda30bb744e0ad23fdfe451d25c098f",
-  "notes": "Prüft ngrok-Schlüssel und Adressfeld, korrigiert falsch eingetragene Werte"
+  "sha256": "95e2b667a2c7b354d382e9b2fecd58b5476211608a368712b2b13f811a974de0",
+  "notes": "Verhindert, dass unter Windows mehrere FVG-Trader gleichzeitig laufen; Updates starten sauber neu"
 }

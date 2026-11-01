@@ -285,6 +285,7 @@ async function runUpdate(doIt) {
   const target = res && res.version;
   msg("Neustart …", `Version <b>${esc(target || "neu")}</b> ist installiert. FVG Trader startet neu, das dauert ein paar Sekunden.`);
   const t0 = Date.now();
+  let kills = 0;
   const poll = async () => {
     const secs = (Date.now() - t0) / 1000;
     try {
@@ -293,9 +294,10 @@ async function runUpdate(doIt) {
       if (r.ok) {
         const j = await r.json();
         if (j.version !== before) { location.reload(); return; }
-        if (secs > 20) {   // alter Prozess läuft noch
-          msg("Neustart hat nicht geklappt", "Die neue Version ist installiert, aber die alte läuft noch. Bitte unter Einstellungen „App beenden“ und dann FVG Trader über das Desktop-Symbol starten.",
-            '<button class="btn" id="updClose">Schließen</button>'); $("#updClose").onclick = () => $("#updOv").remove(); return;
+        if (secs > 12 && kills < 5) {   // eine alte Instanz antwortet noch: beenden, die neue übernimmt
+          kills++;
+          msg("Räume auf …", "Eine ältere FVG-Trader-Instanz läuft noch im Hintergrund und wird beendet.");
+          try { await fetch("/api/shutdown", {method: "POST", headers: {"X-Requested-With": "fvg", "Content-Type": "application/json"}, body: "{}"}); } catch (e) {}
         }
       }
     } catch (e) {}
