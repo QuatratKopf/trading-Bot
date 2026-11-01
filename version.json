@@ -1,6 +1,6 @@
 {
-  "version": "2.1.1",
-  "file": "releases/FVG-Trader-2.1.1.cmd",
-  "sha256": "d97a6bee0884848542520605d87cdfe522cf0f031d7d80361bf79c5e9162cf4e",
-  "notes": "Erinnerung an die Webhook-Adresse verschwindet automatisch, sobald TradingView Daten schickt"
+  "version": "2.2.0",
+  "file": "releases/FVG-Trader-2.2.0.cmd",
+  "sha256": "2979af356b0f88e13d7d017aaf6ab70472455099d26f1a20b5eaef4ca433d252",
+  "notes": "Neues dunkles Design, Auswahlleiste wieder oben, Einstellungen aufklappbar, Kalender neu mit Tagesansicht zum Eintragen, Wirtschafts-News im Cockpit"
 }

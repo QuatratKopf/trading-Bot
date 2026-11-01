@@ -312,6 +312,83 @@ def state(h):
     h._send(200, s)
 
 
+# ───────────────────────── Wirtschafts-News (Forex-Factory-Kalender) ─────────────────────────
+NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+NEWS = {"events": [], "fetched": 0, "error": None, "loading": False}
+_news_lock = threading.Lock()
+
+
+def _news_load_cache():
+    try:
+        with open(os.path.join(DATA, "news.json"), encoding="utf-8") as f:
+            NEWS.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    NEWS["loading"] = False
+
+
+def _news_parse(raw):
+    from datetime import datetime
+    out = []
+    for e in raw if isinstance(raw, list) else []:
+        try:
+            ts = int(datetime.fromisoformat(str(e.get("date", "")).replace("Z", "+00:00")).timestamp() * 1000)
+        except ValueError:
+            continue
+        imp = str(e.get("impact", "")).strip().lower()
+        out.append({"ts": ts, "title": str(e.get("title", ""))[:120], "country": str(e.get("country", ""))[:8],
+                    "impact": {"high": "high", "medium": "medium", "low": "low", "holiday": "holiday"}.get(imp, "low"),
+                    "forecast": str(e.get("forecast") or "")[:20], "previous": str(e.get("previous") or "")[:20],
+                    "actual": str(e.get("actual") or "")[:20]})
+    out.sort(key=lambda x: x["ts"])
+    return out
+
+
+def _news_fetch():
+    try:
+        req = urllib.request.Request(NEWS_URL, headers={"User-Agent": "FVG-Trader"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            events = _news_parse(json.loads(r.read().decode("utf-8", "replace")))
+        NEWS.update(events=events, fetched=time.time(), error=None)
+        with open(os.path.join(DATA, "news.json"), "w", encoding="utf-8") as f:
+            json.dump({"events": events, "fetched": NEWS["fetched"]}, f)
+    except Exception as e:  # noqa: BLE001
+        NEWS["error"] = "News konnten nicht geladen werden" + (" (zu viele Abrufe, später erneut)" if "429" in str(e) else "")
+        NEWS["fetched_try"] = time.time()
+    finally:
+        NEWS["loading"] = False
+
+
+def news_refresh(force=False):
+    """Höchstens alle 60 Minuten abrufen (die Quelle sperrt bei zu vielen Anfragen), nach Fehler 10 Minuten warten."""
+    with _news_lock:
+        if NEWS["loading"]:
+            return
+        age = time.time() - NEWS.get("fetched", 0)
+        retry = time.time() - NEWS.get("fetched_try", 0)
+        if not force and age < 3600:
+            return
+        if retry < (60 if force else 600):
+            return
+        NEWS["loading"] = True
+        NEWS["fetched_try"] = time.time()
+    threading.Thread(target=_news_fetch, daemon=True).start()
+
+
+@route("GET", r"/api/news")
+def news(h):
+    if not NEWS["fetched"] and not NEWS["loading"] and "fetched_try" not in NEWS:
+        _news_load_cache()
+    news_refresh()
+    h._send(200, {"events": NEWS["events"], "fetched": NEWS["fetched"], "error": NEWS["error"], "loading": NEWS["loading"]})
+
+
+@route("POST", r"/api/news/refresh")
+def news_force(h):
+    news_refresh(force=True)
+    h._send(200, {"ok": True})
+
+
 # ───────────────────────── Updates ─────────────────────────
 import hashlib as _hl  # noqa: E402
 import urllib.parse  # noqa: E402
