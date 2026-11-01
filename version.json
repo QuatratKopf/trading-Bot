@@ -1,6 +1,6 @@
 {
-  "version": "1.9.2",
+  "version": "1.9.3",
   "file": "FVG-Trader.cmd",
-  "sha256": "95e2b667a2c7b354d382e9b2fecd58b5476211608a368712b2b13f811a974de0",
-  "notes": "Verhindert, dass unter Windows mehrere FVG-Trader gleichzeitig laufen; Updates starten sauber neu"
+  "sha256": "9b8bc01c8944b329e4d59bed1644515b29a2fbf99a692a0a65274a79a5d46551",
+  "notes": "Desktop-Symbol zeigt immer auf die aktuelle Datei, Dateipfad in den Einstellungen"
 }

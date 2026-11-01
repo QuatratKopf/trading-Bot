@@ -294,6 +294,7 @@ def state(h):
     s["platform"] = sys.platform
     s["autostart"] = autostart_enabled()
     s["version"] = APP_VERSION
+    s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()
     h._send(200, s)
 

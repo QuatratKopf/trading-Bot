@@ -149,18 +149,26 @@ def icon_file(data_dir):
 
 
 def ensure_desktop_shortcut(launcher, data_dir, log):
-    """Legt einmalig „FVG Trader“ auf dem Desktop und im Startmenü an (startet ohne Konsolenfenster)."""
+    """Legt „FVG Trader“ auf Desktop und im Startmenü an und richtet es neu aus, sobald eine andere Datei läuft.
+    So zeigt das Symbol nie auf eine alte Kopie (z. B. „FVG-Trader (1).cmd“ in Downloads)."""
     if not sys.platform.startswith("win"):
         return
-    flag = os.path.join(data_dir, "verknuepfung-v2.ok")
-    if os.path.exists(flag):
-        return
+    flag = os.path.join(data_dir, "verknuepfung.txt")
+    try:
+        with open(flag, encoding="utf-8") as f:
+            if f.read().strip() == launcher:
+                return
+    except OSError:
+        pass
     try:
         desktop, programs = _folders()[:2]
         make_shortcuts([os.path.join(desktop, "FVG Trader.lnk"), os.path.join(programs, "FVG Trader.lnk")],
                        launcher, icon_file(data_dir))
-        open(flag, "w").close()
-        log("Symbol „FVG Trader“ auf dem Desktop angelegt")
+        if autostart_enabled():   # Autostart startet still im Hintergrund
+            make_shortcuts([autostart_path()], launcher, icon_file(data_dir), "--hintergrund")
+        with open(flag, "w", encoding="utf-8") as f:
+            f.write(launcher)
+        log(f"Desktop-Symbol zeigt auf: {launcher}")
     except Exception as e:  # noqa: BLE001
         log(f"Desktop-Symbol konnte nicht angelegt werden: {e}", "warn")
 

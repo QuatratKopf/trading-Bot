@@ -785,6 +785,8 @@ function settings() {
   ${sec("App & Updates", "", `
     <div class="row"><label>Installierte Version<small>${S.update.checked ? "Zuletzt geprüft: " + dtm(S.update.checked) : "Die App prüft bei jedem Start und alle 6 Stunden."}</small></label>
       <div class="inline"><b class="mono">${esc(S.version)}</b> ${updState}</div></div>
+    <div class="row"><label>Programmdatei<small>Diese Datei läuft gerade, auf sie zeigt auch das Desktop-Symbol. Andere Kopien (z. B. „FVG-Trader (1).cmd“ in Downloads) kannst du löschen.</small></label>
+      <div class="inline"><span class="mono" style="font-size:11.5px;word-break:break-all;text-align:right">${esc(S.launcher || "–")}</span></div></div>
     <div class="row"><label>Nach Updates suchen und installieren<small>${S.update.available && S.update.notes ? esc(S.update.notes) : "Deine Einstellungen und Trades bleiben erhalten."}</small></label>
       <button class="btn primary" id="updNowSet">Jetzt aktualisieren</button></div>
     ${S.platform.startsWith("win") ? `<div class="row"><label>Mit Windows starten<small>Der Bot läuft nach dem Hochfahren still im Hintergrund.</small></label>
