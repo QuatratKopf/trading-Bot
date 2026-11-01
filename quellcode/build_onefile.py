@@ -99,7 +99,9 @@ def main():
     with open(OUT, "rb") as f:
         sha = hashlib.sha256(f.read()).hexdigest()
     with open(os.path.join(os.path.dirname(OUT), "version.json"), "w", encoding="utf-8") as f:
-        json.dump({"version": version, "file": "FVG-Trader.cmd", "sha256": sha, "notes": notes}, f, ensure_ascii=False, indent=2)
+        # eigene, nie wieder geänderte Datei je Version: GitHub kann keine veraltete Fassung ausliefern
+        json.dump({"version": version, "file": f"releases/FVG-Trader-{version}.cmd", "sha256": sha, "notes": notes},
+                  f, ensure_ascii=False, indent=2)
     print("gebaut:", OUT, os.path.getsize(OUT), "Bytes · Version", version)
 
 

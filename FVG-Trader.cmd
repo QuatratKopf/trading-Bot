@@ -1999,7 +1999,7 @@ STATIC = os.path.join(ROOT, "app", "static")
 HOST = os.environ.get("FVG_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FVG_PORT", "8787"))
 BACKGROUND = "--hintergrund" in sys.argv
-APP_VERSION = "1.9.8"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "1.9.9"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
@@ -2417,8 +2417,18 @@ def update_apply(h):
         raise ValueError(UPDATE.get("error") or "Du hast bereits die neueste Version.")
     UPDATE["busy"] = True
     try:
-        data = _fetch(UPDATE["file"])
-        v = install_update(data, UPDATE.get("sha256"))
+        v = None
+        for attempt in range(3):   # GitHub speichert kurz zwischen: bei falscher Prüfsumme neu laden
+            data = _fetch(UPDATE["file"])
+            try:
+                v = install_update(data, UPDATE.get("sha256"))
+                break
+            except ValueError as e:
+                if "Prüfsumme" not in str(e) or attempt == 2:
+                    raise
+                engine.db.log("Update: Prüfsumme passt noch nicht, lade erneut …", "warn")
+                time.sleep(4)
+                check_update()
     finally:
         UPDATE["busy"] = False
     h._send(200, {"ok": True, "version": v})

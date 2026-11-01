@@ -445,8 +445,18 @@ def update_apply(h):
         raise ValueError(UPDATE.get("error") or "Du hast bereits die neueste Version.")
     UPDATE["busy"] = True
     try:
-        data = _fetch(UPDATE["file"])
-        v = install_update(data, UPDATE.get("sha256"))
+        v = None
+        for attempt in range(3):   # GitHub speichert kurz zwischen: bei falscher Prüfsumme neu laden
+            data = _fetch(UPDATE["file"])
+            try:
+                v = install_update(data, UPDATE.get("sha256"))
+                break
+            except ValueError as e:
+                if "Prüfsumme" not in str(e) or attempt == 2:
+                    raise
+                engine.db.log("Update: Prüfsumme passt noch nicht, lade erneut …", "warn")
+                time.sleep(4)
+                check_update()
     finally:
         UPDATE["busy"] = False
     h._send(200, {"ok": True, "version": v})
