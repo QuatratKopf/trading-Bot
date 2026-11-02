@@ -1,6 +1,6 @@
 {
-  "version": "2.5.2",
-  "file": "releases/FVG-Trader-2.5.2.cmd",
-  "sha256": "16d05ef304b6b68edcbf3269eca18b8ec4bac3b4bd7ac3d8fd157450b30c26e3",
-  "notes": "Test-Trades erscheinen im Kalender (markiert) und lassen sich einzeln oder alle löschen"
+  "version": "2.5.3",
+  "file": "releases/FVG-Trader-2.5.3.cmd",
+  "sha256": "60c576f4339298358a9e0516768c19346d46d2fce1062a0630c18e2f00ecba53",
+  "notes": "Offene Positionen im Cockpit direkt unter der Performance"
 }
