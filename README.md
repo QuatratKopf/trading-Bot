@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.9.1 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.10.0 "Notiz"`) |
 
 ## Funktionen
 
@@ -28,7 +28,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 - Sessions zum Anhaken: Asien, London, New York Vormittag, Mittag, Nachmittag, oder ganztägig (in App und Strategie)
 - Performance-Ring im Cockpit (Zeitraum und Quelle wählbar), Tages-P&L-Grafik, Equity-Kurve
 - Positionsgröße: feste Anzahl, Risiko in $ oder in % vom Konto, Mini oder Micro
-- Pflicht-Stop-Loss (Safe-Stop), Tagesverlust-Limit, News-Filter, Notaus
+- Pflicht-Stop-Loss (Safe-Stop), Tagesverlust-Limit, News-Filter im Script und News-Pause in der App (Wirtschaftskalender), Notaus
 - Lernmodul: bewertet jede Strategie täglich anhand von Schatten-Trades, gesamt und je Session
 - Varianten-Labor: rechnet je Signal 8 Ausstiegs-Varianten mit (1R–3R, Break-even, Trailing, Session-Ende) und empfiehlt die beste nach Gegenprobe
 - Regel-Finder: merkt sich die Marktlage je Signal und findet Bedingungen, unter denen eine Strategie klar besser oder schlechter läuft; Regeln per Klick als Filter übernehmen

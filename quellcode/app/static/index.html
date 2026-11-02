@@ -280,7 +280,8 @@ svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 @media (max-width:640px){ .drw-bg{align-items:flex-end} .drw{height:88vh;border-left:0;border-top:1px solid var(--line2);border-radius:16px 16px 0 0;animation:up .2s ease-out} @keyframes up{from{transform:translateY(40px);opacity:0}} }
 .nw-ctl{display:flex;gap:6px;flex-wrap:wrap}
 .nw-box{padding:6px 0;display:flex;flex-direction:column}
-.nw{display:grid;grid-template-columns:70px 30px minmax(0,1fr) auto 84px;gap:12px;align-items:center;padding:9px 18px;border-top:1px solid var(--line)}
+.nw{display:grid;grid-template-columns:52px 26px minmax(0,1fr) auto;grid-template-areas:"t i n c" ". . v v";gap:2px 10px;align-items:center;padding:9px 16px;border-top:1px solid var(--line)}
+.nw-t{grid-area:t} .nw .imp{grid-area:i} .nw-n{grid-area:n} .nw-c{grid-area:c} .nw-v{grid-area:v;white-space:normal!important}
 .nw-box > .nw:first-child,.nw-day + .nw,.nw-alert + .nw{border-top:0}
 .nw.past{opacity:.45}
 .nw.next{background:var(--fill)}
@@ -299,7 +300,7 @@ svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 .nw-alert{margin:6px 12px 8px;padding:10px 12px;border-radius:9px;background:var(--neg-bg);border:1px solid rgba(255,93,108,.3);font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .nw-f{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 18px 6px;border-top:1px solid var(--line);flex-wrap:wrap}
 .news-pill{color:var(--neg)!important;border-color:rgba(255,93,108,.4)!important}
-@media (max-width:700px){ .nw{grid-template-columns:48px 24px minmax(0,1fr) auto;padding:9px 12px;gap:8px} .nw-v{grid-column:3/5;grid-row:2;white-space:normal} .nw-t{font-size:12px} }
+@media (max-width:700px){ .nw{grid-template-columns:46px 22px minmax(0,1fr) auto;padding:9px 12px} .nw-t{font-size:12px} }
 .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:-6px}
 .subtabs button{border:0;background:none;color:var(--muted);font:500 14px var(--f-body);padding:10px 14px;border-bottom:2px solid transparent;margin-bottom:-1px}
 .subtabs button:hover{color:var(--fg)}
@@ -775,6 +776,7 @@ function header() {
     + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
         <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "")
     + (S.remote && S.remote.limit && S.remote.n > S.remote.limit * 0.8 ? `<div class="banner">ngrok-Kontingent fast aufgebraucht: ${S.remote.n.toLocaleString("de-DE")} von ${S.remote.limit.toLocaleString("de-DE")} Anfragen diesen Monat. Ist es leer, kommen keine Signale mehr an. App am Handy seltener offen lassen; mehr dazu unter Einstellungen → TradingView.</div>` : "")
+    + (S.news_pause ? `<div class="banner" style="background:var(--warn-bg);color:var(--fg)"><b style="color:var(--warn)">${esc(S.news_pause)}</b> · In dieser Zeit nimmt der Bot keine neuen Trades.</div>` : "")
     + (S.alert_issue ? `<div class="banner" style="background:var(--neg-bg);color:var(--fg);border:1px solid rgba(255,93,108,.35)"><b style="color:var(--neg)">TradingView-Alert falsch eingerichtet.</b>
         Angekommen ist nur der Platzhalter <span class="mono">{{strategy.order.alert_message}}</span> statt der Daten (zuletzt ${tm(S.alert_issue.ts)}). Der Alert hängt am Kurs statt an der Strategie.
         <ol style="margin:8px 0 0;padding-left:20px;line-height:1.7"><li>Alle bisherigen Alarme für NQ1! löschen.</li><li>Neuen Alarm: bei <b>Bedingung</b> die Strategie <b>„FVG Bot“</b> wählen (nicht „NQ1!“), darunter <b>„Orderausführungen und alert()-Aufrufe“</b>.</li>
@@ -810,6 +812,12 @@ function newsFiltered() {
     && (NV.range === "heute" ? e.ts >= d0 && e.ts < d0 + 864e5 : true));
 }
 const inMin = ms => { const m = Math.round(ms / 60000); if (Math.abs(m) < 60) return m >= 0 ? `in ${m} Min` : `vor ${-m} Min`; const h = Math.round(m / 6) / 10; return m >= 0 ? `in ${String(h).replace(".", ",")} Std` : ""; };
+function newsPauseChip(e) {
+  const nw = (S && S.config && S.config.news) || {};
+  if (!nw.enabled || (nw.usd_only && e.country !== "USD") || !(e.impact === "high" || (nw.impact === "medium" && e.impact === "medium"))) return "";
+  const f = ms => new Date(ms).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"});
+  return ` <span class="chip" title="In dieser Zeit nimmt der Bot keine neuen Trades${nw.close_before ? " und schließt offene Positionen 1 Min vorher" : ""}">Bot-Pause ${f(e.ts - nw.before_min * 60000)}–${f(e.ts + nw.after_min * 60000)}</span>`;
+}
 function newsPill() {
   const el = $("#pNews"); if (!el) return;
   const now = Date.now(), next = NEWSD.events.find(e => e.country === "USD" && e.impact === "high" && e.ts > now - 5 * 60000 && e.ts < now + 45 * 60000);
@@ -831,7 +839,7 @@ function newsPanel() {
     rows += `<div class="nw ${past ? "past" : ""} ${live ? "live" : ""} ${e === next ? "next" : ""}">
       <span class="nw-t mono">${e.impact === "holiday" ? "ganztägig" : hm(e.ts)}</span>
       <span class="imp ${e.impact}" title="${{high: "Hohe", medium: "Mittlere", low: "Geringe", holiday: "Feiertag:"}[e.impact]} Wirkung"><i></i><i></i><i></i></span>
-      <span class="nw-n"><b>${esc(e.title)}</b>${NV.usd ? "" : ` <span class="chip mute">${esc(e.country)}</span>`}${e.impact === "holiday" ? ' <span class="chip warn">Feiertag</span>' : ""}</span>
+      <span class="nw-n"><b>${esc(e.title)}</b>${NV.usd ? "" : ` <span class="chip mute">${esc(e.country)}</span>`}${e.impact === "holiday" ? ' <span class="chip warn">Feiertag</span>' : ""}${newsPauseChip(e)}</span>
       <span class="nw-v mono">${e.actual ? `<b>${esc(e.actual)}</b> · ` : ""}${e.forecast ? `Prog. ${esc(e.forecast)}` : ""}${e.previous ? `${e.forecast ? " · " : ""}vorher ${esc(e.previous)}` : ""}</span>
       <span class="nw-c">${live ? '<span class="chip bad">jetzt</span>' : past ? "" : e === next ? `<span class="chip">${inMin(e.ts - now)}</span>` : ""}</span>
     </div>`;
@@ -1980,7 +1988,7 @@ function settings() {
   const sessOn = Object.entries(S.sessions).filter(([k]) => (r.sessions || {})[k]).map(([, x]) => x.name);
   const sizeSum = (sz.mode === "fixed" ? `${sz.fixed_qty} Kontrakt${sz.fixed_qty == 1 ? "" : "e"} pro Trade` : sz.mode === "risk_usd" ? `${usd(sz.risk_usd)} Risiko pro Trade` : `${sz.risk_pct} % Risiko pro Trade`)
     + ` · ${{auto: "Mini oder Micro", mini: "nur Mini", micro: "nur Micro"}[sz.contract_type] || ""} · max. ${sz.max_qty}`;
-  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"}`;
+  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
   const accChip = t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
   $("#main").innerHTML = `<div class="settings-wrap">
@@ -2024,7 +2032,14 @@ function settings() {
     ${field("esd", "Standard-Stop ES (Punkte)", ss.ES.default, {attrs: {step: 0.25, min: 0.25}})}
     ${field("rr", "Standard-Ziel (R)", ss.default_rr, {attrs: {step: 0.25, min: 0.5}, help: "Wenn das Signal kein Ziel mitschickt"})}
     ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "Danach handelt der Bot heute nicht mehr. 0 = aus"})}
-    ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}`)}
+    ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}
+    <span class="lbl">News-Pause</span>
+    ${field("nwE", "Rund um wichtige News nicht handeln", (c.news || {}).enabled, {check: true, help: "Nutzt den Wirtschaftskalender (Cockpit → Wirtschafts-News). Gilt zusätzlich zum News-Filter im TradingView-Script."})}
+    ${field("nwB", "Minuten vorher sperren", (c.news || {}).before_min, {attrs: {min: 0, max: 240, step: 1}})}
+    ${field("nwA", "Minuten danach sperren", (c.news || {}).after_min, {attrs: {min: 0, max: 240, step: 1}})}
+    ${field("nwI", "Welche News", (c.news || {}).impact, {select: [["high", "Nur hohe Wichtigkeit (rot)"], ["medium", "Hohe und mittlere (rot + orange)"]]})}
+    ${field("nwU", "Nur US-News", (c.news || {}).usd_only, {check: true, help: "NQ und ES reagieren vor allem auf US-Daten"})}
+    ${field("nwC", "Offene Positionen vorher schließen", (c.news || {}).close_before, {check: true, help: "1 Minute vor dem Termin, damit kein Trade in die Veröffentlichung läuft"})}`)}
 
   ${sec("sess", "Sessions & Vorschläge", r.all_day ? "Ganztägig" + (sessOn.length ? " · " + sessOn.join(" · ") : "") : sessOn.length ? sessOn.join(" · ") : "keine Session angehakt", `<span class="chip ${S.session_open ? "good" : "mute"}">${S.session_open ? "jetzt offen" : "gerade zu"}</span>`, `
     ${intro("Hak an, in welchen Sessions der Bot handeln darf. Die gleichen Haken gibt es in den Einstellungen der TradingView-Strategie.")}
@@ -2118,6 +2133,7 @@ function settings() {
       safe_stop: {NQ: {default: num("nqd"), min: num("nqmin"), max: num("nqmax")}, ES: {default: num("esd"), min: num("esmin"), max: num("esmax")}, default_rr: num("rr")},
       risk: {max_daily_loss: num("mdl"), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), all_day: v("ad"), flat_at_session_end: v("fe"),
         sessions: Object.fromEntries([...document.querySelectorAll("[data-sess]")].map(x => [x.dataset.sess, x.checked]))},
+      news: {enabled: v("nwE"), before_min: parseInt(v("nwB")), after_min: parseInt(v("nwA")), impact: v("nwI"), usd_only: v("nwU"), close_before: v("nwC")},
       suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"),
       learning: {enabled: v("le"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),

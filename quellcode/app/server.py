@@ -104,6 +104,7 @@ sys.stdout = _Tee(sys.stdout, _logf)
 sys.stderr = _Tee(sys.stderr, _logf)
 
 engine = Engine(DATA)
+engine.news_source = lambda: NEWS["events"]
 tunnel = Tunnel(DATA, PORT, engine.db.log, get_token=lambda: (engine.cfg.get("tunnel") or {}).get("ngrok_token", ""))
 LAUNCHER = os.environ.get("FVG_LAUNCHER") or os.path.abspath(sys.argv[0])
 AUTH_FILE = os.path.join(DATA, "auth.json")
@@ -416,6 +417,14 @@ def _news_fetch():
         NEWS["fetched_try"] = time.time()
     finally:
         NEWS["loading"] = False
+
+
+def _news_loop():
+    """Wirtschaftskalender auch ohne offenes App-Fenster aktuell halten (für die News-Pause)."""
+    _news_load_cache()
+    while True:
+        news_refresh()
+        time.sleep(600)
 
 
 def news_refresh(force=False):
@@ -955,6 +964,7 @@ def main():
     if not SERVICE:   # der Dienst läuft als SYSTEM und hat keinen eigenen Desktop
         threading.Thread(target=ensure_desktop_shortcut, args=(LAUNCHER, DATA, engine.db.log), daemon=True).start()
     threading.Thread(target=_update_loop, daemon=True).start()
+    threading.Thread(target=_news_loop, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

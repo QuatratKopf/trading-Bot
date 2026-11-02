@@ -93,6 +93,9 @@ DEFAULT_CONFIG = {
         "all_day": False,          # ganztägig handeln (außer Marktpause)
         "flat_at_session_end": True,
     },
+    "news": {                  # News-Pause aus dem Wirtschaftskalender
+        "enabled": True, "before_min": 10, "after_min": 10, "impact": "high", "usd_only": True, "close_before": True,
+    },
     "exit_rules": {},          # Strategie -> übernommene Ausstiegs-Variante (Varianten-Labor)
     "rule_filters": [],        # übernommene Regeln aus dem Regel-Finder
     "challenge": {             # Fremdkapital / Prop-Firm-Challenge
@@ -340,6 +343,8 @@ class Engine:
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
+        self.news_source = lambda: []  # liefert die Termine des Wirtschaftskalenders (setzt der Server)
+        self._news_closed = set()
         self.last_tick = {}           # Familie -> {"price", "ts"}: Live-Kurs, solange ein Trade offen ist
         self.broker_status = ""
         self.broker_ok = False
@@ -432,6 +437,13 @@ class Engine:
         L["pause_below_r"], L["half_below_r"] = float(L["pause_below_r"]), float(L["half_below_r"])
         if not (5 <= L["window"] <= 500 and 3 <= L["min_trades"] <= L["window"] and L["pause_below_r"] < L["half_below_r"]):
             raise ValueError("Lernmodul: Fenster 5–500, Mindest-Trades ≤ Fenster, Pause-Schwelle < Halbe-Größe-Schwelle")
+        nw = c["news"]
+        nw["enabled"], nw["usd_only"], nw["close_before"] = bool(nw["enabled"]), bool(nw["usd_only"]), bool(nw["close_before"])
+        nw["before_min"], nw["after_min"] = int(nw["before_min"] or 0), int(nw["after_min"] or 0)
+        if not (0 <= nw["before_min"] <= 240 and 0 <= nw["after_min"] <= 240):
+            raise ValueError("News-Pause: Minuten vorher/nachher zwischen 0 und 240")
+        if nw["impact"] not in ("high", "medium"):
+            raise ValueError("News-Pause: Wichtigkeit muss hoch oder mittel sein")
         er = c.get("exit_rules") or {}
         c["exit_rules"] = {str(k)[:40]: v for k, v in er.items() if v in VARIANTS}
         rf = c.get("rule_filters") or []
@@ -872,10 +884,38 @@ class Engine:
             return "ganztags"
         return k
 
+    def news_window(self, now=None):
+        """Wichtige Termine, deren Sperrzeit gerade läuft oder in den nächsten 3 Stunden beginnt."""
+        nw = self.cfg["news"]
+        if not nw["enabled"]:
+            return []
+        now = now or time.time()
+        out = []
+        for e in self.news_source() or []:
+            if nw["usd_only"] and e.get("country") != "USD":
+                continue
+            if e.get("impact") not in (("high",) if nw["impact"] == "high" else ("high", "medium")):
+                continue
+            t = e["ts"] / 1000
+            start, end = t - nw["before_min"] * 60, t + nw["after_min"] * 60
+            if end >= now and start <= now + 3 * 3600:
+                out.append(dict(e, start=start, end=end, active=start <= now <= end))
+        return sorted(out, key=lambda x: x["start"])
+
+    def news_block(self):
+        act = [e for e in self.news_window() if e["active"]]
+        if not act:
+            return None
+        e = act[0]
+        return f"News-Pause: {e['title']} um {ny_time(e['ts'] / 1000).strftime('%H:%M')} NY (bis {ny_time(e['end']).strftime('%H:%M')})"
+
     def _guards(self, fam, risk=None):
         r = self.cfg["risk"]
         if self.cfg["paused"]:
             return "Handel pausiert"
+        nb = self.news_block()
+        if nb:
+            return nb
         ch = self.cfg["challenge"]
         if ch["enabled"] and ch["guard"] and ch["source"] != "eigen":
             c = self.challenge()
@@ -1259,6 +1299,20 @@ class Engine:
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
                 self.db.prune_bars1((now - 20 * 86400) * 1000)   # 1-Minuten-Kerzen: 20 Tage reichen für den Chart
+            nw = self.cfg["news"]
+            if nw["enabled"] and nw["close_before"] and self.db.open_positions():
+                for e in self.news_window():
+                    t = e["ts"] / 1000
+                    key = f"{e['title']}{e['ts']}"
+                    # 1 Minute vor dem Termin (bzw. sofort, wenn die Pause schon läuft) offene Positionen schließen
+                    if key not in self._news_closed and time.time() >= min(t - 60, e["start"]) and time.time() <= e["end"]:
+                        self._news_closed.add(key)
+                        for pos in self.db.open_positions():
+                            try:
+                                self._close(pos, None, f"News: {e['title']}")
+                            except ValueError:
+                                pass
+                        self.db.log(f"Vor News geschlossen: {e['title']} um {ny_time(t).strftime('%H:%M')} NY", "warn")
             if r["flat_at_session_end"] and self.db.open_positions():
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
@@ -1946,6 +2000,9 @@ class Engine:
                 "daily": self.daily(),
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
+                "news_pause": self.news_block(),
+                "news_next": next(({"title": e["title"], "ts": e["ts"], "start": e["start"], "end": e["end"]}
+                                   for e in self.news_window() if not e["active"]), None),
                 "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
                 "sizing_preview": {fam: [self.size_preview(fam, pts) for pts in
                                          ((10, 20, 40, 60) if fam == "NQ" else (3, 5, 10, 15))]
