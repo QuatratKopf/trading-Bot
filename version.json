@@ -1,6 +1,6 @@
 {
-  "version": "2.6.0",
-  "file": "releases/FVG-Trader-2.6.0.cmd",
-  "sha256": "5cb7832b9101810f1e8c85de2d11cfcaa9892e6a6dcfcd7f8f8d9aad7043abbe",
-  "notes": "Live-Chart im Cockpit: Kerzen aus TradingView mit Einstiegen, Ausstiegen, Stop/Ziel offener Trades und Key Levels"
+  "version": "2.6.1",
+  "file": "releases/FVG-Trader-2.6.1.cmd",
+  "sha256": "6531aeacd7f68f31b15dd58f16b78e86ee9181ed87473f70b762c22d593a66e2",
+  "notes": "Live-Chart: Zeiteinheit 1m/5m/15m, 1-Minuten-Kerzen vom Script, weicher Zoom mit +/− und Pinch, stabil beim Nachladen"
 }

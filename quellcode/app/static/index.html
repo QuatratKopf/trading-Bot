@@ -446,6 +446,9 @@ svg.chart{width:100%;height:auto}
 .rfa{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--raise);font-size:13px}
 .rfa small{display:block} .rfa.off{opacity:.55}
 @media (max-width:560px){ .rf-g{grid-template-columns:repeat(2,minmax(0,1fr))} .rfa{grid-template-columns:auto minmax(0,1fr)} .rfa .btn{grid-column:auto} .rf-grid{grid-template-columns:1fr} }
+.lc-zoom{position:absolute;bottom:30px;left:8px;display:flex;gap:4px;z-index:2;opacity:.85}
+.lc-zoom button{width:30px;height:28px;border-radius:7px;border:1px solid var(--line2);background:color-mix(in srgb,var(--surface) 85%,transparent);color:var(--fg);font:600 15px var(--f-body);display:grid;place-items:center;padding:0}
+.lc-zoom button:hover{border-color:var(--accent)}
 .lc-box{padding:0;overflow:hidden}
 .lc-leg{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;padding:10px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);min-height:41px}
 .lc-leg b{color:var(--fg);font-weight:500}
@@ -1126,41 +1129,61 @@ function chForm() {
 }
 
 /* ───────── Live-Chart im Cockpit (eigener Canvas-Chart, ohne externe Bibliothek) ───────── */
-const LC = {fam: "auto", days: 2, lv: true, tr: true, data: null, at: 0, busy: false, view: null, hover: null, follow: true};
-try { Object.assign(LC, JSON.parse(localStorage.getItem("fvg-lc") || "{}"), {data: null, at: 0, busy: false, view: null, hover: null, follow: true}); } catch (e) {}
-const lcSave = () => { try { localStorage.setItem("fvg-lc", JSON.stringify({fam: LC.fam, days: LC.days, lv: LC.lv, tr: LC.tr})); } catch (e) {} };
-async function lcLoad() {
+const LC = {fam: "auto", days: 2, tf: 5, lv: true, tr: true, data: null, at: 0, busy: false, view: null, hover: null, follow: true};
+try { const sv = JSON.parse(localStorage.getItem("fvg-lc") || "{}"); ["fam", "days", "tf", "lv", "tr"].forEach(k => { if (k in sv) LC[k] = sv[k]; }); } catch (e) {}
+const lcSave = () => { try { localStorage.setItem("fvg-lc", JSON.stringify({fam: LC.fam, days: LC.days, tf: LC.tf, lv: LC.lv, tr: LC.tr})); } catch (e) {} };
+async function lcLoad(reset) {
   if (LC.busy) return; LC.busy = true;
-  try { LC.data = await api(`/api/chart/${LC.fam}/${LC.days}`); LC.at = Date.now(); } catch (e) { LC.err = e.message; }
+  try { LC.data = await api(`/api/chart/${LC.fam}/${LC.days}/${LC.tf}`); LC.at = Date.now(); LC.err = null; } catch (e) { LC.err = e.message; }
   LC.busy = false;
-  if (TAB === "cockpit") { liveChartFrame(); lcDraw(); }
+  if (reset) { LC.view = null; LC.follow = true; }
+  if (TAB === "cockpit" && $("#lcCv")) { lcControls(); lcDraw(); }
 }
 function liveChart() {
   if (!$("#lcSec")) return;
-  if (!$("#lcCv")) liveChartFrame();
+  if (!$("#lcCv")) { liveChartFrame(); lcControls(); }
   if (!LC.data || Date.now() - LC.at > 15000) lcLoad();
-  else lcDraw();
+  else if (!LC.drag) lcDraw();
 }
-function liveChartFrame() {
-  const box = $("#lcSec"), d = LC.data;
-  const fams = d && d.fams || [];
-  box.innerHTML = `<div class="section-h"><h2>Live-Chart${d && d.fam ? " · " + esc(d.fam) : ""}</h2>
-      <div class="nw-ctl">
-        ${fams.length > 1 ? `<div class="seg">${fams.map(f => `<button type="button" data-cf="${f}" aria-pressed="${d.fam === f}">${f}</button>`).join("")}</div>` : ""}
-        <div class="seg">${[[1, "Heute"], [2, "2 Tage"], [5, "5 Tage"]].map(([k, l]) => `<button type="button" data-cd="${k}" aria-pressed="${LC.days === k}">${l}</button>`).join("")}</div>
-        <div class="seg"><button type="button" id="lcTr" aria-pressed="${LC.tr}">Trades</button><button type="button" id="lcLv" aria-pressed="${LC.lv}">Levels</button></div>
-      </div></div>
+function liveChartFrame() {   // wird nur einmal gebaut; Daten-Updates tauschen den Canvas nicht aus
+  $("#lcSec").innerHTML = `<div class="section-h"><h2 id="lcTitle">Live-Chart</h2><div class="nw-ctl" id="lcCtl"></div></div>
     <div class="panel lc-box">
       <div class="lc-leg" id="lcLeg"></div>
-      <div class="lc-wrap" id="lcWrap"><canvas id="lcCv"></canvas>${!d || !d.bars || !d.bars.length ? `<div class="lc-empty">${!d ? "Chart wird geladen …" : "Noch keine Kerzen. Der Chart füllt sich, sobald der TradingView-Alert der Strategie läuft (jede abgeschlossene Kerze wird geschickt)."}</div>` : ""}</div>
-      <div class="nw-f"><span class="hint">Mausrad: zoomen · ziehen: verschieben · Doppelklick: zurück zum aktuellen Kurs · neue Kerze alle ${d && d.tf ? Math.round(d.tf / 60000) : 5} Min aus TradingView</span>
+      <div class="lc-wrap" id="lcWrap"><canvas id="lcCv"></canvas><div class="lc-empty" id="lcEmpty" hidden></div>
+        <div class="lc-zoom"><button type="button" id="lcZo" title="Herauszoomen" aria-label="Herauszoomen">−</button><button type="button" id="lcZi" title="Hineinzoomen" aria-label="Hineinzoomen">+</button><button type="button" id="lcZr" title="Zum aktuellen Kurs" aria-label="Zum aktuellen Kurs">⤓</button></div></div>
+      <div class="nw-f"><span class="hint" id="lcFoot"></span>
         <span class="lc-key"><i style="background:var(--accent)"></i>Einstieg <i style="background:var(--neg)"></i>Stop <i style="background:var(--pos)"></i>Ziel</span></div>
     </div>`;
-  box.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => { LC.fam = b.dataset.cf; LC.view = null; LC.follow = true; lcSave(); lcLoad(); });
-  box.querySelectorAll("[data-cd]").forEach(b => b.onclick = () => { LC.days = +b.dataset.cd; LC.view = null; LC.follow = true; lcSave(); lcLoad(); });
+  $("#lcZi").onclick = () => lcZoom(1 / 1.4);
+  $("#lcZo").onclick = () => lcZoom(1.4);
+  $("#lcZr").onclick = () => { LC.view = null; LC.follow = true; lcDraw(); };
+  lcBind();
+}
+function lcControls() {
+  const d = LC.data, fams = (d && d.fams) || [];
+  $("#lcTitle").textContent = "Live-Chart" + (d && d.fam ? ` · ${d.fam} · ${LC.tf}m` : "");
+  $("#lcCtl").innerHTML = `
+    ${fams.length > 1 ? `<div class="seg">${fams.map(f => `<button type="button" data-cf="${f}" aria-pressed="${d.fam === f}">${f}</button>`).join("")}</div>` : ""}
+    <div class="seg" role="group" aria-label="Zeiteinheit">${[1, 5, 15].map(k => `<button type="button" data-ct="${k}" aria-pressed="${LC.tf === k}">${k}m</button>`).join("")}</div>
+    <div class="seg" role="group" aria-label="Zeitraum">${[[1, "1T"], [2, "2T"], [5, "5T"]].map(([k, l]) => `<button type="button" data-cd="${k}" aria-pressed="${LC.days === k}" title="${k === 1 ? "Heute" : k + " Tage"}">${l}</button>`).join("")}</div>
+    <div class="seg"><button type="button" id="lcTr" aria-pressed="${LC.tr}">Trades</button><button type="button" id="lcLv" aria-pressed="${LC.lv}">Levels</button></div>`;
+  $("#lcCtl").querySelectorAll("[data-cf]").forEach(b => b.onclick = () => { LC.fam = b.dataset.cf; lcSave(); lcLoad(true); });
+  $("#lcCtl").querySelectorAll("[data-ct]").forEach(b => b.onclick = () => { LC.tf = +b.dataset.ct; lcSave(); lcControls(); lcLoad(true); });
+  $("#lcCtl").querySelectorAll("[data-cd]").forEach(b => b.onclick = () => { LC.days = +b.dataset.cd; lcSave(); lcControls(); lcLoad(true); });
   $("#lcTr").onclick = () => { LC.tr = !LC.tr; lcSave(); $("#lcTr").setAttribute("aria-pressed", LC.tr); lcDraw(); };
   $("#lcLv").onclick = () => { LC.lv = !LC.lv; lcSave(); $("#lcLv").setAttribute("aria-pressed", LC.lv); lcDraw(); };
-  lcBind();
+  const empty = $("#lcEmpty"), n = d && d.bars ? d.bars.length : 0;
+  empty.hidden = n > 0;
+  empty.textContent = LC.err ? LC.err : !d ? "Chart wird geladen …" : "Noch keine Kerzen. Der Chart füllt sich, sobald der TradingView-Alert der Strategie läuft (jede abgeschlossene Kerze wird geschickt).";
+  $("#lcFoot").innerHTML = d && d.note ? `<span style="color:var(--warn)">${esc(d.note)}</span>`
+    : `Mausrad oder + / − zoomen · ziehen verschiebt · Doppelklick oder ⤓ springt zum aktuellen Kurs${d && d.src_tf ? ` · TradingView schickt alle ${Math.round(d.src_tf / 60000)} Min neue Daten` : ""}`;
+}
+function lcZoom(f, center) {
+  const v = LC.view, n = (LC.data && LC.data.bars || []).length; if (!v || !n) return;
+  const c = center ?? (LC.follow ? v.b : (v.a + v.b) / 2), span = Math.max(12, Math.min(Math.max(n, 12) * 1.15 + 6, (v.b - v.a) * f));
+  const r = (c - v.a) / (v.b - v.a);
+  LC.view = {a: c - r * span, b: c - r * span + span};
+  LC.follow = LC.view.b >= n - 0.5; lcDraw();
 }
 function lcColors() {
   const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
@@ -1168,23 +1191,35 @@ function lcColors() {
 }
 function lcBind() {
   const cv = $("#lcCv"); if (!cv) return;
-  let drag = null;
+  const PWf = () => cv.clientWidth - 80;
   const bars = () => (LC.data && LC.data.bars) || [];
-  const idxAt = x => { const v = LC.view; if (!v) return null; const w = cv.clientWidth - 80; return v.a + (x / w) * (v.b - v.a); };
-  cv.onwheel = e => { if (!LC.view) return; e.preventDefault(); const v = LC.view, n = bars().length, f = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    const m = idxAt(e.offsetX), span = Math.max(15, Math.min(Math.max(n, 15) * 1.2, (v.b - v.a) * f));
-    const r = (m - v.a) / (v.b - v.a); LC.view = {a: m - r * span, b: m - r * span + span}; LC.follow = LC.view.b >= n - 0.5; lcDraw(); };
-  cv.onpointerdown = e => { drag = {x: e.clientX, v: {...LC.view}}; cv.setPointerCapture(e.pointerId); };
-  cv.onpointermove = e => {
-    if (drag && LC.view) { const w = cv.clientWidth - 80, dx = (e.clientX - drag.x) / w * (drag.v.b - drag.v.a);
+  const idxAt = x => { const v = LC.view; return v ? v.a + (x / PWf()) * (v.b - v.a) : 0; };
+  cv.addEventListener("wheel", e => {
+    if (!LC.view) return; e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+    if (Math.abs(e.deltaX) > Math.abs(dy) && !e.ctrlKey) {   // Touchpad seitlich: verschieben
+      const sh = e.deltaX / PWf() * (LC.view.b - LC.view.a); LC.view = {a: LC.view.a + sh, b: LC.view.b + sh}; LC.follow = LC.view.b >= bars().length - 0.5; lcDraw(); return; }
+    lcZoom(Math.exp(Math.max(-60, Math.min(60, dy)) * (e.ctrlKey ? 0.012 : 0.004)), idxAt(e.offsetX));
+  }, {passive: false});
+  const pts = new Map(); let drag = null, pinch = null;
+  cv.addEventListener("pointerdown", e => {
+    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size === 1) { drag = {x: e.clientX, v: {...LC.view}}; LC.drag = true; }
+    if (pts.size === 2) { const [p1, p2] = [...pts.values()]; pinch = {d: Math.abs(p1.x - p2.x) || 1, v: {...LC.view}, c: idxAt((p1.x + p2.x) / 2 - cv.getBoundingClientRect().left)}; drag = null; }
+  });
+  cv.addEventListener("pointermove", e => {
+    if (pts.has(e.pointerId)) pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pinch && pts.size === 2 && LC.view) { const [p1, p2] = [...pts.values()], f = pinch.d / (Math.abs(p1.x - p2.x) || 1);
+      LC.view = {...pinch.v}; lcZoom(f, pinch.c); return; }
+    if (drag && LC.view) { const dx = (e.clientX - drag.x) / PWf() * (drag.v.b - drag.v.a);
       LC.view = {a: drag.v.a - dx, b: drag.v.b - dx}; LC.follow = LC.view.b >= bars().length - 0.5; LC.hover = null; lcDraw(); return; }
     const r = cv.getBoundingClientRect(); LC.hover = {x: e.clientX - r.left, y: e.clientY - r.top}; lcDraw();
-  };
-  cv.onpointerup = e => { drag = null; };
-  cv.onpointerleave = () => { if (!drag) { LC.hover = null; lcDraw(); } };
-  cv.ondblclick = () => { LC.view = null; LC.follow = true; lcDraw(); };
-  if (!window._lcRO && "ResizeObserver" in window) { window._lcRO = new ResizeObserver(() => lcDraw()); }
-  if (window._lcRO) { window._lcRO.disconnect(); window._lcRO.observe($("#lcWrap")); }
+  });
+  const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { drag = null; LC.drag = false; } };
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  cv.addEventListener("pointerleave", e => { if (!pts.size) { LC.hover = null; lcDraw(); } });
+  cv.addEventListener("dblclick", () => { LC.view = null; LC.follow = true; lcDraw(); });
+  if ("ResizeObserver" in window) { if (window._lcRO) window._lcRO.disconnect(); window._lcRO = new ResizeObserver(() => lcDraw()); window._lcRO.observe($("#lcWrap")); }
 }
 function lcDraw() {
   const cv = $("#lcCv"), d = LC.data; if (!cv || !d) return;
@@ -1221,17 +1256,21 @@ function lcDraw() {
   // Zeitachse
   g.textAlign = "center"; g.textBaseline = "top";
   const every = Math.max(1, Math.ceil(80 / bw)); let lastDay = "", lastLx = -1e9;
+  const dayIdx = []; for (let i = Math.max(1, i0); i <= i1; i++) if (new Date(B[i][0]).toDateString() !== new Date(B[i - 1][0]).toDateString()) dayIdx.push(i);
+  const nearDay = i => dayIdx.some(k => Math.abs(X(k) - X(i)) < 80 && k !== i);
   for (let i = i0; i <= i1; i++) {
     const dt0 = new Date(B[i][0]), day = dt0.toDateString();
     const newDay = day !== lastDay && i > 0 && new Date(B[i - 1][0]).toDateString() !== day; lastDay = day;
     if (newDay) { g.strokeStyle = C.line2; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(Math.round(X(i) - bw / 2) + 0.5, 0); g.lineTo(Math.round(X(i) - bw / 2) + 0.5, PH); g.stroke(); g.setLineDash([]); }
-    if ((i % every === 0 && X(i) - lastLx > 74) || newDay) { lastLx = X(i); g.fillStyle = newDay ? C.fg : C.muted;
+    if ((i % every === 0 && X(i) - lastLx > 74 && !nearDay(i)) || newDay) { lastLx = X(i); g.fillStyle = newDay ? C.fg : C.muted;
       g.fillText(newDay ? dt0.toLocaleDateString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit"}) : dt0.toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"}), X(i), PH + 5); }
   }
   // Levels
+  const usedY = [];
   if (LC.lv) (d.levels || []).forEach(l => { const y = Math.round(Y(l.v)) + 0.5; if (y < 0 || y > PH) return;
+    const lx = 4 + 34 * usedY.filter(u => Math.abs(u - y) < 11).length; usedY.push(y);
     const col = l.k.startsWith("PD") ? C.warn : C.muted; g.strokeStyle = col; g.globalAlpha = .55; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y); g.lineTo(PW, y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-    g.fillStyle = col; g.textAlign = "left"; g.textBaseline = "bottom"; g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillText(l.k, 4, y - 2);
+    g.fillStyle = col; g.textAlign = "left"; g.textBaseline = "bottom"; g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillText(l.k, lx, y - 2);
     g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); });
   // Kerzen
   g.save(); g.beginPath(); g.rect(0, 0, PW, PH); g.clip();
@@ -1243,11 +1282,11 @@ function lcDraw() {
   // Trades: Einstieg ▲/▼, Ausstieg ●, Verbindungslinie
   const hlines = [];
   trades.forEach(t => {
-    const ie = idxOf(t.opened), long_ = t.side === "long", col = t.status === "offen" ? C.accent : (t.pnl || 0) >= 0 ? C.pos : C.neg;
+    const ie = idxOf(t.t_in || t.opened), long_ = t.side === "long", col = t.status === "offen" ? C.accent : (t.pnl || 0) >= 0 ? C.pos : C.neg;
     if (ie == null) return;
     const xe = X(ie), ye = Y(t.entry);
     if (t.status !== "offen" && t.closed && t.exit != null) {
-      const ix = idxOf(t.closed); if (ix != null) { const xx = X(ix), yx = Y(t.exit);
+      const ix = idxOf(t.t_out || t.closed); if (ix != null) { const xx = X(ix), yx = Y(t.exit);
         g.strokeStyle = col; g.setLineDash([3, 3]); g.lineWidth = 1.4; g.beginPath(); g.moveTo(xe, ye); g.lineTo(xx, yx); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
         g.fillStyle = col; g.beginPath(); g.arc(xx, yx, 4.5, 0, 7); g.fill(); g.strokeStyle = C.bg; g.stroke();
         g.font = "600 11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); g.textAlign = "left"; g.textBaseline = "middle";

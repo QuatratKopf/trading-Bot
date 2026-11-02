@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS positions (
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
     status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
-    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL
+    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,
@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS variants (
     opened REAL, closed REAL, exit REAL, r REAL, status TEXT, bar_time REAL
 );
 CREATE TABLE IF NOT EXISTS bars (
+    id TEXT PRIMARY KEY,
+    fam TEXT, t REAL, o REAL, h REAL, l REAL, c REAL
+);
+CREATE TABLE IF NOT EXISTS bars1 (
     id TEXT PRIMARY KEY,
     fam TEXT, t REAL, o REAL, h REAL, l REAL, c REAL
 );
@@ -53,6 +57,7 @@ class DB:
             self.con.executescript(SCHEMA)
             self._migrate()
             self.con.execute("CREATE INDEX IF NOT EXISTS bars_ft ON bars (fam, t)")
+            self.con.execute("CREATE INDEX IF NOT EXISTS bars1_ft ON bars1 (fam, t)")
             self.con.commit()
 
     def _migrate(self):
@@ -194,6 +199,19 @@ class DB:
 
     def prune_bars(self, before_ms):
         self._exec("DELETE FROM bars WHERE t < ?", (before_ms,))
+
+    # 1-Minuten-Kerzen (kommen gebündelt mit jeder Chart-Kerze, für Live-Chart und genaue Stop/Ziel-Prüfung)
+    def add_bars1(self, fam, rows):
+        with self.lock:
+            self.con.executemany("INSERT OR REPLACE INTO bars1 (id, fam, t, o, h, l, c) VALUES (?,?,?,?,?,?,?)",
+                                 [(f"{fam}{int(r[0])}", fam, *r) for r in rows])
+            self.con.commit()
+
+    def bars1(self, fam, since_ms):
+        return self.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+
+    def prune_bars1(self, before_ms):
+        self._exec("DELETE FROM bars1 WHERE t < ?", (before_ms,))
 
     # --- Ereignisse ---
     def log(self, text, level="info"):

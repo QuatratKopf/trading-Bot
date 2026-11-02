@@ -322,6 +322,7 @@ class Engine:
                 self.learning = json.load(f)
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
+        self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
         self.broker_status = ""
         self.broker_ok = False
         self._balance_cache = (0, None)
@@ -520,12 +521,35 @@ class Engine:
             raise ValueError("Bar-Nachricht unvollständig")
         bar["ts"] = time.time()
         bar["time"] = self._num(p.get("time"))
+        tf = self._num(p.get("tf"))
+        if tf and tf > 0:
+            self.chart_tf[fam] = tf
         self.last_bar[fam] = bar
         if bar["time"]:
             try:
                 self.db.add_bar(fam, bar["time"], bar["open"], bar["high"], bar["low"], bar["close"])
             except Exception as e:  # noqa: BLE001
                 self.db.log(f"Kerze nicht gespeichert: {e}", "warn")
+        subs = []
+        for r in (p.get("m1") or [])[:240] if isinstance(p.get("m1"), list) else []:
+            if isinstance(r, list) and len(r) >= 5:
+                vals = [self._num(x) for x in r[:5]]
+                if None not in vals:
+                    subs.append(vals)
+        subs.sort(key=lambda r: r[0])
+        if subs:
+            try:
+                self.db.add_bars1(fam, subs)
+            except Exception as e:  # noqa: BLE001
+                self.db.log(f"1-Minuten-Kerzen nicht gespeichert: {e}", "warn")
+            # Stop/Ziel minutengenau prüfen statt nur mit der großen Kerze
+            for t_, o_, h_, l_, c_ in subs:
+                self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"]})
+        else:
+            self._process_bar(fam, bar)
+        return {"ok": True, "type": "bar", "m1": len(subs)}
+
+    def _process_bar(self, fam, bar):
         for sh in self.db.open_shadows():
             if sh["fam"] != fam or not self._bar_after(sh, bar):
                 continue
@@ -584,17 +608,20 @@ class Engine:
                 long_ = pos["side"] == "long"
                 hit_sl = bar["low"] <= pos["sl"] if long_ else bar["high"] >= pos["sl"]
                 hit_tp = pos["tp"] and (bar["high"] >= pos["tp"] if long_ else bar["low"] <= pos["tp"])
+                if (hit_sl or hit_tp) and bar.get("time"):
+                    self.db.update_position(pos["id"], exit_bar=bar["time"])   # für den Chart: Ausstieg an der richtigen Kerze
                 if hit_sl:   # beide in einer Kerze: konservativ als Stop werten
                     self._finish(pos, pos["sl"], "Stop-Loss", slip=True)
                 elif hit_tp:
                     self._finish(pos, pos["tp"], "Ziel erreicht", slip=False)
-        return {"ok": True, "type": "bar"}
 
-    @staticmethod
-    def _bar_after(obj, bar):
-        """Die Kerze, auf der das Signal entstand, darf den Trade nicht auslösen."""
+    def _bar_after(self, obj, bar):
+        """Die Kerze, auf der das Signal entstand, darf den Trade nicht auslösen.
+        Bei 1-Minuten-Kerzen zählen erst die Minuten nach dem Schluss der Signal-Kerze."""
         if bar.get("time") and obj.get("bar_time"):
-            return bar["time"] > obj["bar_time"]
+            fam = obj.get("fam") or family(obj["root"])
+            tf = self.chart_tf.get(fam)
+            return bar["time"] >= obj["bar_time"] + tf if tf else bar["time"] > obj["bar_time"]
         return bar["ts"] - obj["opened"] > 20
 
     def _on_exit(self, p):
@@ -1095,6 +1122,7 @@ class Engine:
                 self.learn()
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
+                self.db.prune_bars1((now - 20 * 86400) * 1000)   # 1-Minuten-Kerzen: 20 Tage reichen für den Chart
             if r["flat_at_session_end"] and self.db.open_positions():
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
@@ -1194,7 +1222,24 @@ class Engine:
         self._sum_cache = cache
         return {"fams": fams, "fam": fam, "days": out}
 
-    def chart_data(self, fam=None, days=2):
+    @staticmethod
+    def _agg(rows, tf_ms):
+        out = []
+        for t, o, h, l, c in rows:
+            b = t - t % tf_ms
+            if out and out[-1][0] == b:
+                x = out[-1]
+                x[2], x[3], x[4] = max(x[2], h), min(x[3], l), c
+            else:
+                out.append([b, o, h, l, c])
+        return out
+
+    @staticmethod
+    def _tf_of(rows):
+        diffs = sorted(b[0] - a[0] for a, b in zip(rows, rows[1:]) if b[0] > a[0])
+        return diffs[len(diffs) // 4] if diffs else None   # unteres Quartil: Lücken (Nacht, Wochenende) verfälschen nicht
+
+    def chart_data(self, fam=None, days=2, tf_min=5):
         """Kerzen + Trades für den Live-Chart im Cockpit."""
         fams = self.db.bar_fams()
         fam = fam if fam in fams else (fams[0] if fams else None)
@@ -1203,18 +1248,35 @@ class Engine:
         last = self.db.one("SELECT MAX(t) t FROM bars WHERE fam=?", (fam,))
         anchor = min(time.time(), (last["t"] or 0) / 1000 + 3600) if last and last["t"] else time.time()
         since = anchor - days * 86400   # am Wochenende/abends: ab der letzten Kerze zurückrechnen, damit der Chart nicht leer ist
-        bars = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in self.db.bars(fam, since * 1000)]
-        diffs = sorted(b[0] - a[0] for a, b in zip(bars, bars[1:]) if b[0] > a[0])
-        tf = diffs[len(diffs) // 2] if diffs else 300000
+        raw = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in self.db.bars(fam, since * 1000)]
+        src_tf = self.chart_tf.get(fam) or self._tf_of(raw) or 300000
+        want = int(tf_min) * 60000
+        note = None
+        if want >= src_tf * 0.9 or not raw:
+            bars = self._agg(raw, want) if want > src_tf * 1.1 else raw
+        else:
+            m1 = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in self.db.bars1(fam, since * 1000)]
+            if m1:
+                bars = self._agg(m1, want)
+            else:
+                bars = raw
+                note = f"TradingView schickt {round(src_tf / 60000)}-Minuten-Kerzen. 1-Minuten-Kerzen kommen mit dem neuen Script (Einstellungen → TradingView → Strategie-Script kopieren)."
+        tf = want if not note else src_tf
         trades = []
         for p in self.db.rows("SELECT * FROM positions WHERE (closed IS NULL OR closed >= ?) OR status='offen'", (since,)):
             if family(p["root"]) != fam or p["broker"] not in (self.broker.name, "eigen"):
                 continue
             if p["broker"] == "eigen" and (not p["opened"] or p["opened"] == p["closed"] or not p["entry"]):
                 continue   # eigene Trades ohne Uhrzeit/Preis lassen sich nicht einzeichnen
+            t_in, t_out = p["opened"], p["closed"]
+            ctf = (self.chart_tf.get(fam) or 0) / 1000
+            if p.get("bar_time") and abs(p["bar_time"] / 1000 + ctf - p["opened"]) < 86400:
+                t_in = p["bar_time"] / 1000 + ctf          # Einstieg zum Schluss der Signal-Kerze
+            if p.get("exit_bar"):
+                t_out = p["exit_bar"] / 1000
             trades.append({k: p.get(k) for k in ("id", "side", "qty", "root", "entry", "exit", "sl", "tp", "initial_sl",
                                                  "opened", "closed", "pnl", "status", "setup", "is_test", "mgmt")}
-                          | {"source": "eigen" if p["broker"] == "eigen" else "bot"})
+                          | {"source": "eigen" if p["broker"] == "eigen" else "bot", "t_in": t_in, "t_out": t_out})
         px_now = (self.last_bar.get(fam) or {}).get("close") or (bars[-1][4] if bars else None)
         for t in trades:
             if t["status"] == "offen" and px_now is not None and t["entry"] is not None:
@@ -1226,8 +1288,9 @@ class Engine:
         keys = (("pdh", "PDH"), ("pdl", "PDL"), ("pdc", "PDC"), ("onh", "ONH"), ("onl", "ONL"), ("asia_h", "AH"), ("asia_l", "AL"),
                 ("lon_h", "LH"), ("lon_l", "LL"), ("mid_open", "MO"), ("ib_h", "IBH"), ("ib_l", "IBL"))
         levels = [{"k": lab, "v": lv[k]} for k, lab in keys if lv.get(k) is not None]
-        return {"fams": fams, "fam": fam, "bars": bars, "tf": tf, "trades": trades, "pending": pending, "levels": levels,
-                "last": (self.last_bar.get(fam) or {}).get("close")}
+        return {"fams": fams, "fam": fam, "bars": bars, "tf": tf, "src_tf": src_tf, "note": note, "trades": trades,
+                "pending": pending, "levels": levels, "last": (self.last_bar.get(fam) or {}).get("close"),
+                "has_m1": bool(self.db.one("SELECT 1 x FROM bars1 WHERE fam=? LIMIT 1", (fam,)))}
 
     def edge_data(self):
         rows = self.db.rows("SELECT setup, side, r, ny_hour, ny_weekday, opened, closed FROM shadow "

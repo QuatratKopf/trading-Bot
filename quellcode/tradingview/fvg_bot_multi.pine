@@ -380,11 +380,22 @@ plot(strategy.position_size != 0 ? tSL : na, "Stop",   color = cBear, style = pl
 plot(strategy.position_size != 0 ? tTP : na, "Target", color = cBull, style = plot.style_linebr)
 bgcolor(inSess and newsBlock ? color.new(cIBear, 88) : na, title = "News-Sperre")
 
-// Kerzen-Daten für die App (Paper-Trading prüft damit Stop/Ziel, das Lernmodul die Schatten-Trades)
+// Kerzen-Daten für die App (Paper-Trading prüft damit Stop/Ziel, das Lernmodul die Schatten-Trades,
+// der Live-Chart zeigt sie). Zusätzlich gehen die 1-Minuten-Kerzen innerhalb der Chart-Kerze mit.
+ltf1 = timeframe.in_seconds() >= 60 ? "1" : timeframe.period   // nie höher als der Chart, sonst Laufzeitfehler
+[m1t, m1o, m1h, m1l, m1c] = request.security_lower_tf(syminfo.tickerid, ltf1, [time, open, high, low, close])
 if sendBars and barstate.isrealtime and barstate.isconfirmed
-    alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) +
+    string m1s = ""
+    int m1n = math.min(array.size(m1t), 120)
+    if timeframe.in_seconds() >= 60 and m1n > 0
+        for i = 0 to m1n - 1
+            m1s += (i > 0 ? "," : "") + "[" + str.tostring(array.get(m1t, i)) + "," + str.tostring(array.get(m1o, i), format.mintick) + "," +
+                 str.tostring(array.get(m1h, i), format.mintick) + "," + str.tostring(array.get(m1l, i), format.mintick) + "," +
+                 str.tostring(array.get(m1c, i), format.mintick) + "]"
+    alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
          ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
-         ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) + '}', alert.freq_once_per_bar_close)
+         ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
+         ',"m1":[' + m1s + ']}', alert.freq_once_per_bar_close)
 
 // ───────────────────────── Statistik je Setup ─────────────────────────
 var array<string> stName = array.from("FVG", "iFVG", "Silver Bullet", "ORB", "Sweep", "VWAP")
