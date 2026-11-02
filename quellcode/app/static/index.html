@@ -492,6 +492,10 @@ svg.chart{width:100%;height:auto}
 .td-g .l{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
 .td-g b{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .td-g small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt{display:flex;flex-direction:column;gap:10px}
+.bt-drop{border:1.5px dashed var(--line2);border-radius:10px;padding:16px;text-align:center;color:var(--muted);font-size:13px;transition:all .12s}
+.bt-drop.over{border-color:var(--accent);background:var(--fill);color:var(--fg)}
+.bt-seg{flex-wrap:wrap;align-self:flex-start}
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -1824,7 +1828,7 @@ try { LTAB = localStorage.getItem("fvg-ltab") || "strategien"; } catch (e) {}
 function learn() {
   if (!$("#lnWrap")) {
     $("#main").innerHTML = `<div id="lnWrap" style="display:contents">
-      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["regeln", "Regel-Finder"]].map(([k, l]) =>
+      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
         `<button type="button" role="tab" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
       <div id="lnBody" style="display:contents"></div></div>`;
     document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab", LTAB); } catch (e) {}
@@ -1832,6 +1836,7 @@ function learn() {
   }
   if (LTAB === "varianten") return labVariants();
   if (LTAB === "regeln") return labRules();
+  if (LTAB === "backtest") return backtestView();
   learnStrategies();
 }
 function learnStrategies() {
@@ -1936,6 +1941,145 @@ async function labRules(force) {
     saveRules([...cur(), {setup: x.setup, conds: x.conds, action: x.action, label: x.label, added: Date.now() / 1000, active: true}], "Regel übernommen: der Bot filtert ab jetzt"); });
   body.querySelectorAll("[data-ra]").forEach(b => b.onclick = () => { const l = cur(); l[+b.dataset.ra].active = !l[+b.dataset.ra].active; saveRules(l, l[+b.dataset.ra].active ? "Regel aktiv" : "Regel pausiert"); });
   body.querySelectorAll("[data-rd]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", () => { const l = cur(); l.splice(+b.dataset.rd, 1); saveRules(l, "Regel entfernt"); }));
+}
+
+
+/* ───────── Backtest: Trade-Liste aus dem TradingView-Strategietester auswerten ───────── */
+const BT = {trades: null, name: "", loaded: false, filter: "Alle", err: null};
+const BT_NEWS = {
+  FOMC: [20240131,20240320,20240501,20240612,20240731,20240918,20241107,20241218,20250129,20250319,20250507,20250618,20250730,20250917,20251029,20251210,
+         20260128,20260318,20260429,20260617,20260729,20260916,20261028,20261209,20270127,20270317,20270428,20270609,20270728,20270915,20271027,20271208],
+  CPI: [20240111,20240213,20240312,20240410,20240515,20240612,20240711,20240814,20240911,20241010,20241113,20241211,20250115,20250212,20250312,20250410,20250513,
+        20250611,20250715,20250812,20250911,20251024,20251218,20260113,20260213,20260311,20260410,20260512,20260610,20260714,20260812,20260911,20261014,20261110,20261210],
+  NFP_EXTRA: [20251120,20251216,20260109], NFP_SKIP: [20251003,20251107]};
+const btKey = d => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+function btNews(d) {
+  const k = btKey(d), t = [];
+  if (BT_NEWS.FOMC.includes(k)) t.push("FOMC");
+  if (BT_NEWS.CPI.includes(k)) t.push("CPI");
+  if ((d.getDay() === 5 && d.getDate() <= 7 && !BT_NEWS.NFP_SKIP.includes(k)) || BT_NEWS.NFP_EXTRA.includes(k)) t.push("NFP");
+  return t;
+}
+const btNum = v => { if (typeof v === "number") return v; if (v == null) return NaN;
+  let x = String(v).replace(/[−–]/g, "-").replace(/[^0-9.,\-]/g, "");
+  if (x.includes(",") && x.includes(".")) x = x.lastIndexOf(",") > x.lastIndexOf(".") ? x.replace(/\./g, "").replace(",", ".") : x.replace(/,/g, "");
+  else if (x.includes(",")) x = /^-?\d{1,3}(,\d{3})+$/.test(x) ? x.replace(/,/g, "") : x.replace(",", ".");
+  return parseFloat(x); };
+function btDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === "number") return new Date(Math.round((v - 25569) * 864e5) + new Date().getTimezoneOffset() * 60000);
+  const s = String(v).trim(), m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})[ ,T]+(\d{1,2}):(\d{2})/);
+  if (m) return new Date(+(m[3].length === 2 ? "20" + m[3] : m[3]), +m[2] - 1, +m[1], +m[4], +m[5]);
+  const d = new Date(s.replace(" ", "T")); return isNaN(d) ? new Date(s) : d;
+}
+const BT_ID = /^(trade\s*(#|nr\.?|nummer|no\.?|number|-nr\.?)|#|nr\.?)$/i, BT_ID2 = /trade\s*(#|nr|nummer|no|number)|trade-nr/i;
+function btParse(rows) {
+  let hi = -1;
+  for (let i = 0; i < Math.min(rows.length, 40); i++) { const r = rows[i].map(c => String(c ?? "").trim());
+    if (r.some(c => BT_ID.test(c) || BT_ID2.test(c)) && r.some(c => /^(type|typ)\b/i.test(c) || /date|datum|zeit/i.test(c))) { hi = i; break; } }
+  if (hi < 0) throw new Error("NOHEADER");
+  const h = rows[hi].map(c => String(c ?? "").trim()), ix = re => h.findIndex(c => re.test(c));
+  let cT = ix(BT_ID); if (cT < 0) cT = ix(BT_ID2);
+  const cType = ix(/^(type|typ)\b/i), cD = ix(/date|datum/i), cS = ix(/^signal/i);
+  const cP = h.findIndex(c => /(net\s*p&?l|netto[\s-]*(g&?v|gewinn|p&?l)|^g&v|^p&l|profit|gewinn)/i.test(c) && !/%|cum|kum|run|lauf|draw|max/i.test(c));
+  const miss = [[cT, "Trade-Nummer"], [cType, "Typ"], [cD, "Datum/Uhrzeit"], [cP, "Netto-G&V"]].filter(x => x[0] < 0).map(x => x[1]);
+  if (miss.length) throw new Error("Spalten nicht erkannt: " + miss.join(", ") + ". Gefunden: " + h.filter(Boolean).join(" · "));
+  const by = new Map();
+  for (const r of rows.slice(hi + 1)) {
+    if (r[cT] == null || r[cT] === "") continue;
+    const id = String(r[cT]), t = String(r[cType] || "").toLowerCase(), o = by.get(id) || {};
+    if (/entry|einstieg|eintritt/.test(t)) { o.time = btDate(r[cD]); o.setup = String(cS >= 0 ? r[cS] || "" : ""); o.dir = /short|verkauf/.test(t) ? "Short" : "Long"; }
+    else { o.exit = btDate(r[cD]); if (!o.dir) o.dir = /short|verkauf/.test(t) ? "Short" : "Long"; }
+    const p = btNum(r[cP]); if (!isNaN(p)) o.pnl = p;
+    by.set(id, o);
+  }
+  const out = [...by.values()].filter(o => o.time && !isNaN(o.time) && typeof o.pnl === "number");
+  out.forEach(o => { o.setup = (o.setup || "").trim(); if (!/(long|short)$/i.test(o.setup)) o.setup = ((o.setup || "Trade") + " " + o.dir); });
+  if (!out.length) throw new Error("Keine abgeschlossenen Trades in der Datei gefunden.");
+  return out.sort((a, b) => a.time - b.time);
+}
+async function btLoadFile(f) {
+  BT.err = null;
+  try {
+    const buf = new Uint8Array(await f.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    const res = await api("/api/backtest/read", {name: f.name, data: btoa(bin)});
+    let trades = null, lastErr = null;
+    const order = [...res.sheets].sort((a, b) => (/liste|list/i.test(b.name) ? 1 : 0) - (/liste|list/i.test(a.name) ? 1 : 0));
+    for (const sh of order) { try { trades = btParse(sh.rows); break; } catch (e) { if (e.message !== "NOHEADER") lastErr = e; } }
+    if (!trades) throw lastErr || new Error(`Keine Trade-Liste gefunden (Blätter: ${res.sheets.map(x => x.name).join(", ")}). Bitte im Strategietester die „Liste der Trades“ exportieren.`);
+    BT.trades = trades; BT.name = f.name; BT.filter = "Alle";
+    await api("/api/backtest/save", {name: f.name, trades: trades.map(t => ({time: t.time.getTime(), setup: t.setup, dir: t.dir, pnl: t.pnl}))});
+    toast(`${trades.length} Trades eingelesen`);
+  } catch (e) { BT.err = e.message; }
+  backtestView(true);
+}
+const btStats = ts => {
+  const n = ts.length, w = ts.filter(t => t.pnl > 0), l = ts.filter(t => t.pnl <= 0);
+  const gp = w.reduce((a, t) => a + t.pnl, 0), gl = -l.reduce((a, t) => a + t.pnl, 0);
+  let eq = 0, pk = 0, dd = 0; for (const t of ts) { eq += t.pnl; pk = Math.max(pk, eq); dd = Math.min(dd, eq - pk); }
+  return {n, net: gp - gl, wr: n ? w.length / n * 100 : null, pf: gl ? gp / gl : (gp ? Infinity : null), dd, avg: n ? (gp - gl) / n : null,
+    aw: w.length ? gp / w.length : null, al: l.length ? -gl / l.length : null};
+};
+function btBars(data) {
+  if (!data.length) return '<p class="hint">Keine Daten.</p>';
+  const W = 440, H = 190, L = 52, R = 8, T = 10, B = 24, vals = data.map(d => d.v);
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), span = hi - lo || 1;
+  const y = v => T + (H - T - B) * (1 - (v - lo) / span), bw = (W - L - R) / data.length, every = Math.ceil(data.length / 12);
+  return `<svg viewBox="0 0 ${W} ${H}" role="img"><line class="gl" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>
+    <text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end">${kUsd(hi)}</text><text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end">${kUsd(lo)}</text>
+    ${data.map((d, i) => { const x0 = L + i * bw + bw * .15, w = bw * .7, y0 = y(Math.max(0, d.v)), h = Math.abs(y(d.v) - y(0));
+      return `<rect x="${x0}" y="${y0}" width="${w}" height="${Math.max(1, h)}" rx="1.5" fill="${d.v >= 0 ? "var(--pos)" : "var(--neg)"}"><title>${d.l}: ${sUsd(d.v)}</title></rect>` +
+        (i % every === 0 ? `<text x="${x0 + w / 2}" y="${H - 6}" text-anchor="middle">${d.l}</text>` : ""); }).join("")}</svg>`;
+}
+async function backtestView(force) {
+  const body = $("#lnBody");
+  if (!BT.loaded) { BT.loaded = true; try { const r = await api("/api/backtest"); if (r.trades && r.trades.length) { BT.trades = r.trades.map(t => ({...t, time: new Date(t.time)})); BT.name = r.name; } } catch (e) {} }
+  if (!force && body.querySelector(".bt")) return;
+  if (TAB !== "learn" || LTAB !== "backtest") return;
+  const all = BT.trades || [], setups = [...new Set(all.map(t => t.setup))].sort();
+  const ts = BT.filter === "Alle" ? all : all.filter(t => t.setup === BT.filter), st = btStats(ts);
+  const row = (label, x) => `<tr><td class="t">${label}</td><td>${x.n}</td><td>${pct(x.wr)}</td><td>${x.pf == null ? "–" : isFinite(x.pf) ? num2(x.pf) : "∞"}</td><td class="${cls(x.net)}">${usd(x.net)}</td><td class="${cls(x.avg)}">${x.n ? usd(x.avg) : "–"}</td></tr>`;
+  const tbl = (head, rows) => `<div class="scroll"><table><thead><tr>${head.map((h, i) => `<th class="${i ? "" : "t"}">${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  const H6 = ["", "Trades", "Treffer", "PF", "Netto", "Ø Trade"];
+  let curve = [], e = 0; ts.forEach(t => { e += t.pnl; curve.push({t: t.time.getTime() / 1000, e}); });
+  const months = new Map(); ts.forEach(t => { const k = t.time.getFullYear() + "-" + String(t.time.getMonth() + 1).padStart(2, "0"); months.set(k, (months.get(k) || 0) + t.pnl); });
+  const hours = new Map(); ts.forEach(t => { const h = t.time.getHours(); hours.set(h, (hours.get(h) || 0) + t.pnl); });
+  const DN = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const news = ts.filter(t => btNews(t.time).length), calm = ts.filter(t => !btNews(t.time).length);
+  body.innerHTML = `<section class="panel bt">
+    <div class="section-h"><div><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">Backtest aus TradingView</h2>
+      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Im TradingView-Strategietester „Liste der Trades“ exportieren (CSV oder Excel, deutsch oder englisch) und hier einlesen. Die App wertet aus: Equity, Drawdown, Setups, Monate, Uhrzeiten, Wochentage und News-Tage (FOMC, CPI, NFP). Der letzte Import bleibt gespeichert.</p></div>
+      <div class="inline"><label class="btn primary" style="cursor:pointer">Export einlesen<input type="file" id="btFile" accept=".csv,.xlsx,.xls,.txt" hidden></label></div></div>
+    <div class="bt-drop" id="btDrop">${BT.name ? `Aktuell: <b>${esc(BT.name)}</b> · ${all.length} Trades · neue Datei hierher ziehen zum Ersetzen` : "Datei hierher ziehen"}</div>
+    ${BT.err ? `<p class="err-msg">${esc(BT.err)}</p>` : ""}
+  </section>
+  ${all.length ? `
+  <div class="seg bt-seg" role="group" aria-label="Setup">${["Alle", ...setups].map(k => `<button type="button" data-bf="${esc(k)}" aria-pressed="${BT.filter === k}">${esc(k)}</button>`).join("")}</div>
+  <section class="kpis">${[["Netto-Gewinn", usd(st.net), cls(st.net)], ["Trades", st.n, ""], ["Trefferquote", pct(st.wr), ""],
+    ["Profit-Faktor", st.pf == null ? "–" : isFinite(st.pf) ? num2(st.pf) : "∞", st.pf >= 1 ? "pos" : "neg"], ["Max. Drawdown", usd(st.dd), "neg"],
+    ["Ø Gewinn / Verlust", `${usd(st.aw)} / ${usd(st.al)}`, ""], ["Zeitraum", ts.length ? `${ts[0].time.toLocaleDateString("de-DE")} – ${ts[ts.length - 1].time.toLocaleDateString("de-DE")}` : "–", ""]]
+    .map(([l, v, c]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}" style="${/Zeitraum|Ø/.test(l) ? "font-size:14px" : ""}">${v}</span></div>`).join("")}</section>
+  <section class="panel"><div class="section-h"><h2>Equity</h2><p class="hint">Kumulierter Netto-Gewinn je Trade</p></div>${equitySvg(curve)}</section>
+  <div class="grid2">
+    <section class="section"><h2>Nach Setup</h2><div class="panel">${tbl(["Setup", ...H6.slice(1)], setups.map(k => row(`<span class="chip">${esc(k)}</span>`, btStats(all.filter(t => t.setup === k)))))}</div></section>
+    <section class="section"><h2>News-Tage</h2><div class="panel">${tbl(["Tag", ...H6.slice(1)], [row("Normale Tage", btStats(calm)), row("Alle News-Tage", btStats(news)),
+      ...["FOMC", "CPI", "NFP"].map(k => row(`<span class="chip warn">${k}</span>`, btStats(ts.filter(t => btNews(t.time).includes(k)))))])}</div></section>
+  </div>
+  <div class="grid2">
+    <section class="section"><h2>Monatlich</h2><div class="panel">${btBars([...months.entries()].map(([k, v]) => ({l: k.slice(2).replace("-", "/"), v})))}</div></section>
+    <section class="section"><h2>Nach Uhrzeit (deine Ortszeit)</h2><div class="panel">${btBars([...hours.entries()].sort((a, b) => a[0] - b[0]).map(([h, v]) => ({l: h + "h", v})))}</div></section>
+  </div>
+  <section class="section"><h2>Nach Wochentag</h2><div class="panel">${tbl(["Tag", ...H6.slice(1)], [1, 2, 3, 4, 5].map(d => row(DN[d], btStats(ts.filter(t => t.time.getDay() === d)))))}</div></section>
+  <section class="section"><h2>Letzte 40 Trades</h2><div class="panel">${tbl(["Einstieg", "Setup", "News", "Netto"], ts.slice(-40).reverse().map(t =>
+    `<tr><td class="t mono">${t.time.toLocaleString("de-DE", {day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit"})}</td><td class="t"><span class="chip">${esc(t.setup)}</span></td><td class="t">${btNews(t.time).map(x => `<span class="chip warn">${x}</span>`).join(" ") || "–"}</td><td class="${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`))}</div></section>`
+  : `<div class="empty">Noch kein Backtest eingelesen. So geht's: TradingView → unten „Strategietester“ → Tabellen-Ansicht → „Liste der Trades“ → Export (CSV oder Excel) → hier „Export einlesen“.</div>`}`;
+  $("#btFile").onchange = e => { const f = e.target.files[0]; if (f) btLoadFile(f); e.target.value = ""; };
+  const dz = $("#btDrop");
+  ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("over"); }));
+  dz.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) btLoadFile(f); });
+  body.querySelectorAll("[data-bf]").forEach(b => b.onclick = () => { BT.filter = b.dataset.bf; backtestView(true); });
 }
 
 /* ───────── Einstellungen ───────── */

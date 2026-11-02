@@ -191,7 +191,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > (5_000_000 if self.path.startswith(("/api/update/", "/api/own/import")) else 100_000):
+        if n > (20_000_000 if self.path.startswith("/api/backtest/") else
+                5_000_000 if self.path.startswith(("/api/update/", "/api/own/import")) else 100_000):
             raise ValueError("Anfrage zu groß")
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         return raw
@@ -690,6 +691,104 @@ def edge(h):
 @route("POST", r"/api/own/add")
 def own_add(h):
     h._send(200, engine.own_add(h._json()))
+
+
+# ───────────────────────── Backtest: Trade-Liste aus dem TradingView-Strategietester ─────────────────────────
+def _bt_xlsx(data):
+    """Minimaler Excel-Leser (ohne Zusatzpakete): Blattnamen und Zellwerte als Zeilen."""
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "p": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    z = zipfile.ZipFile(io.BytesIO(data))
+    shared = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+            shared.append("".join(t.text or "" for t in si.iter("{%s}t" % ns["m"])))
+    rels = {r.get("Id"): r.get("Target") for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels")).findall("p:Relationship", ns)}
+    out = []
+    for sh in ET.fromstring(z.read("xl/workbook.xml")).find("m:sheets", ns).findall("m:sheet", ns):
+        target = rels.get(sh.get("{%s}id" % ns["r"]), "")
+        path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        if path not in z.namelist():
+            continue
+        rows = []
+        for row in ET.fromstring(z.read(path)).iter("{%s}row" % ns["m"]):
+            vals = {}
+            for c in row.findall("m:c", ns):
+                ref, t = c.get("r", ""), c.get("t")
+                col = 0
+                for ch in ref:
+                    if ch.isalpha():
+                        col = col * 26 + (ord(ch.upper()) - 64)
+                v = c.find("m:v", ns)
+                if t == "s" and v is not None:
+                    val = shared[int(v.text)]
+                elif t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter("{%s}t" % ns["m"]))
+                elif v is not None and v.text is not None:
+                    try:
+                        val = float(v.text) if t not in ("str", "e") else v.text
+                    except ValueError:
+                        val = v.text
+                else:
+                    val = ""
+                vals[col - 1] = val
+            if vals:
+                rows.append([vals.get(i, "") for i in range(max(vals) + 1)])
+            if len(rows) > 50000:
+                break
+        out.append({"name": sh.get("name"), "rows": rows})
+    return out
+
+
+def _bt_csv(data):
+    import csv
+    import io
+    for enc in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            text = data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    first = text.split("\n", 1)[0]
+    delim = max((";", ",", "\t"), key=first.count)
+    return [{"name": "CSV", "rows": [r for r in csv.reader(io.StringIO(text), delimiter=delim)][:50000]}]
+
+
+@route("POST", r"/api/backtest/read")
+def backtest_read(h):
+    import base64
+    b = h._json()
+    data = base64.b64decode(b.get("data") or "")
+    name = str(b.get("name") or "")
+    try:
+        sheets = _bt_xlsx(data) if data[:2] == b"PK" else _bt_csv(data)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"Datei konnte nicht gelesen werden ({e}). Bitte als CSV oder Excel aus TradingView exportieren.")
+    h._send(200, {"name": name, "sheets": sheets})
+
+
+@route("POST", r"/api/backtest/save")
+def backtest_save(h):
+    b = h._json()
+    trades = b.get("trades") or []
+    if not isinstance(trades, list) or len(trades) > 50000:
+        raise ValueError("Ungültige Trade-Liste")
+    with open(os.path.join(DATA, "backtest.json"), "w", encoding="utf-8") as f:
+        json.dump({"name": str(b.get("name") or "")[:200], "saved": time.time(), "trades": trades}, f)
+    h._send(200, {"ok": True})
+
+
+@route("GET", r"/api/backtest")
+def backtest_get(h):
+    try:
+        with open(os.path.join(DATA, "backtest.json"), encoding="utf-8") as f:
+            h._send(200, json.load(f))
+    except (OSError, ValueError):
+        h._send(200, {"trades": []})
 
 
 @route("POST", r"/api/own/import")

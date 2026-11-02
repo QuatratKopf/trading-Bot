@@ -1,6 +1,6 @@
 {
-  "version": "2.10.1",
-  "file": "releases/FVG-Trader-2.10.1.cmd",
-  "sha256": "2d9a2a14b8fefa0caab1554093bc81cd073bc49dcff9c85a188fe1c30f3e0622",
-  "notes": "Script: Margin auf 0, sonst lehnt TradingView bei hohem NQ-Kurs alle Orders ab und es kommen keine Signale"
+  "version": "2.11.0",
+  "file": "releases/FVG-Trader-2.11.0.cmd",
+  "sha256": "070123b0e141b668f28ff37732fea1f8ec6032b0c4fa091d39e89c26baa43141",
+  "notes": "Backtest im Lernmodul: Trade-Liste aus dem TradingView-Strategietester (CSV/Excel, deutsch/englisch) auswerten"
 }
