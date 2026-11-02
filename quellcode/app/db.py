@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS positions (
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
     status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
-    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL
+    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL, journal TEXT, shots TEXT
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS events (
 class DB:
     def __init__(self, path):
         self.lock = threading.RLock()
+        self.on_log = None
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.row_factory = sqlite3.Row
         with self.lock:
@@ -216,6 +217,11 @@ class DB:
     # --- Ereignisse ---
     def log(self, text, level="info"):
         self._exec("INSERT INTO events (ts, level, text) VALUES (?,?,?)", (time.time(), level, text))
+        if self.on_log:
+            try:
+                self.on_log(text, level)
+            except Exception:   # noqa: BLE001  Benachrichtigung darf das Loggen nie stören
+                pass
         self._exec("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 300)")
 
     def events(self, limit=40):

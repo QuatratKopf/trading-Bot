@@ -192,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n > (20_000_000 if self.path.startswith("/api/backtest/") else
-                5_000_000 if self.path.startswith(("/api/update/", "/api/own/import")) else 100_000):
+                9_000_000 if self.path.startswith(("/api/update/", "/api/own/import", "/api/trade/")) else 100_000):
             raise ValueError("Anfrage zu groß")
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
         return raw
@@ -370,6 +370,7 @@ def state(h):
     s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()
     s["alert_issue"] = getattr(engine, "alert_issue", None)
+    s["health"] = server_health(s)
     h._send(200, s)
 
 
@@ -1055,6 +1056,176 @@ def _kill_other_instances():
         return []
 
 
+# ───────────────────────── Discord, Gesundheit, Berichte, Journal ─────────────────────────
+DISCORD_COLORS = {"good": 0x22C55E, "bad": 0xEF4444, "warn": 0xF59E0B, "info": 0x3B82F6}
+
+
+def _discord_post(url, msg):
+    payload = {"username": "FVG Trader", "embeds": [{
+        "title": msg["title"][:250], "description": msg["text"][:3900],
+        "color": DISCORD_COLORS.get(msg.get("tone"), 0x3B82F6),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(msg.get("ts") or time.time()))}]}
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": f"FVG-Trader/{APP_VERSION}"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        r.read()
+
+
+def _discord_loop():
+    while True:
+        time.sleep(1.5)
+        if not engine.outbox:
+            continue
+        url = (engine.cfg.get("discord") or {}).get("url")
+        if not url:
+            engine.outbox.clear()
+            continue
+        msg = engine.outbox[0]
+        try:
+            _discord_post(url, msg)
+            engine.outbox.pop(0)
+            engine.discord_state.update(last=time.time(), error="")
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                time.sleep(5)
+                continue
+            engine.outbox.pop(0)
+            engine.discord_state["error"] = f"Discord lehnt ab (HTTP {e.code}) – Webhook-URL prüfen"
+        except Exception as e:  # noqa: BLE001
+            msg["tries"] = msg.get("tries", 0) + 1
+            if msg["tries"] >= 5:
+                engine.outbox.pop(0)
+            engine.discord_state["error"] = f"Discord nicht erreichbar ({e.__class__.__name__})"
+            time.sleep(10)
+
+
+@route("POST", r"/api/discord/test")
+def discord_test(h):
+    b = h._json()
+    url = (b.get("url") or "").strip()
+    if not url or url == "••••••••":
+        url = (engine.cfg.get("discord") or {}).get("url")
+    if not url:
+        raise ValueError("Bitte zuerst die Discord-Webhook-URL eintragen")
+    if not re.match(r"^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/\d+/[\w-]+$", url):
+        raise ValueError("Das ist keine Discord-Webhook-URL (https://discord.com/api/webhooks/…)")
+    try:
+        _discord_post(url, {"title": "✅ FVG Trader ist verbunden", "tone": "good",
+                            "text": "Ab jetzt bekommst du hier Nachrichten zu Trades, Fehlern, Tages-Stopp und den Berichten."})
+    except urllib.error.HTTPError as e:
+        raise ValueError(f"Discord lehnt ab (HTTP {e.code}). Ist die Webhook-URL vollständig und noch gültig?")
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"Discord nicht erreichbar: {e}")
+    engine.discord_state.update(last=time.time(), error="")
+    h._send(200, {"ok": True})
+
+
+def server_health(s):
+    """Ergänzt den Gesundheits-Check der Engine um Verbindung, ngrok-Kontingent, News und Updates."""
+    items = list(s.get("health") or [])
+    tn = s.get("tunnel") or {}
+    if os.environ.get("FVG_NO_TUNNEL"):
+        pass
+    elif engine.cfg.get("public_url"):
+        items.insert(1, {"key": "tunnel", "label": "Webhook-Adresse", "status": "ok", "text": "eigene feste Adresse"})
+    else:
+        items.insert(1, {"key": "tunnel", "label": "Webhook-Adresse", "status": "ok" if tn.get("ok") else "bad",
+                         "text": (tn.get("provider") or "Tunnel") + (" verbunden" if tn.get("ok") else ": " + str(tn.get("status") or "getrennt"))})
+    rm = s.get("remote") or {}
+    if rm.get("limit"):
+        used = rm["n"] / rm["limit"] * 100
+        day = int(time.strftime("%d"))
+        items.append({"key": "quota", "label": "ngrok-Kontingent", "status": "ok" if used < 75 else "warn" if used < 95 else "bad",
+                      "text": f"{rm['n']:,} von {rm['limit']:,} Anfragen diesen Monat ({used:.0f} %, Tag {day})".replace(",", ".")})
+    if NEWS.get("error"):
+        items.append({"key": "news", "label": "News-Kalender", "status": "warn", "text": NEWS["error"]})
+    elif NEWS.get("fetched"):
+        age = time.time() - NEWS["fetched"]
+        items.append({"key": "news", "label": "News-Kalender", "status": "ok" if age < 6 * 3600 else "warn",
+                      "text": f"{len(NEWS['events'])} Termine, aktualisiert vor {max(1, int(age // 60))} Min"})
+    up = s.get("update") or {}
+    if up.get("available"):
+        items.append({"key": "update", "label": "Update", "status": "warn", "text": f"Version {up.get('version')} verfügbar"})
+    return items
+
+
+@route("GET", r"/api/timeline/(\d{4}-\d{2}-\d{2})")
+def timeline_day(h, day):
+    with engine.lock:
+        h._send(200, engine.timeline(day))
+
+
+@route("GET", r"/api/report/week/(\d{1,3})")
+def report_week(h, off):
+    with engine.lock:
+        h._send(200, engine.weekly_report(int(off)))
+
+
+@route("POST", r"/api/report/week/(\d{1,3})/discord")
+def report_week_discord(h, off):
+    with engine.lock:
+        rep = engine.weekly_report(int(off))
+        if not (engine.cfg.get("discord") or {}).get("url"):
+            raise ValueError("Discord ist noch nicht eingerichtet (Einstellungen → Benachrichtigungen)")
+        engine.outbox.append({"title": f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
+                              "text": engine.weekly_text(rep), "tone": "good" if rep["net"] > 0 else "bad" if rep["net"] < 0 else "info",
+                              "ts": time.time()})
+    h._send(200, {"ok": True})
+
+
+def _bt_saved():
+    try:
+        with open(os.path.join(DATA, "backtest.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"trades": []}
+
+
+@route("GET", r"/api/compare/(gleich|alles)")
+def compare(h, mode):
+    bt = _bt_saved()
+    with engine.lock:
+        res = engine.compare_backtest(bt.get("trades") or [], same_period=mode == "gleich")
+    res["bt_name"] = bt.get("name")
+    h._send(200, res)
+
+
+@route("GET", r"/api/montecarlo/(auto|bot|eigen|alle|signale|backtest)/(jetzt|neu)")
+def montecarlo(h, src, mode):
+    bt = _bt_saved().get("trades") or []
+    with engine.lock:
+        h._send(200, engine.monte_carlo(src, bt=bt, fresh=mode == "neu"))
+
+
+@route("POST", r"/api/trade/([a-f0-9]{6,16})/journal")
+def trade_journal(h, pid):
+    h._send(200, engine.journal_set(pid, h._json().get("text")))
+
+
+@route("POST", r"/api/trade/([a-f0-9]{6,16})/shot")
+def trade_shot(h, pid):
+    import base64
+    data = str(h._json().get("data") or "")
+    if "," in data[:100]:
+        data = data.split(",", 1)[1]
+    h._send(200, engine.shot_add(pid, base64.b64decode(data)))
+
+
+@route("POST", r"/api/trade/([a-f0-9]{6,16})/shot/delete")
+def trade_shot_delete(h, pid):
+    h._send(200, engine.shot_delete(pid, str(h._json().get("name") or "")))
+
+
+@route("GET", r"/api/shot/([a-f0-9]{6,16}_[a-f0-9]{8}\.(png|jpg|webp))")
+def shot_get(h, name, ext):
+    full = os.path.join(engine.shots_dir(), name)
+    if not os.path.isfile(full):
+        return h._send(404, {"error": "Bild nicht gefunden"})
+    with open(full, "rb") as f:
+        h._send(200, f.read(), {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[ext],
+                headers={"Cache-Control": "private, max-age=86400"})
+
+
 def main():
     global SRV
     srv = None
@@ -1101,6 +1272,7 @@ def main():
         threading.Thread(target=ensure_desktop_shortcut, args=(LAUNCHER, DATA, engine.db.log), daemon=True).start()
     threading.Thread(target=_update_loop, daemon=True).start()
     threading.Thread(target=_news_loop, daemon=True).start()
+    threading.Thread(target=_discord_loop, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

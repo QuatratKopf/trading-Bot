@@ -93,6 +93,12 @@ DEFAULT_CONFIG = {
         "sessions": {"asia": False, "london": False, "ny_am": True, "ny_lunch": False, "ny_pm": True},
         "all_day": False,          # ganztägig handeln (außer Marktpause)
         "flat_at_session_end": True,
+        "daily_profit_stop": 0.0,  # Tagesziel in $: danach keine neuen Trades (0 = aus)
+        "daily_stop_close": False, # beim Tages-Stopp offene Positionen schließen
+    },
+    "discord": {               # Benachrichtigungen über einen Discord-Webhook
+        "enabled": False, "url": "", "trades": True, "errors": True, "silence": True, "silence_min": 30,
+        "daystop": True, "daily": True, "weekly": True, "learn": True,
     },
     "news": {                  # News-Pause aus dem Wirtschaftskalender
         "enabled": True, "before_min": 10, "after_min": 10, "impact": "high", "usd_only": True, "close_before": True,
@@ -126,7 +132,7 @@ DEFAULT_CONFIG = {
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
-SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("tunnel", "ngrok_token"))
+SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("tunnel", "ngrok_token"), ("discord", "url"))
 MASK = "••••••••"
 
 
@@ -335,6 +341,26 @@ def describe_cond(f, v):
     return f"{f}={v}"
 
 
+def _ago(sec):
+    sec = max(0, int(sec))
+    if sec < 90:
+        return f"{sec} s"
+    if sec < 5400:
+        return f"{sec // 60} Min"
+    if sec < 172800:
+        return f"{sec // 3600} Std"
+    return f"{sec // 86400} Tagen"
+
+
+def _fmt(v, f):
+    """Zahl im deutschen Format: 1.234,50 statt 1,234.50."""
+    return format(v, f).translate(str.maketrans(",.", ".,"))
+
+
+def _wd(day):
+    return ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")[dt.date.fromisoformat(day).weekday()]
+
+
 def _mean(x):
     return sum(x) / len(x) if x else 0.0
 
@@ -368,6 +394,13 @@ class Engine:
             with open(self.learn_path, encoding="utf-8") as f:
                 self.learning = json.load(f)
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
+        self.data_dir = data_dir
+        self.outbox = []              # wartende Discord-Nachrichten (sendet der Server)
+        self.discord_state = {"last": None, "error": ""}
+        self._notified = {}
+        self._silent = False
+        self._daystop_day = None   # wird nach dem Laden des Lernstands gesetzt
+        self._last_loop = time.time()
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
         self.news_source = lambda: []  # liefert die Termine des Wirtschaftskalenders (setzt der Server)
@@ -378,6 +411,8 @@ class Engine:
         self._balance_cache = (0, None)
         self._sync_client = None
         self.sync_state = {"last": None, "added": 0, "error": "", "next": 0}
+        self.db.on_log = self._on_log
+        self._daystop_day = self.learning.get("daystop_day")
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
         threading.Thread(target=self._loop, daemon=True).start()
@@ -499,6 +534,18 @@ class Engine:
             raise ValueError("Fremdkapital: Startdatum als JJJJ-MM-TT")
         if ch["enabled"] and (ch["start_balance"] <= 0 or ch["max_dd"] <= 0):
             raise ValueError("Fremdkapital: Kontogröße und maximaler Drawdown müssen größer als 0 sein")
+        dc = c["discord"]
+        dc["url"] = str(dc.get("url") or "").strip()
+        if dc["url"] and not re.match(r"^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/\d+/[\w-]+$", dc["url"]):
+            raise ValueError("Discord: bitte die komplette Webhook-URL einfügen (https://discord.com/api/webhooks/…)")
+        if dc["enabled"] and not dc["url"]:
+            raise ValueError("Discord: zuerst die Webhook-URL eintragen")
+        dc["silence_min"] = max(0, min(600, int(float(dc.get("silence_min") or 0))))
+        rk = c["risk"]
+        rk["daily_profit_stop"] = float(rk.get("daily_profit_stop") or 0)
+        if rk["daily_profit_stop"] < 0 or float(rk["max_daily_loss"] or 0) < 0:
+            raise ValueError("Tages-Stopp: Beträge dürfen nicht negativ sein")
+        rk["daily_stop_close"] = bool(rk.get("daily_stop_close"))
         if ch["consistency_pct"] > 100:
             raise ValueError("Fremdkapital: Konsistenzregel in % (0–100)")
         pu = (c.get("public_url") or "").strip()
@@ -983,6 +1030,8 @@ class Engine:
             return f"Max. {r['max_trades_day']} Trades pro Tag erreicht"
         if float(r["max_daily_loss"]) > 0 and self.today_pnl() <= -float(r["max_daily_loss"]):
             return "Tagesverlust-Limit erreicht"
+        if float(r.get("daily_profit_stop") or 0) > 0 and self.today_pnl() >= float(r["daily_profit_stop"]):
+            return f"Tagesziel von {_fmt(float(r['daily_profit_stop']), ',.0f')} $ erreicht – heute keine neuen Trades"
         return None
 
     # ───────── Ausführen ─────────
@@ -1009,6 +1058,13 @@ class Engine:
             "status": "offen", "broker_ref": ref, "is_test": sig.get("is_test", 0),
             "bar_time": sig.get("bar_time"), "mgmt": sig.get("mgmt"), "best": round_tick(fill, tick)})
         self.db.update_signal(sig["id"], status="ausgeführt", reason="")
+        if True:
+            pv = INSTR[root]["pv"]
+            risk_usd = abs(fill - sig["sl"]) * sig["qty"] * pv
+            self.notify("trades", f"{'🟢 LONG' if sig['side'] == 'long' else '🔴 SHORT'} {sig['qty']}× {root} · {sig['setup']}" + (" (Test)" if sig.get("is_test") else ""),
+                        f"Einstieg **{_fmt(fill, '.2f')}** · Stop {_fmt(sig['sl'], '.2f')} ({_fmt(-risk_usd, ',.0f')} $)"
+                        + (f" · Ziel {_fmt(sig['tp'], '.2f')} (+{_fmt(abs(sig['tp'] - fill) * sig['qty'] * pv, ',.0f')} $)" if sig["tp"] else f" · {sig.get('mgmt')}"),
+                        "info")
         self.db.log(f"{sig['side'].upper()} {sig['qty']}× {root} gefüllt @ {fill:.2f} · Stop {sig['sl']:.2f} · "
                     + (f"Ziel {sig['tp']:.2f}" if sig["tp"] else f"ohne festes Ziel ({sig.get('mgmt')})"))
         return {"ok": True, "status": "ausgeführt", "position": pid}
@@ -1074,8 +1130,13 @@ class Engine:
         pnl = (exit_price - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"] - comm
         self.db.update_position(pos["id"], status="geschlossen", closed=time.time(), exit=round_tick(exit_price, tick),
                                 pnl=round(pnl, 2), close_reason=reason)
-        self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen ({reason}) · {pnl:+,.0f} $",
+        self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen ({reason}) · {_fmt(pnl, '+,.0f')} $",
                     "info" if pnl >= 0 else "warn")
+        if pos["broker"] != "eigen":
+            r_ = self._r_of(dict(pos, pnl=pnl))
+            self.notify("trades", f"{'✅' if pnl > 0 else '❌'} {pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen · {pos['setup']}" + (" (Test)" if pos.get("is_test") else ""),
+                        f"{reason} · {_fmt(pos['entry'], '.2f')} → {_fmt(exit_price, '.2f')} · **{_fmt(pnl, '+,.0f')} $**" + (f" ({_fmt(r_, '+.2f')} R)" if r_ is not None else "")
+                        + f"\nHeute: {_fmt(self.today_pnl(), '+,.0f')} $", "good" if pnl > 0 else "bad")
 
     def _close(self, pos, price, reason):
         tick = INSTR[pos["root"]]["tick"]
@@ -1306,7 +1367,8 @@ class Engine:
                 setups[name] = {"sessions": sessions, "status": status, "n": n, "total": len(lst), "avg_r": round(avg, 3),
                                 "winrate": round(sum(1 for r in rs if r > 0) / n * 100, 1), "sum_r": round(sum(rs), 2)}
             self.learning = {"last_run": time.time(), "last_day": str(ny_date()), "setups": setups, "insights": insights[:15],
-                             "rejected_rules": self.learning.get("rejected_rules") or [], "auto_log": self.learning.get("auto_log") or []}
+                             "rejected_rules": self.learning.get("rejected_rules") or [], "auto_log": self.learning.get("auto_log") or [],
+                             "daystop_day": self.learning.get("daystop_day")}
             with open(self.learn_path, "w", encoding="utf-8") as f:
                 json.dump(self.learning, f, indent=2, ensure_ascii=False)
             return self.learning
@@ -1328,7 +1390,7 @@ class Engine:
                 else:
                     er[row["setup"]] = rec
                 c = row["cols"][rec]
-                done.append(f"{row['setup']}: Ausstieg {row['applied']} → {rec} (Ø {c['avg']:+.2f} R aus {c['n']} Signalen)")
+                done.append(f"{row['setup']}: Ausstieg {row['applied']} → {rec} (Ø {_fmt(c['avg'], '+.2f')} R aus {c['n']} Signalen)")
             # 2) Regeln: bewährte übernehmen, schlecht laufende Auto-Regeln wieder entfernen
             rf = self.rules_find()
             rejected = set(self.learning.get("rejected_rules") or [])
@@ -1338,7 +1400,7 @@ class Engine:
                 if r.get("auto") and r["blocked_n"] >= 15 and r["blocked_r"] > 0:
                     rejected.add(key)
                     done.append(f"Regel verworfen – {r['setup']} {'meiden' if r['action'] == 'avoid' else 'nur'}, wenn {r['label']}: "
-                                f"die geblockten {r['blocked_n']} Signale hätten {r['blocked_r']:+.1f} R gebracht")
+                                f"die geblockten {r['blocked_n']} Signale hätten {_fmt(r['blocked_r'], '+.1f')} R gebracht")
                     continue
                 rules.append({k: r[k] for k in ("setup", "conds", "action", "label", "added", "active", "auto") if k in r})
             have = {json.dumps([r["setup"], r["conds"], r["action"]]) for r in rules}
@@ -1353,7 +1415,7 @@ class Engine:
                               "added": time.time(), "active": True, "auto": True})
                 have.add(key)
                 done.append(f"Regel übernommen – {f['setup']} {'meiden' if f['action'] == 'avoid' else 'nur'}, wenn {f['label']} "
-                            f"(Ø {f['avg_match']:+.2f} R gegenüber {f['avg_rest']:+.2f} R, {f['n']} Signale)")
+                            f"(Ø {_fmt(f['avg_match'], '+.2f')} R gegenüber {_fmt(f['avg_rest'], '+.2f')} R, {f['n']} Signale)")
             if done:
                 self.update_cfg({"exit_rules": er, "rule_filters": rules})
                 if any(k not in er for k in (self.cfg.get("exit_rules") or {})):
@@ -1395,6 +1457,9 @@ class Engine:
     def tick(self):
         with self.lock:
             now = time.time()
+            self._last_loop = now
+            self._check_daystop()
+            self._check_silence()
             for s in self.db.pending():
                 if s["expires"] and now > s["expires"]:
                     self.db.update_signal(s["id"], status="verfallen", reason="Zeit abgelaufen")
@@ -1416,6 +1481,11 @@ class Engine:
                 except Exception as e:   # Lernen darf den Handel nie stören
                     self.db.log(f"Lernmodul: automatische Übernahme fehlgeschlagen ({e})", "warn")
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
+                self.notify("daily", f"Tagesabschluss {t.strftime('%d.%m.')}", self.day_report_text(), "info")
+                if t.weekday() == 4:
+                    rep = self.weekly_report()
+                    self.notify("weekly", f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
+                                self.weekly_text(rep), "good" if rep["net"] > 0 else "bad" if rep["net"] < 0 else "info")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
                 self.db.prune_bars1((now - 20 * 86400) * 1000)   # 1-Minuten-Kerzen: 20 Tage reichen für den Chart
             nw = self.cfg["news"]
@@ -1923,7 +1993,7 @@ class Engine:
             pid = self._own_insert({"root": root, "side": side, "qty": qty, "entry": entry, "exit": exit_, "pnl": pnl,
                                     "opened": self._num(b.get("ts_in")) or ts, "closed": ts, "day": day,
                                     "note": str(b.get("note") or "")[:120]})
-            self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {pnl:+,.0f} $")
+            self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {_fmt(pnl, '+,.0f')} $")
             return {"ok": True, "id": pid}
 
     # ───────── Eigene Trades automatisch aus Tradovate ─────────
@@ -2115,6 +2185,507 @@ class Engine:
             self.db.log(f"Eigene Trades importiert: {added} neu, {skipped} schon vorhanden, {bad} nicht lesbar")
         return {"ok": True, "added": added, "skipped": skipped, "bad": bad, "fees": bool(c_fee) and subtract_fees}
 
+    # ───────── Tageszusammenfassung, Timeline, Tages-Stopp ─────────
+    @staticmethod
+    def _r_of(p):
+        if not p.get("initial_sl") or p.get("pnl") is None or p["entry"] == p["initial_sl"]:
+            return None
+        pv = INSTR.get(p["root"], {"pv": 1})["pv"]
+        return p["pnl"] / (abs(p["entry"] - p["initial_sl"]) * (p["qty"] or 1) * pv)
+
+    @staticmethod
+    def _reason_cat(reason):
+        r = reason or ""
+        for key, label in (("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
+                           ("Regel-Finder", "Regel-Finder"), ("Fremdkapital", "Fremdkapital-Schutz"),
+                           ("Session", "Außerhalb Session"), ("Tagesziel", "Tages-Stopp"), ("Tagesverlust", "Tages-Stopp"),
+                           ("Trades pro Tag", "Max. Trades"), ("offener Positionen", "Max. Positionen"),
+                           ("pausiert", "Handel pausiert"), ("zu weit", "Stop zu weit")):
+            if key in r:
+                return label
+        return "Sonstiges"
+
+    def _bot_closed(self, since=0, until=None):
+        until = until or time.time() + 1
+        return [p for p in self.db.closed_positions()
+                if p["broker"] == self.broker.name and not p["is_test"] and since <= (p["closed"] or 0) < until]
+
+    def daystop(self):
+        """Tages-Stopp: Tagesziel oder Tagesverlust erreicht → heute keine neuen Trades."""
+        r = self.cfg["risk"]
+        pnl = self.today_pnl()
+        goal, loss = float(r.get("daily_profit_stop") or 0), float(r.get("max_daily_loss") or 0)
+        if goal > 0 and pnl >= goal:
+            return {"hit": "ziel", "text": f"Tagesziel erreicht ({_fmt(pnl, '+,.0f')} $) – heute keine neuen Trades", "pnl": pnl}
+        if loss > 0 and pnl <= -loss:
+            return {"hit": "verlust", "text": f"Tagesverlust-Limit erreicht ({_fmt(pnl, '+,.0f')} $) – heute keine neuen Trades", "pnl": pnl}
+        return {"hit": None, "pnl": pnl, "goal": goal, "loss": loss}
+
+    def _check_daystop(self):
+        ds = self.daystop()
+        today = str(ny_date())
+        if not ds["hit"] or self._daystop_day == today:
+            return
+        self._daystop_day = today
+        self.learning["daystop_day"] = today   # merkt sich den Stopp über einen Neustart hinweg
+        try:
+            with open(self.learn_path, "w", encoding="utf-8") as fh:
+                json.dump(self.learning, fh, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
+        self.db.log(ds["text"], "warn")
+        closed = 0
+        if self.cfg["risk"].get("daily_stop_close"):
+            for pos in self.db.open_positions():
+                if pos["broker"] == self.broker.name:
+                    try:
+                        self._close(pos, None, "Tages-Stopp")
+                        closed += 1
+                    except ValueError:
+                        pass
+        self.notify("daystop", "Tages-Stopp", ds["text"] + (f"\n{closed} offene Position(en) geschlossen." if closed else ""),
+                    "good" if ds["hit"] == "ziel" else "bad")
+
+    def summary(self):
+        start = self._ny_day_start()
+        closed = self._bot_closed(start)
+        rs = [x for x in (self._r_of(p) for p in closed) if x is not None]
+        opens = [p for p in self.db.open_positions() if p["broker"] == self.broker.name]
+        sigs = [s for s in self.db.rows("SELECT status, reason, is_test FROM signals WHERE ts>=?", (start,)) if not s["is_test"]]
+        blocked = {}
+        for s in sigs:
+            if s["status"] == "blockiert":
+                k = self._reason_cat(s["reason"])
+                blocked[k] = blocked.get(k, 0) + 1
+        ds = self.daystop()
+        own = [t for t in self._calendar_trades() if t["source"] == "eigen" and t["day"] == str(ny_date())]
+        return {"n": len(closed), "wins": sum(1 for p in closed if p["pnl"] > 0), "losses": sum(1 for p in closed if p["pnl"] <= 0),
+                "realized": round(sum(p["pnl"] for p in closed), 2), "upnl": round(sum(self._unrealized(p) for p in opens), 2),
+                "r": round(sum(rs), 2) if rs else 0.0, "open": len(opens), "signals": len(sigs),
+                "executed": sum(1 for s in sigs if s["status"] == "ausgeführt"), "blocked": blocked,
+                "own_n": len(own), "own_pnl": round(sum(t["pnl"] or 0 for t in own), 2),
+                "daystop": ds, "daystop_close": bool(self.cfg["risk"].get("daily_stop_close"))}
+
+    def _ny_day_start(self, day=None):
+        """Unix-Zeit von 00:00 New York an einem Datum (Standard: heute)."""
+        import calendar
+        d = day or ny_date()
+        t = calendar.timegm((d.year, d.month, d.day, 4, 0, 0)) - 3600   # 03:00 UTC, dann vorwärts bis NY-Mitternacht
+        while ny_date(t) < d:
+            t += 900
+        return t
+
+    def timeline(self, day=None):
+        """Alle Signale eines Tages mit Entscheidung, Grund und Ergebnis (auch, was geblockte gebracht hätten)."""
+        d = dt.date.fromisoformat(day) if day else ny_date()
+        a = self._ny_day_start(d)
+        b = a + 86400 + 3600
+        sigs = self.db.rows("SELECT id, ts, root, side, setup, entry, sl, tp, qty, risk_usd, flags, status, reason, is_test, mgmt "
+                            "FROM signals WHERE ts>=? AND ts<? ORDER BY ts", (a, b))
+        sigs = [s for s in sigs if ny_date(s["ts"]) == d]
+        pos = {p["signal_id"]: p for p in self.db.rows(
+            "SELECT signal_id, status, exit, pnl, close_reason, entry, initial_sl, qty, root, closed FROM positions WHERE opened>=? AND opened<?", (a, b))}
+        sh = {x["signal_id"]: x for x in self.db.rows("SELECT signal_id, status, r FROM shadow WHERE opened>=? AND opened<?", (a, b))}
+        out = []
+        for s in sigs:
+            try:
+                s["flags"] = json.loads(s["flags"]) if s["flags"] else []
+            except ValueError:
+                s["flags"] = []
+            p = pos.get(s["id"])
+            if p:
+                s["pos"] = {"status": p["status"], "exit": p["exit"], "pnl": p["pnl"], "reason": p["close_reason"],
+                            "r": round(self._r_of(p), 2) if self._r_of(p) is not None else None}
+            x = sh.get(s["id"])
+            if x:
+                s["shadow"] = {"status": x["status"], "r": x["r"]}
+            if s["status"] == "blockiert":
+                s["cat"] = self._reason_cat(s["reason"])
+            out.append(s)
+        return {"day": str(d), "items": out}
+
+    # ───────── Discord ─────────
+    def notify(self, kind, title, text, tone="info"):
+        dc = self.cfg.get("discord") or {}
+        if not dc.get("enabled") or not dc.get("url") or (kind != "test" and not dc.get(kind, True)):
+            return
+        key = (kind, title, text)
+        now = time.time()
+        if kind == "errors" and now - self._notified.get(key, 0) < 1800:
+            return   # gleiche Fehlermeldung höchstens alle 30 Minuten
+        self._notified[key] = now
+        if len(self.outbox) < 200:
+            self.outbox.append({"title": title, "text": text, "tone": tone, "ts": now})
+
+    def _on_log(self, text, level):
+        if level == "error":
+            self.notify("errors", "Fehler", text, "bad")
+        elif text.startswith("Lernmodul (automatisch)") or (text.startswith("Lernmodul:") and "→" in text):
+            self.notify("learn", "Lernmodul", text.split(": ", 1)[-1], "info")
+
+    def _check_silence(self):
+        dc = self.cfg.get("discord") or {}
+        mins = float(dc.get("silence_min") or 0)
+        if mins <= 0 or not self.last_msg:
+            return
+        now = time.time()
+        quiet = now - self.last_msg > mins * 60
+        if quiet and not self._silent and market_open(ny_time()) and market_open(ny_time(now - mins * 60)):
+            self._silent = True
+            self.notify("silence", "TradingView schweigt",
+                        f"Seit {round((now - self.last_msg) / 60)} Minuten kam keine Nachricht von TradingView, obwohl der Markt offen ist. "
+                        "Prüfe den Alert in TradingView (abgelaufen, gelöscht oder pausiert?).", "bad")
+        elif not quiet and self._silent:
+            self._silent = False
+            self.notify("silence", "TradingView wieder da", "Es kommen wieder Nachrichten von TradingView an.", "good")
+
+    def day_report_text(self):
+        s = self.summary()
+        lines = [f"**{s['n']} Trades** · {s['wins']} Gewinner / {s['losses']} Verlierer",
+                 f"Ergebnis: **{_fmt(s['realized'], '+,.0f')} $** ({_fmt(s['r'], '+.2f')} R)"]
+        if s["signals"]:
+            lines.append(f"Signale: {s['signals']} · ausgeführt {s['executed']}" +
+                         (" · geblockt: " + ", ".join(f"{k} {v}" for k, v in s["blocked"].items()) if s["blocked"] else ""))
+        if s["open"]:
+            lines.append(f"Noch offen: {s['open']} Position(en), {_fmt(s['upnl'], '+,.0f')} $")
+        if self.cfg["challenge"]["enabled"]:
+            c = self.challenge()
+            lines.append(f"Fremdkapital: {_fmt(c['buffer'], ',.0f')} $ Puffer bis zur Verlustgrenze · noch {_fmt(c['to_target'], ',.0f')} $ bis zum Ziel")
+        return "\n".join(lines)
+
+    # ───────── Gesundheits-Check ─────────
+    def health(self):
+        now = time.time()
+        items = []
+        t = ny_time()
+        mo = market_open(t)
+        tf = max(self.chart_tf.values() or [300000]) / 1000
+        if not self.last_msg:
+            items.append(("tv", "TradingView", "bad" if market_open(t) else "off", "Seit dem Start der App noch keine Nachricht"))
+        else:
+            age = now - self.last_msg
+            txt = f"Letzte Nachricht vor {_ago(age)}"
+            st = "ok" if age < tf * 2 + 120 else ("off" if not mo else "warn" if age < 1800 else "bad")
+            if not mo and st != "ok":
+                txt += " · Markt geschlossen"
+            items.append(("tv", "TradingView", st, txt))
+        ai = getattr(self, "alert_issue", None)
+        if ai:
+            items.append(("alert", "Alert-Einstellung", "bad", str(ai.get("text") if isinstance(ai, dict) else ai)[:140]))
+        if self.broker.name == "paper":
+            items.append(("broker", "Broker", "ok", "Paper-Trading (simuliert)"))
+        else:
+            items.append(("broker", self.broker.label, "ok" if self.broker_ok else "bad", "verbunden" if self.broker_ok else (self.broker_status or "nicht verbunden")))
+        lt = now - self._last_loop
+        items.append(("loop", "Hintergrund", "ok" if lt < 20 else "bad", "läuft" if lt < 20 else f"hängt seit {_ago(lt)}"))
+        try:
+            import shutil
+            free = shutil.disk_usage(self.data_dir).free / 1e9
+            size = os.path.getsize(os.path.join(self.data_dir, "trader.db")) / 1e6
+            items.append(("disk", "Speicher", "ok" if free > 2 else "warn" if free > 0.5 else "bad",
+                          f"{_fmt(free, ',.1f')} GB frei · Datenbank {_fmt(size, ',.0f')} MB"))
+        except OSError:
+            pass
+        dc = self.cfg.get("discord") or {}
+        if dc.get("enabled") and dc.get("url"):
+            ds = self.discord_state
+            st = "bad" if ds.get("error") else "ok"
+            items.append(("discord", "Discord", st, ds.get("error") or (f"zuletzt gesendet vor {_ago(now - ds['last'])}" if ds.get("last") else "bereit")))
+        ds = self.daystop()
+        if ds["hit"]:
+            items.append(("daystop", "Tages-Stopp", "warn", ds["text"]))
+        return [{"key": k, "label": l, "status": s, "text": x} for k, l, s, x in items]
+
+    # ───────── Wochenbericht ─────────
+    def weekly_report(self, offset=0):
+        today = ny_date()
+        monday = today - dt.timedelta(days=today.weekday()) - dt.timedelta(weeks=int(offset))
+        a = self._ny_day_start(monday)
+        b = a + 7 * 86400
+        pa = a - 7 * 86400
+        trades = [p for p in self._bot_closed(a, b)]
+        prev = self._bot_closed(pa, a)
+        rs = [self._r_of(p) for p in trades]
+        wins = [p for p in trades if p["pnl"] > 0]
+        gp, gl = sum(p["pnl"] for p in wins), -sum(p["pnl"] for p in trades if p["pnl"] <= 0)
+        days = {}
+        for p in trades:
+            d = str(ny_date(p["closed"]))
+            x = days.setdefault(d, {"day": d, "n": 0, "pnl": 0.0})
+            x["n"] += 1
+            x["pnl"] = round(x["pnl"] + p["pnl"], 2)
+        by_setup, by_sess = {}, {}
+        for p, r in zip(trades, rs):
+            for key, bucket in ((p["setup"] or "–", by_setup), (SESSION_NAMES.get(session_of(ny_time(p["opened"])), "außerhalb"), by_sess)):
+                x = bucket.setdefault(key, {"n": 0, "w": 0, "pnl": 0.0, "r": 0.0})
+                x["n"] += 1
+                x["w"] += p["pnl"] > 0
+                x["pnl"] = round(x["pnl"] + p["pnl"], 2)
+                x["r"] = round(x["r"] + (r or 0), 2)
+        sigs = [s for s in self.db.rows("SELECT id, status, reason, setup, is_test FROM signals WHERE ts>=? AND ts<?", (a, b)) if not s["is_test"]]
+        shr = {x["signal_id"]: x["r"] for x in self.db.rows("SELECT signal_id, r FROM shadow WHERE opened>=? AND opened<? AND r IS NOT NULL", (a, b))}
+        blocked = {}
+        for s in sigs:
+            if s["status"] == "blockiert":
+                k = self._reason_cat(s["reason"])
+                x = blocked.setdefault(k, {"n": 0, "r": 0.0, "known": 0})
+                x["n"] += 1
+                if s["id"] in shr:
+                    x["r"] = round(x["r"] + shr[s["id"]], 2)
+                    x["known"] += 1
+        all_r = [shr[s["id"]] for s in sigs if s["id"] in shr]
+        learn = [x for x in (self.learning.get("auto_log") or []) if a <= x["t"] < b]
+        own = [t for t in self._calendar_trades() if t["source"] == "eigen" and str(monday) <= t["day"] < str(monday + dt.timedelta(days=7))]
+        net, pnet = gp - gl, sum(p["pnl"] for p in prev)
+        hl = []
+        if trades:
+            hl.append(f"{len(trades)} Trades, {len(wins)} Gewinner ({_fmt(len(wins) / len(trades) * 100, '.0f')} %), netto {_fmt(net, '+,.0f')} $"
+                      + (f" – {'besser' if net > pnet else 'schwächer'} als letzte Woche ({_fmt(pnet, '+,.0f')} $)" if prev else ""))
+            best = max(trades, key=lambda p: p["pnl"])
+            worst = min(trades, key=lambda p: p["pnl"])
+            hl.append(f"Bester Trade: {best['setup']} {_fmt(best['pnl'], '+,.0f')} $ · schlechtester: {worst['setup']} {_fmt(worst['pnl'], '+,.0f')} $")
+            if len(days) > 1:
+                bd = max(days.values(), key=lambda x: x["pnl"])
+                wd = min(days.values(), key=lambda x: x["pnl"])
+                hl.append(f"Bester Tag {_wd(bd['day'])} ({_fmt(bd['pnl'], '+,.0f')} $), schwächster {_wd(wd['day'])} ({_fmt(wd['pnl'], '+,.0f')} $)")
+            if len(by_setup) > 1:
+                top = max(by_setup.items(), key=lambda kv: kv[1]["pnl"])
+                low = min(by_setup.items(), key=lambda kv: kv[1]["pnl"])
+                hl.append(f"Stärkste Strategie: {top[0]} ({_fmt(top[1]['pnl'], '+,.0f')} $), schwächste: {low[0]} ({_fmt(low[1]['pnl'], '+,.0f')} $)")
+        else:
+            hl.append("Keine Bot-Trades in dieser Woche.")
+        for k, x in sorted(blocked.items(), key=lambda kv: -kv[1]["n"]):
+            if x["known"]:
+                hl.append(f"{k}: {x['n']} Signale geblockt – die hätten zusammen {_fmt(x['r'], '+.1f')} R gebracht "
+                          + ("(Filter hat geholfen)" if x["r"] < 0 else "(Filter hat Gewinn gekostet)" if x["r"] > 0 else ""))
+        for x in learn:
+            hl.append("Selbst umgestellt: " + x["text"])
+        return {"monday": str(monday), "friday": str(monday + dt.timedelta(days=4)), "offset": int(offset),
+                "n": len(trades), "wins": len(wins), "net": round(net, 2), "prev_net": round(pnet, 2), "prev_n": len(prev),
+                "winrate": round(len(wins) / len(trades) * 100, 1) if trades else None, "pf": round(gp / gl, 2) if gl > 0 else None,
+                "r": round(sum(r for r in rs if r is not None), 2), "days": sorted(days.values(), key=lambda x: x["day"]),
+                "by_setup": by_setup, "by_session": by_sess, "signals": len(sigs), "executed": sum(1 for s in sigs if s["status"] == "ausgeführt"),
+                "blocked": blocked, "signals_r": round(sum(all_r), 2), "signals_known": len(all_r),
+                "learn": learn, "own_n": len(own), "own_pnl": round(sum(t["pnl"] or 0 for t in own), 2),
+                "statuses": {k: {"status": v.get("status"), "avg_r": v.get("avg_r")} for k, v in (self.learning.get("setups") or {}).items()},
+                "highlights": hl}
+
+    def weekly_text(self, rep):
+        return "\n".join(["• " + h for h in rep["highlights"][:10]])
+
+    # ───────── Bot gegen Backtest ─────────
+    def compare_backtest(self, bt, same_period=True):
+        """Kennzahlen TradingView-Backtest ↔ alle Signale (live) ↔ echte Bot-Trades, plus Abgleich einzelner Trades."""
+        bt = [dict(t) for t in (bt or []) if t.get("time") and t.get("pnl") is not None]
+        live = self.live_backtest()["trades"]
+        bot = []
+        for p in self._bot_closed():
+            t = p["bar_time"] if p.get("bar_time") and abs(p["bar_time"] / 1000 - p["opened"]) < 86400 * 400 else p["opened"] * 1000
+            bot.append({"time": t, "setup": p["setup"], "dir": "Long" if p["side"] == "long" else "Short", "pnl": p["pnl"],
+                        "r": self._r_of(p), "slip": None})
+        period = None
+        firsts = [x[0]["time"] for x in (live, bot) if x]
+        if same_period and bt and firsts:
+            a = min(firsts)
+            b = max(t["time"] for t in bt)
+            if b > a:
+                period = (a, b + 86400000)
+                bt = [t for t in bt if period[0] <= t["time"] <= period[1]]
+                live = [t for t in live if period[0] <= t["time"] <= period[1]]
+                bot = [t for t in bot if period[0] <= t["time"] <= period[1]]
+
+        def kpis(lst):
+            if not lst:
+                return {"n": 0}
+            w = [t["pnl"] for t in lst if t["pnl"] > 0]
+            lo = [-t["pnl"] for t in lst if t["pnl"] <= 0]
+            days = {str(ny_date(t["time"] / 1000)) for t in lst}
+            setups = {}
+            for t in lst:
+                x = setups.setdefault(t.get("setup") or "–", {"n": 0, "w": 0})
+                x["n"] += 1
+                x["w"] += t["pnl"] > 0
+            return {"n": len(lst), "winrate": round(len(w) / len(lst) * 100, 1), "pf": round(sum(w) / sum(lo), 2) if sum(lo) > 0 else None,
+                    "payoff": round((sum(w) / len(w)) / (sum(lo) / len(lo)), 2) if w and lo and sum(lo) > 0 else None,
+                    "per_day": round(len(lst) / max(1, len(days)), 2), "days": len(days),
+                    "long_share": round(sum(1 for t in lst if t["dir"] == "Long") / len(lst) * 100, 1),
+                    "setups": {k: {"n": v["n"], "wr": round(v["w"] / v["n"] * 100, 1)} for k, v in setups.items()}}
+
+        def match(a_list, b_list, tol=15 * 60000):
+            used, pairs = set(), []
+            bs = sorted(range(len(b_list)), key=lambda i: b_list[i]["time"])
+            for x in a_list:
+                best = None
+                for i in bs:
+                    if i in used or b_list[i]["dir"] != x["dir"]:
+                        continue
+                    d = abs(b_list[i]["time"] - x["time"])
+                    if d <= tol and (best is None or d < best[0]):
+                        best = (d, i)
+                if best:
+                    used.add(best[1])
+                    pairs.append((x, b_list[best[1]]))
+            same = sum(1 for x, y in pairs if (x["pnl"] > 0) == (y["pnl"] > 0))
+            return {"matched": len(pairs), "only_a": len(a_list) - len(pairs), "only_b": len(b_list) - len(used),
+                    "same_outcome": round(same / len(pairs) * 100, 1) if pairs else None}
+
+        res = {"backtest": kpis(bt), "signals": kpis(live), "bot": kpis(bot),
+               "period": [period[0], period[1]] if period else None,
+               "match_bt_signals": match(bt, live) if bt and live else None,
+               "match_signals_bot": match(live, bot) if live and bot else None}
+        notes = []
+        B, L, R = res["backtest"], res["signals"], res["bot"]
+        if B.get("n") and L.get("n"):
+            d = L["winrate"] - B["winrate"]
+            if abs(d) >= 10 and L["n"] >= 20:
+                notes.append(("warn", f"Trefferquote live {_fmt(L['winrate'], '.0f')} % gegenüber {_fmt(B['winrate'], '.0f')} % im Backtest ({_fmt(d, '+.0f')} Prozentpunkte)."))
+            else:
+                notes.append(("ok", f"Trefferquote live und im Backtest ähnlich ({_fmt(L['winrate'], '.0f')} % zu {_fmt(B['winrate'], '.0f')} %)."))
+            if L["per_day"] < B["per_day"] * 0.6 and L["days"] >= 5:
+                notes.append(("warn", f"Live kommen deutlich weniger Signale an ({L['per_day']} statt {B['per_day']} pro Tag). Läuft der Alert durchgehend?"))
+            m = res["match_bt_signals"]
+            if m and m["matched"] + m["only_a"] >= 10 and m["only_a"] > (m["matched"] + m["only_a"]) * 0.25:
+                notes.append(("warn", f"{m['only_a']} Backtest-Trades kamen live nie als Signal an – Alert war evtl. aus, oder das Script im Alert ist veraltet."))
+            if m and m["same_outcome"] is not None and m["matched"] >= 10 and m["same_outcome"] < 75:
+                notes.append(("warn", f"Nur {_fmt(m['same_outcome'], '.0f')} % der gleichen Trades endeten gleich – Hinweis auf Repainting oder andere Einstellungen."))
+        if L.get("n") and R.get("n"):
+            m = res["match_signals_bot"]
+            if m and m["only_a"] > 0:
+                notes.append(("info", f"{m['only_a']} Signale hat der Bot bewusst nicht genommen (Filter, Lernmodul, News, Limits)."))
+        if not B.get("n"):
+            notes.append(("info", "Noch kein TradingView-Backtest geladen – unter Lernmodul → Backtest eine Export-Datei einlesen."))
+        res["notes"] = [{"tone": a, "text": b} for a, b in notes]
+        return res
+
+    # ───────── Monte-Carlo für die Fremdkapital-Challenge ─────────
+    def monte_carlo(self, pool_src="auto", runs=3000, max_days=60, bt=None, fresh=False):
+        import random
+        ch = self.cfg["challenge"]
+        c = self.challenge()
+        start, dd = float(ch["start_balance"]), float(ch["max_dd"])
+        target = start + float(ch["profit_target"])
+        dloss = float(ch["daily_loss"] or 0)
+        pools = {}
+        cal = self._calendar_trades()
+        for key, rows in (("bot", [t for t in cal if t["source"] == "bot"]), ("eigen", [t for t in cal if t["source"] == "eigen"]),
+                          ("alle", cal)):
+            days = {}
+            for t in sorted(rows, key=lambda t: t["closed"] or 0):
+                days.setdefault(t["day"], []).append(t["pnl"] or 0)
+            pools[key] = list(days.values())
+        for key, rows in (("signale", self.live_backtest()["trades"]), ("backtest", bt or [])):
+            days = {}
+            for t in sorted(rows, key=lambda t: t["time"]):
+                days.setdefault(str(ny_date(t["time"] / 1000)), []).append(t["pnl"])
+            pools[key] = list(days.values())
+        if pool_src == "auto":
+            pool_src = next((k for k in (ch["source"], "bot", "backtest", "signale") if len(pools.get(k, [])) >= 10), ch["source"])
+        days_pool = pools.get(pool_src) or []
+        info = {"source": pool_src, "pool_days": len(days_pool), "pool_trades": sum(len(d) for d in days_pool),
+                "sizes": {k: len(v) for k, v in pools.items()}}
+        if len(days_pool) < 5:
+            return dict(info, ok=False, error="Zu wenig Handelstage für eine Simulation (mindestens 5).")
+        use_now = not fresh and c["n_trades"] > 0 and not c["breached"] and not c["passed"]
+        bal0 = c["balance"] if use_now else start
+        hwm0 = c["hwm"] if use_now else start
+
+        def thr(h):
+            if ch["dd_type"] == "static":
+                return start - dd
+            v = h - dd
+            return min(v, start) if ch["lock_at_start"] else v
+
+        rnd = random.Random(42)
+        passed = failed = 0
+        t_pass, t_fail = [], []
+        curves = [[] for _ in range(max_days + 1)]
+        for _ in range(runs):
+            bal, hwm, done = bal0, hwm0, None
+            curves[0].append(bal)
+            for day in range(1, max_days + 1):
+                if done is None:
+                    dp = 0.0
+                    for p in rnd.choice(days_pool):
+                        bal += p
+                        dp += p
+                        if ch["dd_type"] == "intraday":
+                            hwm = max(hwm, bal)
+                        if bal <= thr(hwm):
+                            done = "fail"
+                            break
+                        if dloss > 0 and dp <= -dloss:
+                            break   # Tageslimit: für heute Schluss (der Bot stoppt dann selbst)
+                    if done is None and ch["dd_type"] == "eod":
+                        hwm = max(hwm, bal)
+                    if done is None and bal >= target:
+                        done = "pass"
+                    if done == "pass":
+                        passed += 1
+                        t_pass.append(day)
+                    elif done == "fail":
+                        failed += 1
+                        t_fail.append(day)
+                curves[day].append(bal)
+        def q(v, p):
+            v = sorted(v)
+            return v[min(len(v) - 1, int(p * len(v)))] if v else None
+        fan = [{"d": d, "p10": round(q(v, .1), 0), "p50": round(q(v, .5), 0), "p90": round(q(v, .9), 0)} for d, v in enumerate(curves)]
+        avg_day = sum(sum(d) for d in days_pool) / len(days_pool)
+        return dict(info, ok=True, runs=runs, max_days=max_days, from_now=use_now, start=bal0,
+                    target=target, threshold=round(thr(hwm0), 2),
+                    p_pass=round(passed / runs * 100, 1), p_fail=round(failed / runs * 100, 1),
+                    p_open=round((runs - passed - failed) / runs * 100, 1),
+                    med_pass=q(t_pass, .5), med_fail=q(t_fail, .5), avg_day=round(avg_day, 2), fan=fan)
+
+    # ───────── Journal: Notizen und Screenshots je Trade ─────────
+    def journal_set(self, pid, text):
+        p = self.db.position(pid)
+        if not p:
+            raise ValueError("Trade nicht gefunden")
+        self.db.update_position(pid, journal=str(text or "")[:4000])
+        return {"ok": True}
+
+    def shots_dir(self):
+        d = os.path.join(self.data_dir, "screenshots")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def shot_add(self, pid, data):
+        p = self.db.position(pid)
+        if not p:
+            raise ValueError("Trade nicht gefunden")
+        shots = json.loads(p.get("shots") or "[]")
+        if len(shots) >= 6:
+            raise ValueError("Höchstens 6 Bilder pro Trade")
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            ext = "png"
+        elif data[:3] == b"\xff\xd8\xff":
+            ext = "jpg"
+        elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            ext = "webp"
+        else:
+            raise ValueError("Nur PNG-, JPG- oder WEBP-Bilder")
+        if len(data) > 6_000_000:
+            raise ValueError("Bild ist größer als 6 MB")
+        name = f"{pid}_{uuid.uuid4().hex[:8]}.{ext}"
+        with open(os.path.join(self.shots_dir(), name), "wb") as f:
+            f.write(data)
+        shots.append(name)
+        self.db.update_position(pid, shots=json.dumps(shots))
+        return {"ok": True, "name": name, "shots": shots}
+
+    def shot_delete(self, pid, name):
+        p = self.db.position(pid)
+        if not p:
+            raise ValueError("Trade nicht gefunden")
+        shots = [s for s in json.loads(p.get("shots") or "[]") if s != name]
+        self.db.update_position(pid, shots=json.dumps(shots))
+        try:
+            os.remove(os.path.join(self.shots_dir(), os.path.basename(name)))
+        except OSError:
+            pass
+        return {"ok": True, "shots": shots}
+
     def state(self):
         with self.lock:
             opens = self.db.open_positions()
@@ -2148,6 +2719,9 @@ class Engine:
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
                 "news_pause": self.news_block(),
+                "summary": self.summary(),
+                "timeline": self.timeline(),
+                "health": self.health(),
                 "news_next": next(({"title": e["title"], "ts": e["ts"], "start": e["start"], "end": e["end"]}
                                    for e in self.news_window() if not e["active"]), None),
                 "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
