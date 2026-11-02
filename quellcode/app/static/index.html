@@ -2007,7 +2007,10 @@ async function btLoadFile(f) {
     let trades = null, lastErr = null;
     const order = [...res.sheets].sort((a, b) => (/liste|list/i.test(b.name) ? 1 : 0) - (/liste|list/i.test(a.name) ? 1 : 0));
     for (const sh of order) { try { trades = btParse(sh.rows); break; } catch (e) { if (e.message !== "NOHEADER") lastErr = e; } }
-    if (!trades) throw lastErr || new Error(`Keine Trade-Liste gefunden (Blätter: ${res.sheets.map(x => x.name).join(", ")}). Bitte im Strategietester die „Liste der Trades“ exportieren.`);
+    if (!trades) {
+      const first = res.sheets.map(x => (x.rows.find(r => r.some(c => String(c).trim())) || []).slice(0, 12).map(c => String(c).trim()).filter(Boolean).join(" | ")).filter(Boolean)[0] || "leer";
+      throw lastErr || new Error(`Keine Trade-Liste gefunden. Erste Zeile der Datei: „${first.slice(0, 300)}“. Bitte im Strategietester die „Liste der Trades“ exportieren, nicht die Chartdaten.`);
+    }
     BT.trades = trades; BT.name = f.name; BT.filter = "Alle";
     await api("/api/backtest/save", {name: f.name, trades: trades.map(t => ({time: t.time.getTime(), setup: t.setup, dir: t.dir, pnl: t.pnl}))});
     toast(`${trades.length} Trades eingelesen`);

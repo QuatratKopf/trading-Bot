@@ -1,6 +1,6 @@
 {
-  "version": "2.11.0",
-  "file": "releases/FVG-Trader-2.11.0.cmd",
-  "sha256": "070123b0e141b668f28ff37732fea1f8ec6032b0c4fa091d39e89c26baa43141",
-  "notes": "Backtest im Lernmodul: Trade-Liste aus dem TradingView-Strategietester (CSV/Excel, deutsch/englisch) auswerten"
+  "version": "2.11.1",
+  "file": "releases/FVG-Trader-2.11.1.cmd",
+  "sha256": "c500ff4081c43bd58d442d09f24511df44af6c5ca71c0c69ebfb5bfdb4138eb0",
+  "notes": "Backtest: verständlichere Fehlermeldung mit erster Zeile der Datei"
 }
