@@ -42,10 +42,11 @@ fixedQty    = input.int(1,      "Kontrakte (fest)", minval = 1,           group 
 riskUsd     = input.float(500,  "Risiko pro Trade ($)", minval = 10,      group = grpRisk)
 maxQty      = input.int(5,      "Max. Kontrakte", minval = 1,             group = grpRisk)
 useBE       = input.bool(false, "Stop auf Break-even ab 1R",              group = grpRisk)
-maxTradesDay= input.int(3,      "Max. Trades pro Tag", minval = 1,        group = grpRisk)
+maxTradesDay= input.int(10,     "Max. Trades pro Tag", minval = 1,        group = grpRisk)
 maxDayLoss  = input.float(1000, "Tagesverlust-Limit ($, 0 = aus)", minval = 0, group = grpRisk)
 
 grpTime = "③ Sessions (New Yorker Zeit)"
+useAllDay   = input.bool(false, "Ganztägig handeln (immer, außer Marktpause 17–18 Uhr)", group = grpTime)
 useAsia     = input.bool(false, "Asien 20:00–24:00",                      group = grpTime)
 useLondon   = input.bool(false, "London 02:00–05:00",                     group = grpTime)
 useNyAm     = input.bool(true,  "New York Vormittag 09:30–11:30",         group = grpTime)
@@ -140,7 +141,8 @@ inLondon = useLondon  and not na(time(timeframe.period, "0200-0500", TZ))
 inNyAm   = useNyAm    and not na(time(timeframe.period, "0930-1130", TZ))
 inNyLun  = useNyLunch and not na(time(timeframe.period, "1130-1330", TZ))
 inNyPm   = useNyPm    and not na(time(timeframe.period, "1330-1550", TZ))
-inSess   = inAsia or inLondon or inNyAm or inNyLun or inNyPm
+inAllDay = useAllDay and na(time(timeframe.period, "1700-1800", TZ))
+inSess   = inAllDay or inAsia or inLondon or inNyAm or inNyLun or inNyPm
 
 // ───────────────────────── Indikatoren ─────────────────────────
 atr    = ta.atr(atrLen)
@@ -461,7 +463,7 @@ if showDash and barstate.islast
     table.cell(dash, 0, 0, "FVG Bot · " + syminfo.ticker + " · " + timeframe.period, text_color = color.white, text_size = size.normal, text_halign = text.align_left)
     table.merge_cells(dash, 0, 0, 1, 0)
     row(1,  "Position",          pos, posC)
-    string sName = inAsia ? "Asien" : inLondon ? "London" : inNyAm ? "NY Vormittag" : inNyLun ? "NY Mittag" : inNyPm ? "NY Nachmittag" : "keine"
+    string sName = inAsia ? "Asien" : inLondon ? "London" : inNyAm ? "NY Vormittag" : inNyLun ? "NY Mittag" : inNyPm ? "NY Nachmittag" : inAllDay ? "ganztägig" : "keine"
     row(2,  "Session",           sName, inSess ? cBull : cMuted)
     row(3,  "News-Filter",       newsBlock ? "gesperrt · " + newsReason : "frei", newsBlock ? cIBear : cBull)
     row(4,  "HTF-Bias",          not useBias ? "aus" : close > htfEma ? "bullisch" : "bärisch", not useBias ? cMuted : close > htfEma ? cBull : cBear)

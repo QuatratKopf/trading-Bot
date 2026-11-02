@@ -1,6 +1,6 @@
 {
-  "version": "2.8.1",
-  "file": "releases/FVG-Trader-2.8.1.cmd",
-  "sha256": "3c39d1a28d33750a40dffb2b8e05e630268e9973e68e18921899e90d15b05ed8",
-  "notes": "Gleiche Rundung bei P&L heute und Performance"
+  "version": "2.9.0",
+  "file": "releases/FVG-Trader-2.9.0.cmd",
+  "sha256": "22e1c848d699dc6c94f2a79371f826229798be8aa29e95d05425fa9aa99681b7",
+  "notes": "Ganztägig handeln (App und Script) und Lernmodul je Session: schwache Sessions werden nur dort gebremst"
 }

@@ -483,6 +483,8 @@ svg.chart{width:100%;height:auto}
 @media (max-width:760px){ .pc-g{grid-template-columns:repeat(2,minmax(0,1fr))} .pc-c:nth-child(3){border-left:0} .pc-c:nth-child(n+3){border-top:1px solid var(--line)} .pc{padding:12px} .pc-pl{margin-left:0;width:100%;flex-direction:row;align-items:baseline;gap:8px} }
 .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--pos);margin-right:4px;vertical-align:1px;animation:pulse 1.6s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,211,154,.6)}70%{box-shadow:0 0 0 6px rgba(47,211,154,0)}100%{box-shadow:0 0 0 0 rgba(47,211,154,0)}}
+.ssn{display:flex;gap:4px;flex-wrap:wrap}
+.ssn .chip b{font-weight:600;margin-left:2px}
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -1805,12 +1807,15 @@ function learnStrategies() {
     <section class="panel"><div class="section-h"><div><h2>So lernt der Bot</h2>
       <p class="hint" style="max-width:75ch;margin-top:4px">Jedes Signal wird im Hintergrund als Schatten-Trade simuliert, auch abgelehnte und blockierte. Nach jeder Session wertet der Bot die letzten ${p.window} Schatten-Trades je Strategie aus.
       Unter ${num2(p.half_below_r)} R im Schnitt gibt es halbe Größe, unter ${num2(p.pause_below_r)} R eine Pause. Erst ab ${p.min_trades} Trades greift die Bewertung.
-      Pausierte Strategien laufen im Schatten weiter und werden automatisch wieder freigegeben, wenn sie sich erholen. Das Risiko wird nie automatisch über deine Einstellung erhöht.</p></div>
+      Pausierte Strategien laufen im Schatten weiter und werden automatisch wieder freigegeben, wenn sie sich erholen. Das Risiko wird nie automatisch über deine Einstellung erhöht.
+      <b>Zusätzlich je Session:</b> Läuft eine Strategie z. B. in Asien schlecht, in New York aber gut, wird sie nur in Asien gebremst (Spalte „Je Session“: ✓ aktiv, ½ halbe Größe, ⏸ pausiert, … lernt noch).</p></div>
       <div style="display:flex;gap:10px;align-items:center"><span class="hint">Letzte Auswertung: ${L.last_run ? dtm(L.last_run) : "noch keine"}</span><button class="btn primary" id="runL">Jetzt auswerten</button></div></div></section>
-    <section class="section"><h2>Strategien</h2><div class="panel scroll">${L.setups.length ? `<table><thead><tr><th class="t">Strategie</th><th class="t">Status</th><th>Ausgewertet</th><th>Gesamt</th><th>Treffer</th><th>Ø R</th><th>Σ R</th><th>Laufend</th><th class="t">Steuerung</th></tr></thead><tbody>
+    <section class="section"><h2>Strategien</h2><div class="panel scroll">${L.setups.length ? `<table><thead><tr><th class="t">Strategie</th><th class="t">Status</th><th>Ausgewertet</th><th>Gesamt</th><th>Treffer</th><th>Ø R</th><th>Σ R</th><th>Laufend</th><th class="t">Je Session</th><th class="t">Steuerung</th></tr></thead><tbody>
       ${L.setups.map(s => `<tr><td class="t"><span class="chip">${esc(s.setup)}</span></td>
         <td class="t"><span class="chip ${stChip(s.effective)}">${esc(s.effective)}</span>${s.manual !== "auto" ? ' <span class="hint">(manuell)</span>' : ""}</td>
         <td>${s.n}</td><td>${s.total}</td><td>${pct(s.winrate)}</td><td class="${cls(s.avg_r)}">${num2(s.avg_r)}</td><td class="${cls(s.sum_r)}">${num2(s.sum_r)}</td><td>${s.open}</td>
+        <td class="t wrap" style="min-width:220px">${Object.keys(s.sessions || {}).length ? `<div class="ssn">${["asia", "london", "ny_am", "ny_lunch", "ny_pm", "aus"].filter(k => (s.sessions || {})[k]).map(k => { const x = s.sessions[k];
+          return `<span class="chip ${stChip(x.status)}" title="${esc((S.session_names || {})[k] || k)}: ${x.n} Trades · ${pct(x.winrate)} · Ø ${num2(x.avg_r)} R · ${esc(x.status)}">${{asia: "Asien", london: "London", ny_am: "NY Vorm.", ny_lunch: "NY Mittag", ny_pm: "NY Nachm.", aus: "Sonst"}[k]} ${x.status === "pausiert" ? "⏸" : x.status === "halbe Größe" ? "½" : x.status === "aktiv" ? "✓" : "…"} <b class="mono">${x.avg_r > 0 ? "+" : ""}${num2(x.avg_r)}</b></span>`; }).join("")}</div>` : '<span class="hint">noch keine Daten</span>'}</td>
         <td class="t"><select data-setup="${esc(s.setup)}" class="rule" aria-label="Steuerung ${esc(s.setup)}">${[["auto", "Lernmodul entscheidet"], ["an", "Immer an"], ["aus", "Aus"]].map(([v, l]) => `<option value="${v}" ${s.manual === v ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}
       </tbody></table>` : '<p class="hint">Noch keine Daten. Sobald Signale aus TradingView eintreffen, erscheinen hier alle Strategien.</p>'}</div></section>
     <section class="section"><h2>Erkenntnisse</h2><div class="panel">${L.insights.length ? `<div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.insights.map(i => `<span class="chip ${i.kind === "bad" ? "bad" : i.kind === "good" ? "good" : "warn"}">${esc(i.text)}</span>`).join("")}</div>` : '<p class="hint">Noch keine Auffälligkeiten. Erkenntnisse zu Uhrzeiten erscheinen ab 6 Trades pro Stunde.</p>'}</div></section>`;
@@ -1995,11 +2000,12 @@ function settings() {
     ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "Danach handelt der Bot heute nicht mehr. 0 = aus"})}
     ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}`)}
 
-  ${sec("sess", "Sessions & Vorschläge", sessOn.length ? sessOn.join(" · ") : "keine Session angehakt", `<span class="chip ${S.session_open ? "good" : "mute"}">${S.session_open ? "jetzt offen" : "gerade zu"}</span>`, `
+  ${sec("sess", "Sessions & Vorschläge", r.all_day ? "Ganztägig" + (sessOn.length ? " · " + sessOn.join(" · ") : "") : sessOn.length ? sessOn.join(" · ") : "keine Session angehakt", `<span class="chip ${S.session_open ? "good" : "mute"}">${S.session_open ? "jetzt offen" : "gerade zu"}</span>`, `
     ${intro("Hak an, in welchen Sessions der Bot handeln darf. Die gleichen Haken gibt es in den Einstellungen der TradingView-Strategie.")}
     <div class="sess-list">${Object.entries(S.sessions).map(([k, x]) => `<label class="sess ${(r.sessions || {})[k] ? "on" : ""}">
       <input type="checkbox" class="chk" data-cfg data-sess="${k}" ${(r.sessions || {})[k] ? "checked" : ""}>
       <span class="sess-n">${esc(x.name)}</span><span class="sess-t mono">${x.start}–${x.end === "00:00" ? "24:00" : x.end} NY</span><span class="sess-t mono hint">${localTime(x.start)}–${localTime(x.end)} bei dir</span></label>`).join("")}</div>
+    ${field("ad", "Ganztägig handeln", r.all_day, {check: true, help: "Handelt zu jeder Uhrzeit, außer in der Marktpause 17–18 Uhr NY und am Wochenende. In TradingView dafür ebenfalls „Ganztägig handeln“ anhaken."})}
     ${field("es", "Nur in der Handelszeit handeln", r.enforce_session, {check: true})}
     ${field("fe", "Zum Ende der Session schließen", r.flat_at_session_end, {check: true, help: "Offene Positionen werden geschlossen, wenn ihre Session endet"})}
     ${field("to", "Vorschlag verfällt nach (Sekunden)", c.suggestion_timeout_sec, {attrs: {min: 15, step: 15}, help: "Gilt, wenn der Auto-Modus aus ist"})}
@@ -2084,7 +2090,7 @@ function settings() {
     const patch = {
       sizing: {mode, fixed_qty: v("fq"), risk_usd: num("ru"), risk_pct: num("rp"), contract_type: v("ct"), max_qty: v("mq")},
       safe_stop: {NQ: {default: num("nqd"), min: num("nqmin"), max: num("nqmax")}, ES: {default: num("esd"), min: num("esmin"), max: num("esmax")}, default_rr: num("rr")},
-      risk: {max_daily_loss: num("mdl"), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), flat_at_session_end: v("fe"),
+      risk: {max_daily_loss: num("mdl"), max_trades_day: parseInt(v("mtd")), max_open: parseInt(v("mo")), enforce_session: v("es"), all_day: v("ad"), flat_at_session_end: v("fe"),
         sessions: Object.fromEntries([...document.querySelectorAll("[data-sess]")].map(x => [x.dataset.sess, x.checked]))},
       suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"),
       learning: {enabled: v("le"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},

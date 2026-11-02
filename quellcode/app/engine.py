@@ -32,6 +32,22 @@ TRADING_SESSIONS = {
 }
 
 
+SESSION_NAMES = {k: v[0] for k, v in TRADING_SESSIONS.items()} | {"aus": "außerhalb der Sessions", "ganztags": "Ganztägig"}
+
+
+def market_open(t):
+    """CME-Futures: So 18:00 bis Fr 17:00 New York, täglich Pause 17–18 Uhr."""
+    wd, hm = t.weekday(), t.strftime("%H:%M")
+    if wd == 5 or (wd == 6 and hm < "18:00") or (wd == 4 and hm >= "17:00"):
+        return False
+    return not ("17:00" <= hm < "18:00")
+
+
+def session_of(t):
+    """Benannte Session zu einer New-Yorker Uhrzeit (unabhängig von den Haken), sonst „aus“."""
+    return next((k for k in TRADING_SESSIONS if in_session(k, t)), "aus")
+
+
 def in_session(key, t):
     """Liegt die New-Yorker Zeit t in der Session? Abend-Sessions (Asien) gehören zum nächsten Handelstag."""
     _, start, end = TRADING_SESSIONS[key]
@@ -74,6 +90,7 @@ DEFAULT_CONFIG = {
         "session_start": "09:30",   # alt, nicht mehr genutzt
         "session_end": "15:50",     # alt, nicht mehr genutzt
         "sessions": {"asia": False, "london": False, "ny_am": True, "ny_lunch": False, "ny_pm": True},
+        "all_day": False,          # ganztägig handeln (außer Marktpause)
         "flat_at_session_end": True,
     },
     "exit_rules": {},          # Strategie -> übernommene Ausstiegs-Variante (Varianten-Labor)
@@ -460,7 +477,8 @@ class Engine:
             raise ValueError("Unbekannter Broker")
         ses = c["risk"].get("sessions") or {}
         c["risk"]["sessions"] = {k: bool(ses.get(k)) for k in TRADING_SESSIONS}
-        if c["risk"]["enforce_session"] and not any(c["risk"]["sessions"].values()):
+        c["risk"]["all_day"] = bool(c["risk"].get("all_day"))
+        if c["risk"]["enforce_session"] and not any(c["risk"]["sessions"].values()) and not c["risk"]["all_day"]:
             raise ValueError("Bitte mindestens eine Session anhaken, in der der Bot handeln darf.")
 
     def regenerate_token(self):
@@ -723,7 +741,8 @@ class Engine:
             self.db.log(f"Signal {side.upper()} {fam} blockiert: {sized}", "warn")
             return {"ok": False, "status": "blockiert", "reason": sized}
         root, qty, risk_usd = sized
-        rule = self.setup_rule(base["setup"])
+        sess_now = session_of(ny_time(sig_ts))
+        rule = self.setup_rule(base["setup"], sess_now)
         if rule == "halbe Größe" and qty > 1:
             qty = qty // 2
             risk_usd = round(qty * abs(price - sl) * INSTR[root]["pv"], 2)
@@ -734,7 +753,9 @@ class Engine:
         if rule == "aus":
             guard = f"Strategie {base['setup']} ist ausgeschaltet"
         elif rule == "pausiert":
-            guard = f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)"
+            ses_p = ((self.learning.get("setups", {}).get(base["setup"]) or {}).get("sessions") or {}).get(sess_now, {}).get("status") == "pausiert"
+            guard = (f"Strategie {base['setup']} vom Lernmodul in {SESSION_NAMES.get(sess_now, sess_now)} pausiert (läuft im Schatten weiter)"
+                     if ses_p else f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)")
         if not guard and not is_test:
             guard = self.rule_block(base["setup"], ctx)
         guard = guard or self._guards(fam, base.get("risk_usd"))
@@ -843,10 +864,13 @@ class Engine:
         return pnl + sum(self._unrealized(p) for p in self.db.open_positions())
 
     def session_now(self, t=None):
-        """Name der gerade laufenden, angehakten Session oder None."""
+        """Schlüssel der gerade laufenden, angehakten Session (bei „ganztägig“: „ganztags“) oder None."""
         t = t or ny_time()
         on = self.cfg["risk"].get("sessions") or {}
-        return next((k for k in TRADING_SESSIONS if on.get(k) and in_session(k, t)), None)
+        k = next((k for k in TRADING_SESSIONS if on.get(k) and in_session(k, t)), None)
+        if not k and self.cfg["risk"].get("all_day") and market_open(t):
+            return "ganztags"
+        return k
 
     def _guards(self, fam, risk=None):
         r = self.cfg["risk"]
@@ -1096,18 +1120,37 @@ class Engine:
             day += dt.timedelta(days=1)
         return dt.datetime.combine(day, dt.time(16))
 
+    @staticmethod
+    def _shadow_session(x):
+        try:
+            c = json.loads(x.get("ctx") or "{}")
+        except ValueError:
+            c = {}
+        if c.get("session") and c["session"] != "keine":
+            return c["session"] if c["session"] in TRADING_SESSIONS else "aus"
+        t = ny_time(x["bar_time"] / 1000) if x.get("bar_time") else ny_time(x["opened"])
+        return session_of(t)
+
     def _close_variant(self, v, exit_price):
         d = 1 if v["side"] == "long" else -1
         self.db.update_variant(v["id"], status="geschlossen", closed=time.time(), exit=exit_price,
                                r=round((exit_price - v["entry"]) * d / (v["risk"] or 1e-9), 3))
 
-    def setup_rule(self, setup):
+    def setup_rule(self, setup, sess=None):
+        """Status einer Strategie; mit Session: das Schlechtere aus Gesamtbewertung und Bewertung in dieser Session."""
         manual = self.cfg["setup_rules"].get(setup, "auto")
         if manual == "aus":
             return "aus"
         if manual == "an" or not self.cfg["learning"]["enabled"]:
             return "aktiv"
-        return (self.learning.get("setups", {}).get(setup) or {}).get("status", "lernt")
+        d = self.learning.get("setups", {}).get(setup) or {}
+        st = d.get("status", "lernt")
+        if sess:
+            ss = ((d.get("sessions") or {}).get(sess) or {}).get("status")
+            rank = {"pausiert": 3, "halbe Größe": 2, "aktiv": 1, "lernt": 0}
+            if ss and rank.get(ss, 0) > rank.get(st, 0):
+                return ss
+        return st
 
     def learn(self):
         """Tägliche Auswertung aller Schatten-Trades je Strategie. Senkt Risiko automatisch, erhöht es nie über normal."""
@@ -1136,6 +1179,24 @@ class Engine:
                     msg = f"{name}: {old} → {status} (Ø {avg:+.2f} R aus den letzten {n} Trades)"
                     insights.append({"kind": "change", "text": msg})
                     self.db.log("Lernmodul: " + msg, "warn" if status in ("pausiert", "halbe Größe") else "info")
+                # Je Session getrennt bewerten: schwache Sessions werden nur dort gebremst
+                sess_rows = {}
+                for x in lst[-max(150, int(L["window"]) * 5):]:
+                    sess_rows.setdefault(self._shadow_session(x), []).append(x["r"])
+                old_ss = (prev.get(name) or {}).get("sessions") or {}
+                sessions = {}
+                for sk, srs in sess_rows.items():
+                    srs = srs[-int(L["window"]):]
+                    sn, savg = len(srs), sum(srs) / len(srs)
+                    sst = ("lernt" if sn < int(L["min_trades"]) else "pausiert" if savg < float(L["pause_below_r"])
+                           else "halbe Größe" if savg < float(L["half_below_r"]) else "aktiv")
+                    sessions[sk] = {"n": sn, "avg_r": round(savg, 3), "status": sst,
+                                    "winrate": round(sum(1 for r in srs if r > 0) / sn * 100, 1)}
+                    o_ss = (old_ss.get(sk) or {}).get("status")
+                    if o_ss and o_ss != sst and sst != "lernt":
+                        msg = f"{name} in {SESSION_NAMES.get(sk, sk)}: {o_ss} → {sst} (Ø {savg:+.2f} R aus {sn} Trades)"
+                        insights.append({"kind": "change", "text": msg})
+                        self.db.log("Lernmodul: " + msg, "warn" if sst in ("pausiert", "halbe Größe") else "info")
                 hours = {}
                 for x in lst[-150:]:
                     hours.setdefault(x["ny_hour"], []).append(x["r"])
@@ -1146,7 +1207,7 @@ class Engine:
                             insights.append({"kind": "bad", "text": f"{name} verliert um {h}:00 NY (Ø {m:+.2f} R aus {len(v)} Trades)"})
                         elif m >= 0.5:
                             insights.append({"kind": "good", "text": f"{name} läuft stark um {h}:00 NY (Ø {m:+.2f} R aus {len(v)} Trades)"})
-                setups[name] = {"status": status, "n": n, "total": len(lst), "avg_r": round(avg, 3),
+                setups[name] = {"sessions": sessions, "status": status, "n": n, "total": len(lst), "avg_r": round(avg, 3),
                                 "winrate": round(sum(1 for r in rs if r > 0) / n * 100, 1), "sum_r": round(sum(rs), 2)}
             self.learning = {"last_run": time.time(), "last_day": str(ny_date()), "setups": setups, "insights": insights[:15]}
             with open(self.learn_path, "w", encoding="utf-8") as f:
@@ -1202,7 +1263,8 @@ class Engine:
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
                     # schließen, sobald keine angehakte Session mehr läuft (wie in der TradingView-Strategie)
-                    started_in = next((k for k in TRADING_SESSIONS if in_session(k, o)), None)
+                    started_in = next((k for k in TRADING_SESSIONS if in_session(k, o)), None) or \
+                        ("ganztags" if r.get("all_day") else None)
                     if started_in and (not self.session_now(t) or time.time() - pos["opened"] > 20 * 3600):
                         try:
                             self._close(pos, None, "Sessionende")
@@ -1865,7 +1927,8 @@ class Engine:
                 "instruments": INSTR,
                 "now_ny": now_ny.strftime("%H:%M"),
                 "session_open": bool(self.session_now(now_ny)),
-                "session_name": TRADING_SESSIONS[self.session_now(now_ny)][0] if self.session_now(now_ny) else "",
+                "session_name": SESSION_NAMES.get(self.session_now(now_ny), "") if self.session_now(now_ny) else "",
+                "session_names": SESSION_NAMES,
                 "sessions": {k: {"name": v[0], "start": v[1], "end": v[2]} for k, v in TRADING_SESSIONS.items()},
                 "tv": {"last_msg": self.last_msg,
                        "last_bar": {k: v for k, v in self.last_bar.items()}},
