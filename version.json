@@ -1,6 +1,6 @@
 {
-  "version": "2.5.0",
-  "file": "releases/FVG-Trader-2.5.0.cmd",
-  "sha256": "4c9a8465c9e8b86fe51ed3f33ae80565cf8f08fe5034a17c98c9714e058e690f",
-  "notes": "Lernlabor: Varianten-Labor (8 Ausstiegs-Varianten je Signal, Empfehlung mit Gegenprobe, übernehmbar) und Regel-Finder (Marktlage je Signal, Regeln mit Gegenprobe, übernehmbar als Filter)"
+  "version": "2.5.1",
+  "file": "releases/FVG-Trader-2.5.1.cmd",
+  "sha256": "544f84ec75f75698bf3c66941b2a6296d1776553c19b5a5089e20ee8458a3546",
+  "notes": "Erkennt falsch eingerichtete TradingView-Alerts (Platzhalter statt Daten) und zeigt, wie man es behebt"
 }

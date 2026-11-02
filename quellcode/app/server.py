@@ -213,6 +213,14 @@ def webhook(h, token):
         time.sleep(0.5)
         return h._send(403, {"error": "Falscher Webhook-Token"})
     raw = h._body()
+    txt = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    if "{{" in txt and "}}" in txt:
+        # TradingView hat den Platzhalter nicht ersetzt: Der Alert hängt nicht an der Strategie (z. B. Kurs-Alarm)
+        engine.alert_issue = {"ts": time.time(), "text": txt[:120]}
+        engine.db.log("Alert falsch eingerichtet: TradingView schickt den Platzhalter statt der Daten. "
+                      "Im Alert als Bedingung die Strategie „FVG Bot“ wählen (nicht NQ1!) und "
+                      "„Orderausführungen und alert()-Aufrufe“.", "error")
+        return h._send(400, {"error": "Platzhalter nicht ersetzt: Alert muss an der Strategie hängen"})
     try:
         payload = json.loads(raw)
     except ValueError:
@@ -223,6 +231,7 @@ def webhook(h, token):
     except ValueError as e:
         engine.db.log(f"Webhook abgelehnt: {e}", "error")
         return h._send(400, {"error": str(e)})
+    engine.alert_issue = None
     # Kommt hier etwas an, nutzt der TradingView-Alert die aktuelle Adresse: Erinnerung automatisch abhaken
     cur = hook_url()
     if cur and engine.cfg.get("hook_confirmed") != cur:
@@ -309,6 +318,7 @@ def state(h):
     s["version"] = APP_VERSION
     s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()
+    s["alert_issue"] = getattr(engine, "alert_issue", None)
     h._send(200, s)
 
 

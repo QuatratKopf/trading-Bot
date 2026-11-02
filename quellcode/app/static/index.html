@@ -709,7 +709,12 @@ function header() {
   $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
     : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
     + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
-        <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "");
+        <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "")
+    + (S.alert_issue ? `<div class="banner" style="background:var(--neg-bg);color:var(--fg);border:1px solid rgba(255,93,108,.35)"><b style="color:var(--neg)">TradingView-Alert falsch eingerichtet.</b>
+        Angekommen ist nur der Platzhalter <span class="mono">{{strategy.order.alert_message}}</span> statt der Daten (zuletzt ${tm(S.alert_issue.ts)}). Der Alert hängt am Kurs statt an der Strategie.
+        <ol style="margin:8px 0 0;padding-left:20px;line-height:1.7"><li>Alle bisherigen Alarme für NQ1! löschen.</li><li>Neuen Alarm: bei <b>Bedingung</b> die Strategie <b>„FVG Bot“</b> wählen (nicht „NQ1!“), darunter <b>„Orderausführungen und alert()-Aufrufe“</b>.</li>
+        <li>Nachricht: nur <span class="mono">{{strategy.order.alert_message}}</span>, kein anderer Text.</li><li>Benachrichtigungen → Webhook-URL aus den Einstellungen, Ablauf: unbegrenzt.</li></ol>
+        Richtig eingerichtet zeigt oben „TradingView verbunden“ nach spätestens 5 Minuten (jede Kerze wird geschickt), und dieser Hinweis verschwindet.</div>` : "");
   if (S.update && S.update.available) {
     $("#banner").innerHTML += `<div class="banner" style="background:var(--fill);color:var(--fg)">Update verfügbar: Version <b>${esc(S.update.version)}</b>${S.update.notes ? ` · ${esc(S.update.notes)}` : ""}
       <button class="btn primary" id="updNow" style="margin-left:8px">Jetzt aktualisieren</button></div>`;
