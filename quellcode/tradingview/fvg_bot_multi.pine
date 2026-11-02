@@ -9,7 +9,9 @@ strategy("FVG Bot · Multi-Strategie [NQ·ES]", shorttitle = "FVG Bot", overlay 
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 2.25,
      slippage = 1, pyramiding = 0, max_boxes_count = 400, max_labels_count = 100,
-     calc_on_every_tick = true, process_orders_on_close = false)
+     calc_on_every_tick = true, process_orders_on_close = false, margin_long = 0, margin_short = 0)
+// margin_long/short = 0: Futures brauchen nur eine kleine Sicherheitsleistung. Mit TradingViews Standard (100 % des Kontraktwerts)
+// würde z. B. 1 MNQ bei 28.000 Punkten (56.000 $) bei 50.000 $ Startkapital abgelehnt und es gäbe weder Trades noch Signale.
 // calc_on_every_tick: nur für den Live-Kurs an die App. Alle Handelsentscheidungen fallen weiter erst zum Kerzenschluss (barstate.isconfirmed).
 
 // ───────────────────────── Inputs ─────────────────────────

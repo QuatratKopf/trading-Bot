@@ -1,6 +1,6 @@
 {
-  "version": "2.10.0",
-  "file": "releases/FVG-Trader-2.10.0.cmd",
-  "sha256": "ff7a19b5cf94c5e23dc69a9722f0456db98f9517018be6853e10322bfff562b7",
-  "notes": "News-Pause: rund um wichtige US-News keine neuen Trades, offene Positionen 1 Min vorher schließen; News-Liste ohne Überlappung"
+  "version": "2.10.1",
+  "file": "releases/FVG-Trader-2.10.1.cmd",
+  "sha256": "2d9a2a14b8fefa0caab1554093bc81cd073bc49dcff9c85a188fe1c30f3e0622",
+  "notes": "Script: Margin auf 0, sonst lehnt TradingView bei hohem NQ-Kurs alle Orders ab und es kommen keine Signale"
 }
