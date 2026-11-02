@@ -31,6 +31,37 @@ SERVICE = "--dienst" in sys.argv   # läuft als Dienst (Windows-Aufgabenplanung,
 _svc_cache = {"t": 0, "v": False}
 
 
+REMOTE = {"month": "", "n": 0, "dirty": 0}
+
+
+def _remote_file():
+    return os.path.join(DATA, "anfragen.json")
+
+
+def count_remote(h):
+    """Zählt Anfragen, die über die Internet-Verbindung (ngrok/Cloudflare) kommen. ngrok kostenlos: 20.000 im Monat."""
+    if not (h.headers.get("X-Forwarded-For") or h.headers.get("Cf-Connecting-Ip")):
+        return
+    m = time.strftime("%Y-%m")
+    if not REMOTE["month"]:
+        try:
+            with open(_remote_file(), encoding="utf-8") as f:
+                REMOTE.update(json.load(f))
+        except (OSError, ValueError):
+            pass
+    if REMOTE["month"] != m:
+        REMOTE.update(month=m, n=0)
+    REMOTE["n"] += 1
+    REMOTE["dirty"] += 1
+    if REMOTE["dirty"] >= 20:
+        REMOTE["dirty"] = 0
+        try:
+            with open(_remote_file(), "w", encoding="utf-8") as f:
+                json.dump({"month": REMOTE["month"], "n": REMOTE["n"]}, f)
+        except OSError:
+            pass
+
+
 def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
@@ -176,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method):
         path = self.path.split("?")[0]
+        count_remote(self)
         if method == "GET" and (path == "/" or path.startswith("/static/")):
             return self._static(path)
         for m, rx, auth, fn in ROUTES:
@@ -324,6 +356,14 @@ def state(h):
     s["platform"] = sys.platform
     s["autostart"] = autostart_enabled()
     s["service"] = service_state()
+    if not REMOTE["month"]:
+        try:
+            with open(_remote_file(), encoding="utf-8") as f:
+                REMOTE.update(json.load(f))
+        except (OSError, ValueError):
+            REMOTE["month"] = time.strftime("%Y-%m")
+    s["remote"] = {"month": REMOTE["month"], "n": REMOTE["n"] if REMOTE["month"] == time.strftime("%Y-%m") else 0,
+                   "limit": 20000 if (s.get("tunnel") or {}).get("provider") == "ngrok" else None}
     s["version"] = APP_VERSION
     s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()

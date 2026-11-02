@@ -9,7 +9,8 @@ strategy("FVG Bot · Multi-Strategie [NQ·ES]", shorttitle = "FVG Bot", overlay 
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 2.25,
      slippage = 1, pyramiding = 0, max_boxes_count = 400, max_labels_count = 100,
-     calc_on_every_tick = false, process_orders_on_close = false)
+     calc_on_every_tick = true, process_orders_on_close = false)
+// calc_on_every_tick: nur für den Live-Kurs an die App. Alle Handelsentscheidungen fallen weiter erst zum Kerzenschluss (barstate.isconfirmed).
 
 // ───────────────────────── Inputs ─────────────────────────
 grpSetup = "① Setup"
@@ -71,6 +72,8 @@ showDash    = input.bool(true,  "Dashboard anzeigen",                     group 
 dashPosStr  = input.string("Oben rechts", "Dashboard-Position", options = ["Oben rechts", "Oben links", "Unten rechts", "Unten links"], group = grpVis)
 whSymbol    = input.string("",  "Webhook-Symbol (leer = Chart-Symbol)",   group = grpVis)
 sendBars    = input.bool(true,  "Kerzen-Daten an die App senden (Paper-Trading & Lernmodul)", group = grpVis)
+sendTicks   = input.bool(true,  "Live-Kurs an die App, solange ein Trade offen ist", group = grpVis)
+tickSec     = input.int(20,     "Live-Kurs alle … Sekunden (TradingView erlaubt max. 15 Alarme in 3 Min)", minval = 15, maxval = 120, group = grpVis)
 
 // ───────────────────────── Farben ─────────────────────────
 cBull  = #26a69a
@@ -344,7 +347,7 @@ if canTrade and not sigOn and useVWAP
         sigSL   := swingHi + buf
         sigName := "VWAP"
 
-if sigOn
+if sigOn and barstate.isconfirmed
     float risk = math.abs(close - sigSL)
     if risk >= minRisk and risk <= maxRisk
         float tp  = sigLong ? close + rr * risk : close - rr * risk
@@ -360,7 +363,7 @@ if sigOn
         tradesToday += 1
 
 // Break-even
-if useBE and not beDone and strategy.position_size != 0
+if useBE and not beDone and strategy.position_size != 0 and barstate.isconfirmed
     float ep = strategy.position_avg_price
     if (strategy.position_size > 0 and high >= ep + tRisk) or (strategy.position_size < 0 and low <= ep - tRisk)
         tSL    := ep
@@ -368,7 +371,7 @@ if useBE and not beDone and strategy.position_size != 0
         strategy.exit("Exit " + tId, from_entry = tId, stop = tSL, limit = tTP, alert_message = jsonExit(tId))
 
 // Flat zum Sessionende, vor FOMC und bei Tageslimit
-if strategy.position_size != 0
+if strategy.position_size != 0 and barstate.isconfirmed
     if flatEnd and not inSess
         strategy.close_all(comment = "Sessionende", alert_message = jsonExit(""))
     else if isFomc and blockFomc != "Ignorieren" and nyMin >= 13 * 60 + 50
@@ -396,6 +399,12 @@ if sendBars and barstate.isrealtime and barstate.isconfirmed
          ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
          ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
          ',"m1":[' + m1s + ']}', alert.freq_once_per_bar_close)
+
+// Live-Kurs, solange die Strategie im Trade ist (gedrosselt, damit TradingView den Alarm nicht stoppt)
+varip int lastTick = 0
+if sendTicks and barstate.isrealtime and not barstate.isconfirmed and strategy.position_size != 0 and timenow - lastTick >= tickSec * 1000
+    lastTick := timenow
+    alert('{"type":"tick","ticker":"' + sym + '","price":' + str.tostring(close, format.mintick) + ',"time":' + str.tostring(timenow) + '}', alert.freq_all)
 
 // ───────────────────────── Statistik je Setup ─────────────────────────
 var array<string> stName = array.from("FVG", "iFVG", "Silver Bullet", "ORB", "Sweep", "VWAP")

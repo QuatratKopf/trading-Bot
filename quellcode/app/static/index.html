@@ -462,7 +462,8 @@ svg.chart{width:100%;height:auto}
 .pc-mk{position:absolute;top:50%;transform:translate(-50%,-50%);border-radius:50%}
 .pc-mk.e{width:4px;height:16px;border-radius:2px;background:var(--fg)}
 .pc-mk.n{width:14px;height:14px;background:var(--accent);border:2px solid var(--bg);box-shadow:0 0 0 3px rgba(76,141,255,.3);transition:left .4s}
-.pc-bl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.pc-bl{position:relative;display:flex;justify-content:space-between;font-size:11px;color:var(--muted);height:15px}
+.pc-le{position:absolute;transform:translateX(-50%)}
 .pc-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .pc-c{padding:10px 14px;display:flex;flex-direction:column;gap:2px;border-left:1px solid var(--line);min-width:0}
 .pc-c:first-child{border-left:0}
@@ -480,6 +481,8 @@ svg.chart{width:100%;height:auto}
 .pc-q{display:flex;flex-direction:column;gap:6px;align-self:end}
 @media (max-width:1000px){ .pc-a{grid-template-columns:1fr} .pc-q{flex-direction:row;flex-wrap:wrap} }
 @media (max-width:760px){ .pc-g{grid-template-columns:repeat(2,minmax(0,1fr))} .pc-c:nth-child(3){border-left:0} .pc-c:nth-child(n+3){border-top:1px solid var(--line)} .pc{padding:12px} .pc-pl{margin-left:0;width:100%;flex-direction:row;align-items:baseline;gap:8px} }
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--pos);margin-right:4px;vertical-align:1px;animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,211,154,.6)}70%{box-shadow:0 0 0 6px rgba(47,211,154,0)}100%{box-shadow:0 0 0 0 rgba(47,211,154,0)}}
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -763,6 +766,7 @@ function header() {
     : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
     + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
         <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "")
+    + (S.remote && S.remote.limit && S.remote.n > S.remote.limit * 0.8 ? `<div class="banner">ngrok-Kontingent fast aufgebraucht: ${S.remote.n.toLocaleString("de-DE")} von ${S.remote.limit.toLocaleString("de-DE")} Anfragen diesen Monat. Ist es leer, kommen keine Signale mehr an. App am Handy seltener offen lassen; mehr dazu unter Einstellungen → TradingView.</div>` : "")
     + (S.alert_issue ? `<div class="banner" style="background:var(--neg-bg);color:var(--fg);border:1px solid rgba(255,93,108,.35)"><b style="color:var(--neg)">TradingView-Alert falsch eingerichtet.</b>
         Angekommen ist nur der Platzhalter <span class="mono">{{strategy.order.alert_message}}</span> statt der Daten (zuletzt ${tm(S.alert_issue.ts)}). Der Alert hängt am Kurs statt an der Strategie.
         <ol style="margin:8px 0 0;padding-left:20px;line-height:1.7"><li>Alle bisherigen Alarme für NQ1! löschen.</li><li>Neuen Alarm: bei <b>Bedingung</b> die Strategie <b>„FVG Bot“</b> wählen (nicht „NQ1!“), darunter <b>„Orderausführungen und alert()-Aufrufe“</b>.</li>
@@ -1204,13 +1208,13 @@ function posCard(p) {
       <div class="pc-pl"><b id="pcPl-${p.id}">–</b><small id="pcPl2-${p.id}"></small></div>
     </div>
     <div class="pc-bar"><div class="pc-track"><i class="pc-risk"></i><i class="pc-rew"></i><span class="pc-mk e" id="pcMe-${p.id}"></span><span class="pc-mk n" id="pcMn-${p.id}"></span></div>
-      <div class="pc-bl"><span class="neg">Stop</span><span>Einstieg</span><span class="pos">${p.tp != null ? "Ziel" : "kein Ziel"}</span></div></div>
+      <div class="pc-bl"><span class="neg">Stop</span><span class="pc-le" id="pcLe-${p.id}">Einstieg</span><span class="pos">${p.tp != null ? "Ziel" : "kein Ziel"}</span></div></div>
     <div class="pc-g">
       <div class="pc-c sl"><span class="l">Stop-Loss</span><b class="mono">${px(p.sl)}</b>
         <small>${fPts(risk)} Pkt · ${fTicks(m.ticks(risk))}</small><small class="${risk >= 0 ? "pos" : "neg"}">${risk >= 0 ? "gesichert" : "Risiko"} ${sUsd(m.usdOf(risk))} ab Einstieg</small>
         <small id="pcSlNow-${p.id}"></small></div>
       <div class="pc-c"><span class="l">Einstieg</span><b class="mono">${px(p.entry)}</b>
-        <small>Kurs jetzt <b class="mono" id="pcNow-${p.id}">–</b></small><small id="pcNowD-${p.id}"></small><small>seit ${dtm(p.opened)}</small></div>
+        <small>Kurs jetzt <b class="mono" id="pcNow-${p.id}">–</b> <span id="pcLive-${p.id}"></span></small><small id="pcNowD-${p.id}"></small><small>seit ${dtm(p.opened)}</small></div>
       <div class="pc-c tp"><span class="l">Take-Profit</span><b class="mono">${p.tp != null ? px(p.tp) : "–"}</b>
         ${rew != null ? `<small>${fPts(rew)} Pkt · ${fTicks(m.ticks(rew))}</small><small class="pos">Chance ${sUsd(m.usdOf(rew))} ab Einstieg</small><small id="pcTpNow-${p.id}"></small>` : "<small>kein festes Ziel</small>"}</div>
       <div class="pc-c"><span class="l">Chance / Risiko</span><b class="mono">${rr != null ? "1 : " + rr.toFixed(2).replace(".", ",") : risk >= 0 ? "risikofrei" : "–"}</b>
@@ -1243,6 +1247,8 @@ function posLive(p) {
   const pl = $("#pcPl-" + p.id); pl.textContent = sUsd(p.upnl ?? m.usdOf(inPts)); pl.className = "mono " + cls(p.upnl ?? inPts);
   $("#pcPl2-" + p.id).textContent = `${fPts(inPts)} Pkt · ${fTicks(m.ticks(inPts))}${m.pts(p.entry, p.sl) < 0 ? ` · ${r >= 0 ? "+" : "−"}${Math.abs(r).toFixed(2).replace(".", ",")} R` : ""}`;
   $("#pcNow-" + p.id).textContent = px(now);
+  const lv = $("#pcLive-" + p.id), pAge = p.last_ts ? Math.max(0, Math.round(Date.now() / 1000 - p.last_ts)) : null;
+  if (lv) lv.innerHTML = pAge == null ? "" : pAge <= 45 ? `<span class="live-dot"></span>live · vor ${pAge} s` : `<span class="muted">Stand vor ${pAge < 3600 ? Math.round(pAge / 60) + " Min" : "über 1 Std"}</span>`;
   const nd = $("#pcNowD-" + p.id); nd.textContent = `${fPts(inPts)} Pkt · ${fTicks(m.ticks(inPts))}`; nd.className = cls(inPts);
   const toSl = m.pts(now, p.sl);
   $("#pcSlNow-" + p.id).textContent = `ab jetzt bis Stop: ${fTicks(m.ticks(toSl))} · ${sUsd(m.usdOf(toSl))}`;
@@ -1254,6 +1260,7 @@ function posLive(p) {
   const e = at(p.entry), n = at(now);
   el.querySelector(".pc-risk").style.width = e + "%"; el.querySelector(".pc-rew").style.left = e + "%"; el.querySelector(".pc-rew").style.width = (100 - e) + "%";
   $("#pcMe-" + p.id).style.left = e + "%"; $("#pcMn-" + p.id).style.left = n + "%";
+  const le = $("#pcLe-" + p.id); if (le) le.style.left = Math.max(12, Math.min(88, e)) + "%";
 }
 function posPreview(p, which) {
   const inp = $(`#${which}-${p.id}`), out = $(`#${which}Prev-${p.id}`); if (!inp || !out) return;
@@ -1999,6 +2006,8 @@ function settings() {
     ${field("le", "Lernmodul aktiv", L.enabled, {check: true, help: "Schwache Strategien bekommen halbe Größe oder Pause"})}`)}
 
   ${sec("tv", "TradingView", "Webhook-Adresse, Alert-Nachricht, Strategie-Script", tunChip, `
+    ${S.remote && S.remote.limit ? `<div class="row"><label>Anfragen über ngrok diesen Monat<small>Kostenlos sind ${S.remote.limit.toLocaleString("de-DE")} im Monat. Die meisten braucht TradingView (Kerzen alle 5 Min, Live-Kurs nur im Trade). Am Handy fragt die App deshalb nur alle 10–30 s nach.</small></label>
+      <div class="inline"><b class="mono ${S.remote.n > S.remote.limit * 0.8 ? "neg" : ""}">${S.remote.n.toLocaleString("de-DE")}</b><span class="hint">/ ${S.remote.limit.toLocaleString("de-DE")}</span></div></div>` : ""}
     <div class="row"><label>Internet-Verbindung<small>${c.public_url ? "Eigene Adresse aus „Erweitert“." : S.tunnel.fixed ? "Feste Adresse: bleibt nach Neustarts gleich, der Alert muss nie wieder angepasst werden." : "Die Adresse wechselt bei jedem Neustart. Mit einem ngrok-Schlüssel wird sie fest."}</small></label>
       <div class="inline">${S.tunnel.ok || c.public_url ? '<span class="chip good">aktiv</span>' : `<span class="chip bad" style="white-space:normal;text-align:left;max-width:100%">${esc(S.tunnel.status)}</span>`}
         <span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span></div></div>
@@ -2217,11 +2226,20 @@ async function start() {
   try { await refresh(true); } catch (e) { return; }
   startupUpdatePrompt();
   claimWindow();
-  setInterval(async () => {
-    if (BLOCKED) return;
+  // Über die Internet-Adresse (Handy) seltener abfragen: ngrok kostenlos erlaubt 20.000 Anfragen im Monat,
+  // und die braucht vor allem TradingView. Im Hintergrund (Tab nicht sichtbar) gar nicht abfragen.
+  const REMOTE_UI = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  let lastPoll = Date.now();
+  const poll = async force => {
+    if (BLOCKED || document.hidden) return;
     if (TAB === "settings" && settingsDirty) return;
+    const every = REMOTE_UI ? (S && S.positions && S.positions.length ? 10000 : 30000) : 2000;
+    if (!force && Date.now() - lastPoll < every) return;
+    lastPoll = Date.now();
     try { await refresh(false); } catch (e) {}
-  }, 2000);
+  };
+  setInterval(() => poll(false), 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
   setInterval(() => !BLOCKED && S && TAB === "cockpit" && timers(), 1000);
 }
 fetch("/api/auth").then(r => r.json()).then(a => a.logged_in ? start() : showLogin());

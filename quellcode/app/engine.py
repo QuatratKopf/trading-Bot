@@ -323,6 +323,7 @@ class Engine:
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
+        self.last_tick = {}           # Familie -> {"price", "ts"}: Live-Kurs, solange ein Trade offen ist
         self.broker_status = ""
         self.broker_ok = False
         self._balance_cache = (0, None)
@@ -490,6 +491,8 @@ class Engine:
             action = (payload.get("action") or "").lower()
             if kind == "bar":
                 return self._on_bar(payload)
+            if kind == "tick":
+                return self._on_tick(payload)
             if kind == "exit" or action in ("exit", "close", "flat"):
                 return self._on_exit(payload)
             if action in ("buy", "sell", "long", "short"):
@@ -548,6 +551,26 @@ class Engine:
         else:
             self._process_bar(fam, bar)
         return {"ok": True, "type": "bar", "m1": len(subs)}
+
+    def _on_tick(self, p):
+        """Live-Kurs aus TradingView (alle ~20 s, solange die Strategie im Trade ist)."""
+        fam = family(self._root(p.get("ticker")))
+        price = self._num(p.get("price"))
+        if price is None:
+            raise ValueError("Kurs fehlt")
+        self.last_tick[fam] = {"price": price, "ts": time.time(), "time": self._num(p.get("time"))}
+        if self.broker.name == "paper":   # Stop/Ziel sofort prüfen statt erst zum Kerzenschluss
+            for pos in self.db.open_positions():
+                if family(pos["root"]) != fam or pos["broker"] != "paper" or time.time() - pos["opened"] < 5:
+                    continue
+                long_ = pos["side"] == "long"
+                if (price <= pos["sl"]) if long_ else (price >= pos["sl"]):
+                    self.db.update_position(pos["id"], exit_bar=(p.get("time") or time.time() * 1000))
+                    self._finish(pos, pos["sl"], "Stop-Loss", slip=True)
+                elif pos["tp"] and ((price >= pos["tp"]) if long_ else (price <= pos["tp"])):
+                    self.db.update_position(pos["id"], exit_bar=(p.get("time") or time.time() * 1000))
+                    self._finish(pos, pos["tp"], "Ziel erreicht", slip=False)
+        return {"ok": True, "type": "tick"}
 
     def _process_bar(self, fam, bar):
         for sh in self.db.open_shadows():
@@ -916,12 +939,19 @@ class Engine:
             self.db.log(f"Vorschlag {sig['side'].upper()} {sig['root']} abgelehnt")
             return {"ok": True}
 
+    def last_price(self, fam):
+        """Aktuellster Kurs: Live-Kurs aus TradingView, sonst Schluss der letzten Kerze."""
+        bar, tick = self.last_bar.get(fam), self.last_tick.get(fam)
+        if tick and (not bar or tick["ts"] >= bar["ts"]):
+            return tick["price"], tick["ts"]
+        return (bar["close"], bar["ts"]) if bar else (None, None)
+
     def _unrealized(self, pos):
-        bar = self.last_bar.get(family(pos["root"]))
-        if not bar:
+        price, _ = self.last_price(family(pos["root"]))
+        if price is None:
             return 0.0
         d = 1 if pos["side"] == "long" else -1
-        return (bar["close"] - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"]
+        return (price - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"]
 
     def _finish(self, pos, exit_price, reason, slip=True):
         tick = INSTR[pos["root"]]["tick"]
@@ -978,7 +1008,7 @@ class Engine:
                 raise ValueError("Position ist nicht mehr offen")
             tick = INSTR[pos["root"]]["tick"]
             long_ = pos["side"] == "long"
-            last = (self.last_bar.get(family(pos["root"])) or {}).get("close") or pos["entry"]
+            last = self.last_price(family(pos["root"]))[0] or pos["entry"]
             upd, msgs = {}, []
             if sl is not None:
                 sl = round_tick(float(sl), tick)
@@ -1827,7 +1857,7 @@ class Engine:
             opens = self.db.open_positions()
             for p in opens:
                 p["upnl"] = round(self._unrealized(p), 2)
-                p["last"] = (self.last_bar.get(family(p["root"])) or {}).get("close")
+                p["last"], p["last_ts"] = self.last_price(family(p["root"]))
             r = self.cfg["risk"]
             now_ny = ny_time()
             return {
