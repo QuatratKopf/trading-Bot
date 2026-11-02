@@ -1857,6 +1857,7 @@ function learnStrategies() {
           return `<span class="chip ${stChip(x.status)}" title="${esc((S.session_names || {})[k] || k)}: ${x.n} Trades · ${pct(x.winrate)} · Ø ${num2(x.avg_r)} R · ${esc(x.status)}">${{asia: "Asien", london: "London", ny_am: "NY Vorm.", ny_lunch: "NY Mittag", ny_pm: "NY Nachm.", aus: "Sonst"}[k]} ${x.status === "pausiert" ? "⏸" : x.status === "halbe Größe" ? "½" : x.status === "aktiv" ? "✓" : "…"} <b class="mono">${x.avg_r > 0 ? "+" : ""}${num2(x.avg_r)}</b></span>`; }).join("")}</div>` : '<span class="hint">noch keine Daten</span>'}</td>
         <td class="t"><select data-setup="${esc(s.setup)}" class="rule" aria-label="Steuerung ${esc(s.setup)}">${[["auto", "Lernmodul entscheidet"], ["an", "Immer an"], ["aus", "Aus"]].map(([v, l]) => `<option value="${v}" ${s.manual === v ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}
       </tbody></table>` : '<p class="hint">Noch keine Daten. Sobald Signale aus TradingView eintreffen, erscheinen hier alle Strategien.</p>'}</div></section>
+    <section class="section"><h2>Selbst umgesetzt</h2><div class="panel">${(L.auto_log || []).length ? `<div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.auto_log.map(i => `<span class="chip ${/verworfen/.test(i.text) ? "warn" : "good"}">${esc(new Date(i.t * 1000).toLocaleDateString("de-DE"))} · ${esc(i.text)}</span>`).join("")}</div>` : `<p class="hint">${L.params.auto_adopt === false ? "Ausgeschaltet – Übernahmen machst du selbst im Varianten-Labor und Regel-Finder." : "Noch nichts. Jeden Abend nach 16 Uhr NY prüft der Bot Varianten-Labor und Regel-Finder und übernimmt, was sich auf mindestens 20 Signalen klar bewährt hat."}</p>`}</div></section>
     <section class="section"><h2>Erkenntnisse</h2><div class="panel">${L.insights.length ? `<div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.insights.map(i => `<span class="chip ${i.kind === "bad" ? "bad" : i.kind === "good" ? "good" : "warn"}">${esc(i.text)}</span>`).join("")}</div>` : '<p class="hint">Noch keine Auffälligkeiten. Erkenntnisse zu Uhrzeiten erscheinen ab 6 Trades pro Stunde.</p>'}</div></section>`;
   $("#runL").onclick = () => act(() => api("/api/learn", {}), "Auswertung fertig");
   document.querySelectorAll(".rule").forEach(sel => sel.onchange = () =>
@@ -1878,7 +1879,7 @@ async function labVariants(force) {
         <b class="${cls(c.avg)}">${c.avg > 0 ? "+" : ""}${num2(c.avg)}</b><small>${Math.round(c.wr)} % · ${c.n}</small></td>`;
   body.innerHTML = `<section class="panel lab-v">
     <div class="section-h"><div><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">Varianten-Labor</h2>
-      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Für jedes Signal rechnet die App im Hintergrund ${cols.length - 1} Ausstiegs-Varianten mit: feste Ziele von 1R bis 3R, Stop auf Break-even ab +1R, Trailing-Stop und Halten bis Session-Ende. Die Zahl ist das <b>Ø R pro Signal</b> (darunter Trefferquote und Anzahl). <b>Grün umrandet</b> = beste Variante, <b>blau</b> = aktuell genutzt.
+      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Für jedes Signal rechnet die App im Hintergrund ${cols.length - 1} Ausstiegs-Varianten mit: feste Ziele von 1R bis 3R, Stop auf Break-even ab +1R, Trailing-Stop, Halten bis Session-Ende und <b>Früh-Ausstiege</b>, wenn der Trade „nichts wird“: Zeit-Stop (nach 30/60 Min noch nicht +0,5R), raus bei Kerzenschluss −0,5R, Stagnation (in 30 Min nie über +0,3R). Die Zahl ist das <b>Ø R pro Signal</b> (darunter Trefferquote und Anzahl). <b>Grün umrandet</b> = beste Variante, <b>blau</b> = aktuell genutzt.
       Eine Empfehlung gibt es erst ab ${V.min_n} Signalen, wenn die Variante im Schnitt mindestens 0,15 R besser ist <b>und</b> in beiden Zeit-Hälften vorne liegt, damit es kein Zufall ist.</p></div>
       <button class="btn" id="labVRef">Neu berechnen</button></div>
     ${V.setups.length ? `<div class="scroll"><table class="vt"><thead><tr><th class="t">Strategie</th>${cols.map(k => `<th>${k === "Signal-Ziel" ? "Signal-Ziel<br><small>aus TradingView</small>" : esc(k)}</th>`).join("")}<th class="t">Empfehlung</th></tr></thead><tbody>
@@ -1890,7 +1891,7 @@ async function labVariants(force) {
             : r.applied !== "Signal-Ziel" ? `<div class="vrec"><span>Nutzt <b>${esc(r.applied)}</b></span><button class="btn vapply" data-s="${esc(r.setup)}" data-v="Signal-Ziel">Zurück auf Signal-Ziel</button></div>`
             : `<span class="hint">${r.cols["Signal-Ziel"].n < V.min_n ? `sammelt noch (${r.cols["Signal-Ziel"].n}/${V.min_n})` : "Signal-Ziel ist gut so"}</span>`}</td></tr>`; }).join("")}
     </tbody></table></div>` : '<div class="empty">Noch keine Signale. Sobald TradingView Signale und Kerzen schickt, laufen die Varianten automatisch mit.</div>'}
-    <p class="hint">„Übernehmen“ ändert, wie der Bot bei dieser Strategie aussteigt: Ziel, Break-even oder Trailing. Der Einstieg bleibt gleich. Trailing und „Bis Session-Ende“ gehen nur mit Paper-Trading, weil Tradovate dafür eine Order ohne festes Ziel bräuchte.</p>
+    <p class="hint">Ist „Gelerntes selbst umsetzen“ an (Standard), übernimmt der Bot die Empfehlung jeden Abend selbst. „Übernehmen“ ändert, wie der Bot bei dieser Strategie aussteigt: Ziel, Break-even oder Trailing. Der Einstieg bleibt gleich. Trailing und „Bis Session-Ende“ gehen nur mit Paper-Trading, weil Tradovate dafür eine Order ohne festes Ziel bräuchte.</p>
   </section>`;
   $("#labVRef").onclick = () => labVariants(true);
   body.querySelectorAll(".vapply").forEach(b => b.onclick = async () => {
@@ -2207,7 +2208,8 @@ function settings() {
     ${field("es", "Nur in der Handelszeit handeln", r.enforce_session, {check: true})}
     ${field("fe", "Zum Ende der Session schließen", r.flat_at_session_end, {check: true, help: "Offene Positionen werden geschlossen, wenn ihre Session endet"})}
     ${field("to", "Vorschlag verfällt nach (Sekunden)", c.suggestion_timeout_sec, {attrs: {min: 15, step: 15}, help: "Gilt, wenn der Auto-Modus aus ist"})}
-    ${field("le", "Lernmodul aktiv", L.enabled, {check: true, help: "Schwache Strategien bekommen halbe Größe oder Pause"})}`)}
+    ${field("le", "Lernmodul aktiv", L.enabled, {check: true, help: "Schwache Strategien bekommen halbe Größe oder Pause"})}
+    ${field("la", "Gelerntes selbst umsetzen", L.auto_adopt !== false, {check: true, help: "Bessere Ausstiege und bewährte Regeln übernimmt der Bot jeden Abend selbst – und verwirft sie wieder, wenn sie nicht halten"})}`)}
 
   ${sec("tv", "TradingView", "Webhook-Adresse, Alert-Nachricht, Strategie-Script", tunChip, `
     ${S.remote && S.remote.limit ? `<div class="row"><label>Anfragen über ngrok diesen Monat<small>Kostenlos sind ${S.remote.limit.toLocaleString("de-DE")} im Monat. Die meisten braucht TradingView (Kerzen alle 5 Min, Live-Kurs nur im Trade). Am Handy fragt die App deshalb nur alle 10–30 s nach.</small></label>
@@ -2293,7 +2295,7 @@ function settings() {
       auto_update: v("au"),
       news: {enabled: v("nwE"), before_min: parseInt(v("nwB")), after_min: parseInt(v("nwA")), impact: v("nwI"), usd_only: v("nwU"), close_before: v("nwC")},
       suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"),
-      learning: {enabled: v("le"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
+      learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},

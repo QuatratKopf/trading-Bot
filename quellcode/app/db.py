@@ -184,7 +184,7 @@ class DB:
         self._exec(f"UPDATE variants SET {','.join(k + '=?' for k in kw)} WHERE id=?", list(kw.values()) + [vid])
 
     def closed_variants(self):
-        return self.rows("SELECT setup, var, side, r, opened, closed FROM variants WHERE status='geschlossen' ORDER BY opened")
+        return self.rows("SELECT shadow_id, setup, var, side, r, opened, closed FROM variants WHERE status='geschlossen' ORDER BY opened")
 
     # --- Kerzen (für Key Levels und Session-Muster) ---
     def add_bar(self, fam, t, o, h, l, c):

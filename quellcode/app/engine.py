@@ -115,6 +115,7 @@ DEFAULT_CONFIG = {
         "min_trades": 12,      # vorher nur beobachten
         "pause_below_r": -0.10,
         "half_below_r": 0.10,
+        "auto_adopt": True,    # Varianten-Labor + Regel-Finder: Ergebnisse selbst übernehmen und wieder verwerfen
     },
     "setup_rules": {},         # Strategie -> auto | an | aus
     "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
@@ -262,7 +263,28 @@ VARIANTS = {
     "1R": {"tp": 1.0}, "1,5R": {"tp": 1.5}, "2R": {"tp": 2.0}, "3R": {"tp": 3.0},
     "2R + BE": {"tp": 2.0, "be": 1.0}, "3R + BE": {"tp": 3.0, "be": 1.0},
     "Trailing 1R": {"trail": 1.0}, "Bis Session-Ende": {},
+    # Früh-Ausstiege: raus, wenn der Trade „nichts mehr wird“ (Ziel sonst 2R)
+    "2R + Zeit 30 Min": {"tp": 2.0, "time_min": 30, "time_need": 0.5},
+    "2R + Zeit 60 Min": {"tp": 2.0, "time_min": 60, "time_need": 0.5},
+    "2R + Raus bei −0,5R": {"tp": 2.0, "cut_close": -0.5},
+    "2R + Stagnation": {"tp": 2.0, "stag_min": 30, "stag_need": 0.3},
 }
+EARLY_KEYS = ("time_min", "cut_close", "stag_min")
+
+
+def early_exit(rule, side, entry, risk, close, best, minutes):
+    """Grund für einen vorzeitigen Ausstieg zum Kerzenschluss oder None."""
+    if not rule or not risk:
+        return None
+    d = 1 if side == "long" else -1
+    r_now, r_best = (close - entry) * d / risk, (best - entry) * d / risk
+    if rule.get("cut_close") is not None and r_now <= rule["cut_close"]:
+        return f"Früh raus: Schluss bei {r_now:+.2f} R"
+    if rule.get("time_min") and minutes >= rule["time_min"] and r_now < rule.get("time_need", 0.5):
+        return f"Zeit-Stop: nach {int(minutes)} Min erst {r_now:+.2f} R"
+    if rule.get("stag_min") and minutes >= rule["stag_min"] and r_best < rule.get("stag_need", 0.3):
+        return f"Stagnation: in {int(minutes)} Min nie über {r_best:+.2f} R"
+    return None
 PAPER_ONLY_VARIANTS = ("Trailing 1R", "Bis Session-Ende")   # brauchen eine Order ohne festes Ziel
 
 
@@ -461,7 +483,7 @@ class Engine:
             conds = [[str(f), str(v)] for f, v in r["conds"] if f in FEATURES][:3]
             clean.append({"setup": str(r.get("setup", ""))[:40], "conds": conds, "action": r["action"],
                           "label": str(r.get("label", ""))[:160], "added": float(r.get("added") or time.time()),
-                          "active": bool(r.get("active", True))})
+                          "active": bool(r.get("active", True)), "auto": bool(r.get("auto"))})
         c["rule_filters"] = clean
         ch = c["challenge"]
         for k in ("start_balance", "profit_target", "max_dd", "daily_loss", "consistency_pct", "guard_buffer"):
@@ -582,8 +604,9 @@ class Engine:
                 self.db.log(f"1-Minuten-Kerzen nicht gespeichert: {e}", "warn")
             # Stop/Ziel minutengenau prüfen statt nur mit der großen Kerze
             for t_, o_, h_, l_, c_ in subs:
-                self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"]})
+                self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"], "len": 60000})
         else:
+            bar["len"] = self.chart_tf.get(fam) or 300000
             self._process_bar(fam, bar)
         return {"ok": True, "type": "bar", "m1": len(subs)}
 
@@ -635,20 +658,40 @@ class Engine:
                 self._close_variant(v, v["tp"])
                 continue
             best = max(v["best"], bar["high"]) if long_ else min(v["best"], bar["low"])
-            stop = manage_stop(v["side"], v["entry"], v["risk"], v["stop"], best, VARIANTS.get(v["var"], {}))
+            vr = VARIANTS.get(v["var"], {})
+            if any(k in vr for k in EARLY_KEYS):
+                why = early_exit(vr, v["side"], v["entry"], v["risk"], bar["close"], best, self._minutes_in(v, bar))
+                if why:
+                    self._close_variant(v, bar["close"])
+                    continue
+            stop = manage_stop(v["side"], v["entry"], v["risk"], v["stop"], best, vr)
             if best != v["best"] or stop != v["stop"]:
                 self.db.update_variant(v["id"], best=best, stop=stop)
         # Break-even/Trailing für Bot-Positionen mit übernommenem Ausstieg (wirkt ab der nächsten Kerze)
         for pos in self.db.open_positions():
             rule = VARIANTS.get(pos.get("mgmt") or "")
-            if not rule or not (rule.get("be") or rule.get("trail")) or family(pos["root"]) != fam or not self._bar_after(pos, bar):
+            if not rule or not (rule.get("be") or rule.get("trail") or any(k in rule for k in EARLY_KEYS)) \
+                    or family(pos["root"]) != fam or not self._bar_after(pos, bar):
                 continue
             long_ = pos["side"] == "long"
             if (bar["low"] <= pos["sl"]) if long_ else (bar["high"] >= pos["sl"]):
                 continue   # Stop wird gleich ausgelöst bzw. vom Broker ausgeführt
+            if pos["tp"] and ((bar["high"] >= pos["tp"]) if long_ else (bar["low"] <= pos["tp"])):
+                continue   # Ziel wird gleich ausgelöst
             risk = abs(pos["entry"] - (pos["initial_sl"] or pos["sl"]))
             prev = pos.get("best") or pos["entry"]
             best = max(prev, bar["high"]) if long_ else min(prev, bar["low"])
+            if any(k in rule for k in EARLY_KEYS):
+                why = early_exit(rule, pos["side"], pos["entry"], risk, bar["close"], best, self._minutes_in(pos, bar))
+                if why:
+                    try:
+                        if bar.get("time"):
+                            self.db.update_position(pos["id"], exit_bar=bar["time"])
+                        self._close(pos, bar["close"], why)
+                        self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} vorzeitig geschlossen · {why}")
+                    except ValueError as e:
+                        self.db.log(f"Früh-Ausstieg fehlgeschlagen: {e}", "error")
+                    continue
             new = round_tick(manage_stop(pos["side"], pos["entry"], risk, pos["sl"], best, rule), INSTR[pos["root"]]["tick"])
             if new != pos["sl"]:
                 try:
@@ -1156,6 +1199,14 @@ class Engine:
         self.db.update_shadow(sh["id"], status="geschlossen", closed=time.time(), exit=exit_price,
                               r=round((exit_price - sh["entry"]) * d / risk, 3))
 
+    def _minutes_in(self, obj, bar):
+        """Minuten seit dem Einstieg (Schluss der Signal-Kerze) bis zum Schluss dieser Kerze."""
+        fam = obj.get("fam") or family(obj["root"])
+        if obj.get("bar_time") and bar.get("time"):
+            start = obj["bar_time"] + (self.chart_tf.get(fam) or 0)
+            return (bar["time"] + (bar.get("len") or 60000) - start) / 60000
+        return (time.time() - obj["opened"]) / 60
+
     @staticmethod
     def _session_end(obj):
         """16:00 NY des Handelstags, an dem das Signal kam (Abend-Signale gehören zum nächsten Tag)."""
@@ -1254,10 +1305,67 @@ class Engine:
                             insights.append({"kind": "good", "text": f"{name} läuft stark um {h}:00 NY (Ø {m:+.2f} R aus {len(v)} Trades)"})
                 setups[name] = {"sessions": sessions, "status": status, "n": n, "total": len(lst), "avg_r": round(avg, 3),
                                 "winrate": round(sum(1 for r in rs if r > 0) / n * 100, 1), "sum_r": round(sum(rs), 2)}
-            self.learning = {"last_run": time.time(), "last_day": str(ny_date()), "setups": setups, "insights": insights[:15]}
+            self.learning = {"last_run": time.time(), "last_day": str(ny_date()), "setups": setups, "insights": insights[:15],
+                             "rejected_rules": self.learning.get("rejected_rules") or [], "auto_log": self.learning.get("auto_log") or []}
             with open(self.learn_path, "w", encoding="utf-8") as f:
                 json.dump(self.learning, f, indent=2, ensure_ascii=False)
             return self.learning
+
+    def auto_adopt(self):
+        """Setzt Ergebnisse aus Varianten-Labor und Regel-Finder selbst um – und nimmt sie zurück, wenn sie sich nicht bewähren."""
+        if not self.cfg["learning"].get("auto_adopt", True):
+            return []
+        with self.lock:
+            done = []
+            # 1) Ausstiege: empfohlene Variante übernehmen (oder zurück aufs Signal-Ziel, wenn das wieder besser ist)
+            er = dict(self.cfg.get("exit_rules") or {})
+            for row in self.variant_view()["setups"]:
+                rec = row["rec"]
+                if not rec or rec == row["applied"]:
+                    continue
+                if rec == "Signal-Ziel":
+                    er.pop(row["setup"], None)
+                else:
+                    er[row["setup"]] = rec
+                c = row["cols"][rec]
+                done.append(f"{row['setup']}: Ausstieg {row['applied']} → {rec} (Ø {c['avg']:+.2f} R aus {c['n']} Signalen)")
+            # 2) Regeln: bewährte übernehmen, schlecht laufende Auto-Regeln wieder entfernen
+            rf = self.rules_find()
+            rejected = set(self.learning.get("rejected_rules") or [])
+            rules = []
+            for r in rf["active"]:
+                key = json.dumps([r["setup"], r["conds"], r["action"]])
+                if r.get("auto") and r["blocked_n"] >= 15 and r["blocked_r"] > 0:
+                    rejected.add(key)
+                    done.append(f"Regel verworfen – {r['setup']} {'meiden' if r['action'] == 'avoid' else 'nur'}, wenn {r['label']}: "
+                                f"die geblockten {r['blocked_n']} Signale hätten {r['blocked_r']:+.1f} R gebracht")
+                    continue
+                rules.append({k: r[k] for k in ("setup", "conds", "action", "label", "added", "active", "auto") if k in r})
+            have = {json.dumps([r["setup"], r["conds"], r["action"]]) for r in rules}
+            for f in rf["found"]:
+                key = json.dumps([f["setup"], f["conds"], f["action"]])
+                mine = [r for r in rules if r["setup"] == f["setup"] and r.get("auto")]
+                if key in have or key in rejected or len(mine) >= 3 or len(rules) >= 50:
+                    continue
+                if f["action"] == "only" and any(r["action"] == "only" for r in mine):
+                    continue   # höchstens eine „nur wenn“-Regel je Strategie, sonst wird es zu eng
+                rules.append({"setup": f["setup"], "conds": f["conds"], "action": f["action"], "label": f["label"],
+                              "added": time.time(), "active": True, "auto": True})
+                have.add(key)
+                done.append(f"Regel übernommen – {f['setup']} {'meiden' if f['action'] == 'avoid' else 'nur'}, wenn {f['label']} "
+                            f"(Ø {f['avg_match']:+.2f} R gegenüber {f['avg_rest']:+.2f} R, {f['n']} Signale)")
+            if done:
+                self.update_cfg({"exit_rules": er, "rule_filters": rules})
+                if any(k not in er for k in (self.cfg.get("exit_rules") or {})):
+                    self.cfg["exit_rules"] = er
+                    self._write_cfg(self.cfg)
+                for d in done:
+                    self.db.log("Lernmodul (automatisch): " + d)
+            self.learning["rejected_rules"] = sorted(rejected)
+            self.learning["auto_log"] = ([{"t": time.time(), "text": d} for d in done] + (self.learning.get("auto_log") or []))[:30]
+            with open(self.learn_path, "w", encoding="utf-8") as fh:
+                json.dump(self.learning, fh, indent=2, ensure_ascii=False)
+            return done
 
     def learning_view(self):
         rows = []
@@ -1272,7 +1380,8 @@ class Engine:
             d["open"] = len([s for s in self.db.open_shadows() if s["setup"] == name])
             rows.append(d)
         return {"last_run": self.learning.get("last_run"), "setups": rows,
-                "insights": self.learning.get("insights", []), "params": self.cfg["learning"]}
+                "insights": self.learning.get("insights", []), "params": self.cfg["learning"],
+                "auto_log": self.learning.get("auto_log", [])}
 
     # ───────── Hintergrund ─────────
     def _loop(self):
@@ -1302,6 +1411,10 @@ class Engine:
                     if last:
                         self._close_variant(v, last)
                 self.learn()
+                try:
+                    self.auto_adopt()
+                except Exception as e:   # Lernen darf den Handel nie stören
+                    self.db.log(f"Lernmodul: automatische Übernahme fehlgeschlagen ({e})", "warn")
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
                 self.db.prune_bars1((now - 20 * 86400) * 1000)   # 1-Minuten-Kerzen: 20 Tage reichen für den Chart
@@ -1567,8 +1680,10 @@ class Engine:
         base, by = {}, {}
         for s in self._lab_shadows():
             base.setdefault(s["setup"], []).append((s["opened"], s["r"]))
+        ids = {}
         for v in self.db.closed_variants():
             by.setdefault(v["setup"], {}).setdefault(v["var"], []).append((v["opened"], v["r"]))
+            ids.setdefault((v["setup"], v["var"]), {})[v["shadow_id"]] = v["r"]
         applied = self.cfg.get("exit_rules") or {}
         out = []
         for setup in sorted(set(base) | set(by)):
@@ -1584,10 +1699,22 @@ class Engine:
             cur_key = applied.get(setup) if applied.get(setup) in VARIANTS else "Signal-Ziel"
             cur = cols[cur_key]
             rec = None
+            base_r = {x["id"]: x["r"] for x in self._lab_shadows() if x["setup"] == setup}
             for k, c in cols.items():
                 if k == cur_key or c["n"] < min_n or c["a1"] is None or c["a2"] is None or cur["n"] == 0:
                     continue
-                if c["avg"] >= cur["avg"] + 0.15 and c["a1"] > (cur["a1"] or 0) and c["a2"] > (cur["a2"] or 0) and c["avg"] > 0:
+                # Auf denselben Signalen vergleichen (neue Varianten gibt es erst ab ihrem Einbau)
+                mine = base_r if k == "Signal-Ziel" else ids.get((setup, k), {})
+                other = base_r if cur_key == "Signal-Ziel" else ids.get((setup, cur_key), {})
+                common = [sid for sid in mine if sid in other]
+                if len(common) < min_n:
+                    continue
+                k1 = int(len(common) * 0.6)
+                dm = [mine[x] - other[x] for x in common]
+                d_all, d1, d2 = _mean(dm), _mean(dm[:k1]), _mean(dm[k1:])
+                if k in PAPER_ONLY_VARIANTS and self.broker.name != "paper":
+                    continue
+                if d_all >= 0.15 and d1 > 0 and d2 > 0 and c["avg"] > 0:
                     if not rec or c["avg"] > cols[rec]["avg"]:
                         rec = k
             out.append({"setup": setup, "cols": cols, "applied": cur_key, "rec": rec,

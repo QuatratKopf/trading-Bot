@@ -1,6 +1,6 @@
 {
-  "version": "2.12.2",
-  "file": "releases/FVG-Trader-2.12.2.cmd",
-  "sha256": "dbc2132a8f3f09d4d7c96b0daaea3c83ab81323658924a4b1c9dd60be514e5aa",
-  "notes": "Lernmodul zeigt alle 12 Strategien von Anfang an, damit man sie vorab ein- oder ausschalten kann"
+  "version": "2.13.0",
+  "file": "releases/FVG-Trader-2.13.0.cmd",
+  "sha256": "b399bcd5ed56b0578c468d4cdcc4c28007252ead1f0aad5a1b04f0de0469301f",
+  "notes": "Lernt und setzt selbst um: bessere Ausstiege (neu: Früh-Ausstiege Zeit-Stop, Raus bei −0,5R, Stagnation) und bewährte Regeln übernimmt der Bot jeden Abend selbst und verwirft sie wieder, wenn sie nicht halten"
 }
