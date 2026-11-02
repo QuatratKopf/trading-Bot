@@ -63,6 +63,9 @@ class PaperBroker:
     def modify_stop(self, pos, new_sl):
         return True
 
+    def modify_target(self, pos, new_tp):
+        return True
+
     def sync(self, positions):
         return []
 
@@ -203,6 +206,16 @@ class TradovateBroker:
             raise BrokerError("Stop-Order-ID unbekannt")
         self._req("POST", "/order/modifyorder", {"orderId": ref["stopId"], "orderQty": pos["qty"],
                                                   "orderType": "Stop", "stopPrice": new_sl, "isAutomated": True})
+        return True
+
+    def modify_target(self, pos, new_tp):
+        ref = pos["broker_ref"]
+        if not ref.get("tpId"):
+            raise BrokerError("Diese Position hat beim Broker keine Ziel-Order, das Ziel kann nicht nachträglich gesetzt werden")
+        if new_tp is None:
+            raise BrokerError("Das Ziel kann beim Broker nicht entfernt werden, nur verschoben")
+        self._req("POST", "/order/modifyorder", {"orderId": ref["tpId"], "orderQty": pos["qty"],
+                                                  "orderType": "Limit", "price": new_tp, "isAutomated": True})
         return True
 
     def _exit_price(self, pos):

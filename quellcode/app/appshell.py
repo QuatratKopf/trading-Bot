@@ -197,3 +197,84 @@ def set_autostart(on, launcher, data_dir):
 def autostart_enabled():
     lnk = autostart_path()
     return bool(lnk and os.path.exists(lnk))
+
+
+# ───────────────────────── Dienst: Start beim Hochfahren ohne Anmeldung (Windows-Aufgabenplanung) ─────────────────────────
+SERVICE_TASK = "FVG Trader Dienst"
+
+
+def service_installed():
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        r = subprocess.run(["schtasks", "/Query", "/TN", SERVICE_TASK], capture_output=True, timeout=20,
+                           creationflags=0x08000000)
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _ps_quote(s):
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _run_elevated(script, data_dir, name, timeout=150):
+    """PowerShell-Skript mit Administratorrechten ausführen (Windows fragt per UAC nach). Ergebnis kommt über eine Datei."""
+    import time
+    res = os.path.join(data_dir, name + ".ergebnis.txt")
+    ps1 = os.path.join(data_dir, name + ".ps1")
+    if os.path.exists(res):
+        os.remove(res)
+    with open(ps1, "w", encoding="utf-8-sig") as f:
+        f.write(script.replace("__RESULT__", _ps_quote(res)))
+    cmd = ("Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList "
+           f"'-NoProfile','-ExecutionPolicy','Bypass','-File',{_ps_quote(chr(34) + ps1 + chr(34))}")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
+                       timeout=60, creationflags=0x08000000)
+    if r.returncode != 0:
+        raise ValueError("Windows hat die Administratorrechte nicht erteilt (Rückfrage abgelehnt?).")
+    end = time.time() + timeout
+    while time.time() < end:
+        if os.path.exists(res):
+            time.sleep(0.3)
+            with open(res, encoding="utf-8-sig", errors="replace") as f:
+                txt = f.read().strip()
+            if txt == "ok":
+                return True
+            raise ValueError(txt.replace("fehler: ", "Windows meldet: ", 1))
+        time.sleep(0.5)
+    raise ValueError("Keine Antwort von Windows. Wurde die Rückfrage nach Administratorrechten bestätigt?")
+
+
+def service_install(launcher, data_dir):
+    if not sys.platform.startswith("win"):
+        raise ValueError("Den Dienst gibt es nur unter Windows. Unter Linux z. B. per systemd starten.")
+    pyw = windowless_python()
+    args = f'"{launcher}" --hintergrund --dienst'
+    script = f"""$ErrorActionPreference = 'Stop'
+$out = __RESULT__
+try {{
+  $act = New-ScheduledTaskAction -Execute {_ps_quote(pyw)} -Argument {_ps_quote(args)} -WorkingDirectory {_ps_quote(os.path.dirname(launcher))}
+  $trg = New-ScheduledTaskTrigger -AtStartup
+  $set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+  $pri = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  Register-ScheduledTask -TaskName {_ps_quote(SERVICE_TASK)} -Action $act -Trigger $trg -Settings $set -Principal $pri -Description 'Startet FVG Trader beim Hochfahren, auch ohne Anmeldung' -Force | Out-Null
+  Set-Content -Path $out -Value 'ok' -Encoding ascii
+  Start-Sleep -Seconds 4
+  Start-ScheduledTask -TaskName {_ps_quote(SERVICE_TASK)}
+}} catch {{ Set-Content -Path $out -Value ('fehler: ' + $_.Exception.Message) -Encoding utf8 }}
+"""
+    return _run_elevated(script, data_dir, "dienst-einrichten")
+
+
+def service_remove(data_dir):
+    if not sys.platform.startswith("win"):
+        raise ValueError("Den Dienst gibt es nur unter Windows.")
+    script = f"""$ErrorActionPreference = 'Stop'
+$out = __RESULT__
+try {{
+  Unregister-ScheduledTask -TaskName {_ps_quote(SERVICE_TASK)} -Confirm:$false
+  Set-Content -Path $out -Value 'ok' -Encoding ascii
+}} catch {{ Set-Content -Path $out -Value ('fehler: ' + $_.Exception.Message) -Encoding utf8 }}
+"""
+    return _run_elevated(script, data_dir, "dienst-entfernen")

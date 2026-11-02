@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import Engine  # noqa: E402
 from tunnel import Tunnel  # noqa: E402
-from appshell import MANIFEST, SERVICE_WORKER, autostart_enabled, ensure_desktop_shortcut, icon_png, open_app_window, set_autostart, windowless_python  # noqa: E402,E501
+from appshell import MANIFEST, SERVICE_WORKER, autostart_enabled, ensure_desktop_shortcut, icon_png, open_app_window, service_install, service_installed, service_remove, set_autostart, windowless_python  # noqa: E402,E501
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.environ.get("FVG_DATA", os.path.join(ROOT, "data"))
@@ -27,6 +27,14 @@ STATIC = os.path.join(ROOT, "app", "static")
 HOST = os.environ.get("FVG_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FVG_PORT", "8787"))
 BACKGROUND = "--hintergrund" in sys.argv
+SERVICE = "--dienst" in sys.argv   # läuft als Dienst (Windows-Aufgabenplanung, Start ohne Anmeldung)
+_svc_cache = {"t": 0, "v": False}
+
+
+def service_state():
+    if time.time() - _svc_cache["t"] > 60:
+        _svc_cache.update(t=time.time(), v=service_installed())
+    return {"installed": _svc_cache["v"], "running": SERVICE}
 APP_VERSION = "dev"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
@@ -260,7 +268,7 @@ def sw(h):
 
 @route("GET", r"/api/version", auth=False)
 def version(h):
-    h._send(200, {"version": APP_VERSION, "pid": os.getpid()})
+    h._send(200, {"version": APP_VERSION, "pid": os.getpid(), "service": SERVICE})
 
 
 @route("GET", r"/api/auth", auth=False)
@@ -315,6 +323,7 @@ def state(h):
     s["hook_confirmed"] = bool(s["hook_url"]) and engine.cfg.get("hook_confirmed") == s["hook_url"]
     s["platform"] = sys.platform
     s["autostart"] = autostart_enabled()
+    s["service"] = service_state()
     s["version"] = APP_VERSION
     s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()
@@ -498,7 +507,8 @@ def restart():
                 f.write("@echo off\r\n"
                         "rem Startet FVG Trader nach einem Update neu (unsichtbar, ohne Konsolenfenster)\r\n"
                         "ping -n 3 127.0.0.1 >nul\r\n"
-                        f'call "{LAUNCHER}" --hintergrund\r\n')
+                        + (f'start "" "{windowless_python()}" "{LAUNCHER}" --hintergrund --dienst\r\n' if SERVICE
+                           else f'call "{LAUNCHER}" --hintergrund\r\n'))
             flags = 0x08000000 | 0x00000200   # kein Fenster, eigene Prozessgruppe
             try:
                 subprocess.Popen(["cmd.exe", "/c", helper], creationflags=flags | 0x01000000,   # aus dem Job lösen
@@ -696,6 +706,21 @@ def hook_confirm(h):
     h._send(200, {"ok": True})
 
 
+@route("POST", r"/api/service")
+def service(h):
+    on = bool(h._json().get("on"))
+    if on:
+        if autostart_enabled():
+            set_autostart(False, LAUNCHER, DATA)   # sonst startet nach der Anmeldung eine zweite Kopie
+        service_install(LAUNCHER, DATA)
+        engine.db.log("Dienst eingerichtet: FVG Trader startet ab jetzt beim Hochfahren, auch ohne Anmeldung")
+    else:
+        service_remove(DATA)
+        engine.db.log("Dienst entfernt: FVG Trader startet nicht mehr automatisch beim Hochfahren")
+    _svc_cache["t"] = 0
+    h._send(200, {"ok": True, "service": service_state()})
+
+
 @route("POST", r"/api/autostart")
 def autostart(h):
     set_autostart(bool(h._json().get("on")), LAUNCHER, DATA)
@@ -731,6 +756,12 @@ def reject(h, sid):
 @route("POST", r"/api/position/([a-f0-9]+)/close")
 def close(h, pid):
     h._send(200, engine.close_position(pid))
+
+
+@route("POST", r"/api/position/([a-f0-9]+)/modify")
+def pos_modify(h, pid):
+    b = h._json()
+    h._send(200, engine.modify_position(pid, sl=b.get("sl"), tp=b.get("tp"), clear_tp=bool(b.get("clear_tp"))))
 
 
 @route("POST", r"/api/position/([a-f0-9]+)/breakeven")
@@ -881,7 +912,8 @@ def main():
     print("  Dieses Fenster offen lassen (darf minimiert sein). Beenden mit Strg+C.\n")
     if os.environ.get("FVG_NO_BROWSER") != "1" and not BACKGROUND:
         threading.Timer(1.0, lambda: open_app_window(url)).start()
-    threading.Thread(target=ensure_desktop_shortcut, args=(LAUNCHER, DATA, engine.db.log), daemon=True).start()
+    if not SERVICE:   # der Dienst läuft als SYSTEM und hat keinen eigenen Desktop
+        threading.Thread(target=ensure_desktop_shortcut, args=(LAUNCHER, DATA, engine.db.log), daemon=True).start()
     threading.Thread(target=_update_loop, daemon=True).start()
     try:
         srv.serve_forever()

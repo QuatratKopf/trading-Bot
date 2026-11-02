@@ -1,6 +1,6 @@
 {
-  "version": "2.6.1",
-  "file": "releases/FVG-Trader-2.6.1.cmd",
-  "sha256": "6531aeacd7f68f31b15dd58f16b78e86ee9181ed87473f70b762c22d593a66e2",
-  "notes": "Live-Chart: Zeiteinheit 1m/5m/15m, 1-Minuten-Kerzen vom Script, weicher Zoom mit +/− und Pinch, stabil beim Nachladen"
+  "version": "2.7.0",
+  "file": "releases/FVG-Trader-2.7.0.cmd",
+  "sha256": "833beda616b7dd274e1c7f861170651b1732c329b79d99792ade17d85feb8a64",
+  "notes": "Offene Positionen ausgebaut: Stop/Ziel verschieben, Abstände in Punkten, Ticks und Geld, Live-Stand. Live-Chart entfernt. Dienst-Modus für Windows-Server (Start ohne Anmeldung)"
 }

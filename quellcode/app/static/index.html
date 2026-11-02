@@ -50,13 +50,15 @@ input[type=number]{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 .status{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-top:14px}
 .status .hint{font-size:11.5px;margin-left:auto}
 .content{min-width:0}
+.nav button em{display:none}
 @media (max-width:1060px){ .nav button span{display:none} .nav button{padding:8px 12px} .nav button[aria-current=true] span{display:inline} }
 @media (max-width:820px){
   .bar{flex-wrap:wrap;gap:10px 12px}
   .brand{font-size:16px;margin-right:auto}
   .nav{order:3;width:100%;display:grid;grid-template-columns:repeat(6,1fr);margin:0}
   .nav button{flex-direction:column;gap:3px;padding:6px 0;font-size:10.5px}
-  .nav button span,.nav button[aria-current=true] span{display:inline}
+  .nav button span,.nav button[aria-current=true] span{display:none}
+  .nav button em{display:inline;font-style:normal;white-space:nowrap}
   .status .hint{display:none}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .kpi .v{font-size:18px}
@@ -446,17 +448,38 @@ svg.chart{width:100%;height:auto}
 .rfa{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--raise);font-size:13px}
 .rfa small{display:block} .rfa.off{opacity:.55}
 @media (max-width:560px){ .rf-g{grid-template-columns:repeat(2,minmax(0,1fr))} .rfa{grid-template-columns:auto minmax(0,1fr)} .rfa .btn{grid-column:auto} .rf-grid{grid-template-columns:1fr} }
-.lc-zoom{position:absolute;bottom:30px;left:8px;display:flex;gap:4px;z-index:2;opacity:.85}
-.lc-zoom button{width:30px;height:28px;border-radius:7px;border:1px solid var(--line2);background:color-mix(in srgb,var(--surface) 85%,transparent);color:var(--fg);font:600 15px var(--f-body);display:grid;place-items:center;padding:0}
-.lc-zoom button:hover{border-color:var(--accent)}
-.lc-box{padding:0;overflow:hidden}
-.lc-leg{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;padding:10px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);min-height:41px}
-.lc-leg b{color:var(--fg);font-weight:500}
-.lc-wrap{position:relative;height:420px}
-.lc-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
-.lc-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted);font-size:13px}
-.lc-key{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--muted)} .lc-key i{width:14px;height:3px;border-radius:2px;display:inline-block;margin-left:6px}
-@media (max-width:640px){ .lc-wrap{height:300px} .lc-key{display:none} }
+.pcs{display:flex;flex-direction:column;gap:12px}
+.pc{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--pos);border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:14px}
+.pc.short{border-left-color:var(--neg)}
+.pc-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pc-h .side{font-size:15px}
+.pc-pl{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.pc-pl b{font-size:24px;font-weight:600;letter-spacing:-.02em} .pc-pl small{font-size:12px;color:var(--muted);font-family:var(--f-mono)}
+.pc-bar{display:flex;flex-direction:column;gap:4px}
+.pc-track{position:relative;height:8px;border-radius:4px;background:var(--sunk)}
+.pc-risk{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(255,93,108,.55),rgba(255,93,108,.12));border-radius:4px 0 0 4px}
+.pc-rew{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,rgba(47,211,154,.12),rgba(47,211,154,.55));border-radius:0 4px 4px 0}
+.pc-mk{position:absolute;top:50%;transform:translate(-50%,-50%);border-radius:50%}
+.pc-mk.e{width:4px;height:16px;border-radius:2px;background:var(--fg)}
+.pc-mk.n{width:14px;height:14px;background:var(--accent);border:2px solid var(--bg);box-shadow:0 0 0 3px rgba(76,141,255,.3);transition:left .4s}
+.pc-bl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.pc-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.pc-c{padding:10px 14px;display:flex;flex-direction:column;gap:2px;border-left:1px solid var(--line);min-width:0}
+.pc-c:first-child{border-left:0}
+.pc-c.sl{background:rgba(255,93,108,.05)} .pc-c.tp{background:rgba(47,211,154,.05)}
+.pc-c .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
+.pc-c > b{font-size:18px;font-weight:600}
+.pc-c small{font-size:11.5px;color:var(--muted);line-height:1.45}
+.pc-c small.pos{color:var(--pos)} .pc-c small.neg{color:var(--neg)}
+.pc-a{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px 16px;align-items:start}
+.pc-e{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pc-e label{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
+.pc-in{display:flex;gap:4px;flex-wrap:wrap}
+.pc-in input{width:110px;flex:1;min-width:90px}
+.pc-in .btn{padding:6px 10px}
+.pc-q{display:flex;flex-direction:column;gap:6px;align-self:end}
+@media (max-width:1000px){ .pc-a{grid-template-columns:1fr} .pc-q{flex-direction:row;flex-wrap:wrap} }
+@media (max-width:760px){ .pc-g{grid-template-columns:repeat(2,minmax(0,1fr))} .pc-c:nth-child(3){border-left:0} .pc-c:nth-child(n+3){border-top:1px solid var(--line)} .pc{padding:12px} .pc-pl{margin-left:0;width:100%;flex-direction:row;align-items:baseline;gap:8px} }
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -587,6 +610,25 @@ function copyText(txt, label) {
   if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => toast((label || "Text") + " kopiert"), fallback); else fallback();
 }
 
+
+async function serviceSet(on) {
+  document.body.insertAdjacentHTML("beforeend", `<div id="svcOv" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;place-items:center;padding:16px">
+    <div style="text-align:center;max-width:420px;display:flex;flex-direction:column;gap:10px;align-items:center">
+      <h2 style="font-size:20px" id="svcT2">${on ? "Dienst wird eingerichtet …" : "Dienst wird entfernt …"}</h2>
+      <p class="hint" id="svcMsg" style="margin:0">Bitte die Windows-Rückfrage nach Administratorrechten mit „Ja“ bestätigen.</p><div id="svcAct"></div></div></div>`);
+  const msg = (t, m, close) => { $("#svcT2").textContent = t; $("#svcMsg").innerHTML = m;
+    $("#svcAct").innerHTML = close ? '<button class="btn" id="svcClose">Schließen</button>' : ""; if (close) $("#svcClose").onclick = () => { $("#svcOv").remove(); render(true); }; };
+  try { await api("/api/service", {on}); }
+  catch (e) { return msg(on ? "Einrichten fehlgeschlagen" : "Entfernen fehlgeschlagen", esc(e.message), true); }
+  if (!on) { S = await api("/api/state"); return msg("Dienst entfernt", "FVG Trader startet nicht mehr automatisch beim Hochfahren. Die App läuft weiter, bis du sie beendest oder der PC neu startet. Für den Start nach der Anmeldung kannst du „Mit Windows starten“ wieder einschalten.", true); }
+  msg("Dienst eingerichtet", "Der Dienst startet jetzt und übernimmt. Das dauert ein paar Sekunden …");
+  const t0 = Date.now();
+  while (Date.now() - t0 < 90000) {
+    await new Promise(r => setTimeout(r, 2000));
+    try { const v = await fetch("/api/version", {cache: "no-store"}).then(r => r.json()); if (v.service) { location.reload(); return; } } catch (e) { /* Übergabe läuft */ }
+  }
+  msg("Dienst eingerichtet", "Er startet spätestens beim nächsten Hochfahren. Falls die App gerade nicht reagiert: Seite neu laden.", true);
+}
 async function runUpdate(doIt) {
   const before = S && S.version;
   document.body.insertAdjacentHTML("beforeend", `<div id="updOv" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;place-items:center;padding:16px">
@@ -679,7 +721,7 @@ function shell() {
   $("#app").innerHTML = `
   <header class="top"><div class="wrap bar">
     <div class="brand"><i aria-hidden="true"></i>FVG Trader</div>
-    <nav class="nav" aria-label="Bereiche">${NAV.map(([k, l, d]) => `<button type="button" data-tab="${k}" aria-current="${k === TAB}" title="${l}">${icon(d)}<span>${l}</span></button>`).join("")}</nav>
+    <nav class="nav" aria-label="Bereiche">${NAV.map(([k, l, d]) => `<button type="button" data-tab="${k}" aria-current="${k === TAB}" title="${l}">${icon(d)}<span>${l}</span><em>${{challenge: "Kapital", learn: "Lernen", settings: "Mehr"}[k] || l}</em></button>`).join("")}</nav>
     <div class="bar-r">
       <span class="dot" id="pDot" title="TradingView-Verbindung" hidden></span>
       <div class="switch"><b id="autoLbl">Auto</b><button class="tgl" id="autoT" role="switch" aria-checked="false" aria-labelledby="autoLbl"></button></div>
@@ -1128,204 +1170,114 @@ function chForm() {
   if ($("#cOff")) $("#cOff").onclick = () => confirmBtn($("#cOff"), "Wirklich beenden?", () => save(false));
 }
 
-/* ───────── Live-Chart im Cockpit (eigener Canvas-Chart, ohne externe Bibliothek) ───────── */
-const LC = {fam: "auto", days: 2, tf: 5, lv: true, tr: true, data: null, at: 0, busy: false, view: null, hover: null, follow: true};
-try { const sv = JSON.parse(localStorage.getItem("fvg-lc") || "{}"); ["fam", "days", "tf", "lv", "tr"].forEach(k => { if (k in sv) LC[k] = sv[k]; }); } catch (e) {}
-const lcSave = () => { try { localStorage.setItem("fvg-lc", JSON.stringify({fam: LC.fam, days: LC.days, tf: LC.tf, lv: LC.lv, tr: LC.tr})); } catch (e) {} };
-async function lcLoad(reset) {
-  if (LC.busy) return; LC.busy = true;
-  try { LC.data = await api(`/api/chart/${LC.fam}/${LC.days}/${LC.tf}`); LC.at = Date.now(); LC.err = null; } catch (e) { LC.err = e.message; }
-  LC.busy = false;
-  if (reset) { LC.view = null; LC.follow = true; }
-  if (TAB === "cockpit" && $("#lcCv")) { lcControls(); lcDraw(); }
+
+
+/* ───────── Offene Positionen: Details, Abstände in Ticks und Geld, Stop/Ziel verschieben ───────── */
+let posKey = "";
+function posMath(p, price) {
+  const I = (S.instruments || {})[p.root] || {tick: 0.25, pv: 2}, d = p.side === "long" ? 1 : -1;
+  const pts = (a, b) => (b - a) * d;               // Punkte in Gewinnrichtung
+  const usdOf = pt => pt * I.pv * p.qty;
+  return {I, d, pts, usdOf, ticks: pt => Math.round(pt / I.tick)};
 }
-function liveChart() {
-  if (!$("#lcSec")) return;
-  if (!$("#lcCv")) { liveChartFrame(); lcControls(); }
-  if (!LC.data || Date.now() - LC.at > 15000) lcLoad();
-  else if (!LC.drag) lcDraw();
-}
-function liveChartFrame() {   // wird nur einmal gebaut; Daten-Updates tauschen den Canvas nicht aus
-  $("#lcSec").innerHTML = `<div class="section-h"><h2 id="lcTitle">Live-Chart</h2><div class="nw-ctl" id="lcCtl"></div></div>
-    <div class="panel lc-box">
-      <div class="lc-leg" id="lcLeg"></div>
-      <div class="lc-wrap" id="lcWrap"><canvas id="lcCv"></canvas><div class="lc-empty" id="lcEmpty" hidden></div>
-        <div class="lc-zoom"><button type="button" id="lcZo" title="Herauszoomen" aria-label="Herauszoomen">−</button><button type="button" id="lcZi" title="Hineinzoomen" aria-label="Hineinzoomen">+</button><button type="button" id="lcZr" title="Zum aktuellen Kurs" aria-label="Zum aktuellen Kurs">⤓</button></div></div>
-      <div class="nw-f"><span class="hint" id="lcFoot"></span>
-        <span class="lc-key"><i style="background:var(--accent)"></i>Einstieg <i style="background:var(--neg)"></i>Stop <i style="background:var(--pos)"></i>Ziel</span></div>
-    </div>`;
-  $("#lcZi").onclick = () => lcZoom(1 / 1.4);
-  $("#lcZo").onclick = () => lcZoom(1.4);
-  $("#lcZr").onclick = () => { LC.view = null; LC.follow = true; lcDraw(); };
-  lcBind();
-}
-function lcControls() {
-  const d = LC.data, fams = (d && d.fams) || [];
-  $("#lcTitle").textContent = "Live-Chart" + (d && d.fam ? ` · ${d.fam} · ${LC.tf}m` : "");
-  $("#lcCtl").innerHTML = `
-    ${fams.length > 1 ? `<div class="seg">${fams.map(f => `<button type="button" data-cf="${f}" aria-pressed="${d.fam === f}">${f}</button>`).join("")}</div>` : ""}
-    <div class="seg" role="group" aria-label="Zeiteinheit">${[1, 5, 15].map(k => `<button type="button" data-ct="${k}" aria-pressed="${LC.tf === k}">${k}m</button>`).join("")}</div>
-    <div class="seg" role="group" aria-label="Zeitraum">${[[1, "1T"], [2, "2T"], [5, "5T"]].map(([k, l]) => `<button type="button" data-cd="${k}" aria-pressed="${LC.days === k}" title="${k === 1 ? "Heute" : k + " Tage"}">${l}</button>`).join("")}</div>
-    <div class="seg"><button type="button" id="lcTr" aria-pressed="${LC.tr}">Trades</button><button type="button" id="lcLv" aria-pressed="${LC.lv}">Levels</button></div>`;
-  $("#lcCtl").querySelectorAll("[data-cf]").forEach(b => b.onclick = () => { LC.fam = b.dataset.cf; lcSave(); lcLoad(true); });
-  $("#lcCtl").querySelectorAll("[data-ct]").forEach(b => b.onclick = () => { LC.tf = +b.dataset.ct; lcSave(); lcControls(); lcLoad(true); });
-  $("#lcCtl").querySelectorAll("[data-cd]").forEach(b => b.onclick = () => { LC.days = +b.dataset.cd; lcSave(); lcControls(); lcLoad(true); });
-  $("#lcTr").onclick = () => { LC.tr = !LC.tr; lcSave(); $("#lcTr").setAttribute("aria-pressed", LC.tr); lcDraw(); };
-  $("#lcLv").onclick = () => { LC.lv = !LC.lv; lcSave(); $("#lcLv").setAttribute("aria-pressed", LC.lv); lcDraw(); };
-  const empty = $("#lcEmpty"), n = d && d.bars ? d.bars.length : 0;
-  empty.hidden = n > 0;
-  empty.textContent = LC.err ? LC.err : !d ? "Chart wird geladen …" : "Noch keine Kerzen. Der Chart füllt sich, sobald der TradingView-Alert der Strategie läuft (jede abgeschlossene Kerze wird geschickt).";
-  $("#lcFoot").innerHTML = d && d.note ? `<span style="color:var(--warn)">${esc(d.note)}</span>`
-    : `Mausrad oder + / − zoomen · ziehen verschiebt · Doppelklick oder ⤓ springt zum aktuellen Kurs${d && d.src_tf ? ` · TradingView schickt alle ${Math.round(d.src_tf / 60000)} Min neue Daten` : ""}`;
-}
-function lcZoom(f, center) {
-  const v = LC.view, n = (LC.data && LC.data.bars || []).length; if (!v || !n) return;
-  const c = center ?? (LC.follow ? v.b : (v.a + v.b) / 2), span = Math.max(12, Math.min(Math.max(n, 12) * 1.15 + 6, (v.b - v.a) * f));
-  const r = (c - v.a) / (v.b - v.a);
-  LC.view = {a: c - r * span, b: c - r * span + span};
-  LC.follow = LC.view.b >= n - 0.5; lcDraw();
-}
-function lcColors() {
-  const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
-  return {pos: g("--pos"), neg: g("--neg"), accent: g("--accent"), muted: g("--muted"), line: g("--line"), line2: g("--line2"), fg: g("--fg"), warn: g("--warn"), bg: g("--surface")};
-}
-function lcBind() {
-  const cv = $("#lcCv"); if (!cv) return;
-  const PWf = () => cv.clientWidth - 80;
-  const bars = () => (LC.data && LC.data.bars) || [];
-  const idxAt = x => { const v = LC.view; return v ? v.a + (x / PWf()) * (v.b - v.a) : 0; };
-  cv.addEventListener("wheel", e => {
-    if (!LC.view) return; e.preventDefault();
-    const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
-    if (Math.abs(e.deltaX) > Math.abs(dy) && !e.ctrlKey) {   // Touchpad seitlich: verschieben
-      const sh = e.deltaX / PWf() * (LC.view.b - LC.view.a); LC.view = {a: LC.view.a + sh, b: LC.view.b + sh}; LC.follow = LC.view.b >= bars().length - 0.5; lcDraw(); return; }
-    lcZoom(Math.exp(Math.max(-60, Math.min(60, dy)) * (e.ctrlKey ? 0.012 : 0.004)), idxAt(e.offsetX));
-  }, {passive: false});
-  const pts = new Map(); let drag = null, pinch = null;
-  cv.addEventListener("pointerdown", e => {
-    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
-    if (pts.size === 1) { drag = {x: e.clientX, v: {...LC.view}}; LC.drag = true; }
-    if (pts.size === 2) { const [p1, p2] = [...pts.values()]; pinch = {d: Math.abs(p1.x - p2.x) || 1, v: {...LC.view}, c: idxAt((p1.x + p2.x) / 2 - cv.getBoundingClientRect().left)}; drag = null; }
-  });
-  cv.addEventListener("pointermove", e => {
-    if (pts.has(e.pointerId)) pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
-    if (pinch && pts.size === 2 && LC.view) { const [p1, p2] = [...pts.values()], f = pinch.d / (Math.abs(p1.x - p2.x) || 1);
-      LC.view = {...pinch.v}; lcZoom(f, pinch.c); return; }
-    if (drag && LC.view) { const dx = (e.clientX - drag.x) / PWf() * (drag.v.b - drag.v.a);
-      LC.view = {a: drag.v.a - dx, b: drag.v.b - dx}; LC.follow = LC.view.b >= bars().length - 0.5; LC.hover = null; lcDraw(); return; }
-    const r = cv.getBoundingClientRect(); LC.hover = {x: e.clientX - r.left, y: e.clientY - r.top}; lcDraw();
-  });
-  const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { drag = null; LC.drag = false; } };
-  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
-  cv.addEventListener("pointerleave", e => { if (!pts.size) { LC.hover = null; lcDraw(); } });
-  cv.addEventListener("dblclick", () => { LC.view = null; LC.follow = true; lcDraw(); });
-  if ("ResizeObserver" in window) { if (window._lcRO) window._lcRO.disconnect(); window._lcRO = new ResizeObserver(() => lcDraw()); window._lcRO.observe($("#lcWrap")); }
-}
-function lcDraw() {
-  const cv = $("#lcCv"), d = LC.data; if (!cv || !d) return;
-  const B = d.bars || [], n = B.length, C = lcColors();
-  const W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
-  if (!W || !H) return;
-  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
-  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const leg = $("#lcLeg");
-  if (!n) { if (leg) leg.innerHTML = ""; return; }
-  const AX = 80, TB = 22, PW = W - AX, PH = H - TB;
-  const defSpan = Math.min(n + 6, W < 600 ? 70 : 140);
-  if (!LC.view || LC.follow) { const span = LC.view ? LC.view.b - LC.view.a : defSpan; LC.view = {a: n + 4 - span, b: n + 4}; }
-  const v = LC.view, bw = PW / (v.b - v.a);
-  const X = i => (i - v.a + 0.5) * bw;
-  const i0 = Math.max(0, Math.floor(v.a)), i1 = Math.min(n - 1, Math.ceil(v.b));
-  const tf = d.tf || 300000, idxOf = ts => { const ms = ts * 1000; let lo = 0, hi = n - 1; if (ms < B[0][0]) return null;
-    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (B[m][0] <= ms) lo = m; else hi = m - 1; } return ms - B[lo][0] > tf * 3 && lo === n - 1 ? n - 1 + (ms - B[lo][0]) / tf : lo; };
-  const trades = LC.tr ? (d.trades || []) : [], pend = LC.tr ? (d.pending || []) : [];
-  const openT = trades.filter(t => t.status === "offen");
-  // Preisbereich aus sichtbaren Kerzen + Linien offener Trades
-  let lo = Infinity, hi = -Infinity;
-  for (let i = i0; i <= i1; i++) { lo = Math.min(lo, B[i][3]); hi = Math.max(hi, B[i][2]); }
-  if (!isFinite(lo)) { lo = B[n - 1][3]; hi = B[n - 1][2]; }
-  [...openT.flatMap(t => [t.entry, t.sl, t.tp]), ...pend.flatMap(p => [p.entry, p.sl, p.tp])].forEach(x => { if (x != null) { lo = Math.min(lo, x); hi = Math.max(hi, x); } });
-  const pad = (hi - lo) * 0.08 || 5; lo -= pad; hi += pad;
-  const Y = p => (1 - (p - lo) / (hi - lo)) * PH;
-  const Pv = y => lo + (1 - y / PH) * (hi - lo);
-  g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono");
-  // Raster + Preisachse
-  const step = (() => { const raw = (hi - lo) / 6, m = 10 ** Math.floor(Math.log10(raw)); return [1, 2, 2.5, 5, 10].find(k => k * m >= raw) * m; })();
-  g.strokeStyle = C.line; g.fillStyle = C.muted; g.lineWidth = 1; g.textAlign = "left"; g.textBaseline = "middle";
-  for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) { const y = Math.round(Y(p)) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(PW, y); g.stroke(); g.fillText(px(p), PW + 6, y); }
-  // Zeitachse
-  g.textAlign = "center"; g.textBaseline = "top";
-  const every = Math.max(1, Math.ceil(80 / bw)); let lastDay = "", lastLx = -1e9;
-  const dayIdx = []; for (let i = Math.max(1, i0); i <= i1; i++) if (new Date(B[i][0]).toDateString() !== new Date(B[i - 1][0]).toDateString()) dayIdx.push(i);
-  const nearDay = i => dayIdx.some(k => Math.abs(X(k) - X(i)) < 80 && k !== i);
-  for (let i = i0; i <= i1; i++) {
-    const dt0 = new Date(B[i][0]), day = dt0.toDateString();
-    const newDay = day !== lastDay && i > 0 && new Date(B[i - 1][0]).toDateString() !== day; lastDay = day;
-    if (newDay) { g.strokeStyle = C.line2; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(Math.round(X(i) - bw / 2) + 0.5, 0); g.lineTo(Math.round(X(i) - bw / 2) + 0.5, PH); g.stroke(); g.setLineDash([]); }
-    if ((i % every === 0 && X(i) - lastLx > 74 && !nearDay(i)) || newDay) { lastLx = X(i); g.fillStyle = newDay ? C.fg : C.muted;
-      g.fillText(newDay ? dt0.toLocaleDateString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit"}) : dt0.toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"}), X(i), PH + 5); }
+const fPts = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const fTicks = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toLocaleString("de-DE") + " Ticks";
+function posPanel() {
+  const box = $("#posBox"); if (!box) return;
+  const key = JSON.stringify(S.positions.map(p => [p.id, p.sl, p.tp, p.qty, p.status]));
+  if (key !== posKey || !box.querySelector(".pcs, .empty")) {
+    posKey = key;
+    box.innerHTML = S.positions.length ? `<div class="pcs">${S.positions.map(posCard).join("")}</div>` : `<div class="empty">Keine offene Position.</div>`;
+    posBind();
   }
-  // Levels
-  const usedY = [];
-  if (LC.lv) (d.levels || []).forEach(l => { const y = Math.round(Y(l.v)) + 0.5; if (y < 0 || y > PH) return;
-    const lx = 4 + 34 * usedY.filter(u => Math.abs(u - y) < 11).length; usedY.push(y);
-    const col = l.k.startsWith("PD") ? C.warn : C.muted; g.strokeStyle = col; g.globalAlpha = .55; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y); g.lineTo(PW, y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-    g.fillStyle = col; g.textAlign = "left"; g.textBaseline = "bottom"; g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillText(l.k, lx, y - 2);
-    g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); });
-  // Kerzen
-  g.save(); g.beginPath(); g.rect(0, 0, PW, PH); g.clip();
-  const cw = Math.max(1, Math.min(14, bw * 0.7));
-  for (let i = i0; i <= i1; i++) { const [, o, h, l, c] = B[i], up = c >= o, x = Math.round(X(i));
-    g.strokeStyle = g.fillStyle = up ? C.pos : C.neg;
-    g.beginPath(); g.moveTo(x + 0.5, Y(h)); g.lineTo(x + 0.5, Y(l)); g.stroke();
-    const yt = Y(Math.max(o, c)), yb = Y(Math.min(o, c)); g.fillRect(Math.round(x - cw / 2), yt, Math.max(1, Math.round(cw)), Math.max(1, yb - yt)); }
-  // Trades: Einstieg ▲/▼, Ausstieg ●, Verbindungslinie
-  const hlines = [];
-  trades.forEach(t => {
-    const ie = idxOf(t.t_in || t.opened), long_ = t.side === "long", col = t.status === "offen" ? C.accent : (t.pnl || 0) >= 0 ? C.pos : C.neg;
-    if (ie == null) return;
-    const xe = X(ie), ye = Y(t.entry);
-    if (t.status !== "offen" && t.closed && t.exit != null) {
-      const ix = idxOf(t.t_out || t.closed); if (ix != null) { const xx = X(ix), yx = Y(t.exit);
-        g.strokeStyle = col; g.setLineDash([3, 3]); g.lineWidth = 1.4; g.beginPath(); g.moveTo(xe, ye); g.lineTo(xx, yx); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
-        g.fillStyle = col; g.beginPath(); g.arc(xx, yx, 4.5, 0, 7); g.fill(); g.strokeStyle = C.bg; g.stroke();
-        g.font = "600 11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); g.textAlign = "left"; g.textBaseline = "middle";
-        g.fillText(((t.pnl || 0) >= 0 ? "+" : "−") + "$" + Math.abs(Math.round(t.pnl || 0)), xx + 8, yx); g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); }
-    }
-    g.fillStyle = long_ ? C.pos : C.neg; g.beginPath();
-    if (long_) { g.moveTo(xe, ye + 4); g.lineTo(xe - 7, ye + 15); g.lineTo(xe + 7, ye + 15); } else { g.moveTo(xe, ye - 4); g.lineTo(xe - 7, ye - 15); g.lineTo(xe + 7, ye - 15); }
-    g.closePath(); g.fill();
-    g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.textAlign = "center"; g.textBaseline = long_ ? "top" : "bottom";
-    g.fillText(`${long_ ? "L" : "S"} ${t.qty}×${t.is_test ? " Test" : ""}`, xe, long_ ? ye + 17 : ye - 17); g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono");
-    if (t.status === "offen") { hlines.push([t.entry, C.accent, "Einstieg", xe, []], [t.sl, C.neg, "Stop", xe, [5, 4]]); if (t.tp != null) hlines.push([t.tp, C.pos, "Ziel", xe, [5, 4]]); }
-  });
-  pend.forEach(p => { hlines.push([p.entry, C.muted, "Vorschlag", 0, [2, 3]], [p.sl, C.neg, "Stop (Vorschlag)", 0, [2, 3]]); if (p.tp != null) hlines.push([p.tp, C.pos, "Ziel (Vorschlag)", 0, [2, 3]]); });
-  hlines.forEach(([p, col, lab, x0, dash]) => { if (p == null) return; const y = Math.round(Y(p)) + 0.5; g.strokeStyle = col; g.setLineDash(dash); g.lineWidth = 1.3;
-    g.beginPath(); g.moveTo(Math.max(0, x0), y); g.lineTo(PW, y); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
-    g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillStyle = col; g.textAlign = "right"; g.textBaseline = "bottom"; g.fillText(lab, PW - 6, y - 2);
-    g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); });
-  g.restore();
-  // Preis-Etiketten rechts: offene Linien + letzter Kurs
-  const tag = (p, col, txtCol) => { const y = Y(p); if (y < 0 || y > PH) return; g.fillStyle = col; g.fillRect(PW + 1, y - 9, AX - 2, 18); g.fillStyle = txtCol; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(px(p), PW + 6, y); };
-  hlines.forEach(([p, col]) => p != null && tag(p, col, "#fff"));
-  const last = B[n - 1][4], ly = Math.round(Y(last)) + 0.5;
-  g.strokeStyle = C.accent; g.globalAlpha = .5; g.setLineDash([1, 2]); g.beginPath(); g.moveTo(0, ly); g.lineTo(PW, ly); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-  tag(last, last >= B[n - 1][1] ? C.pos : C.neg, "#fff");
-  // Fadenkreuz + Legende
-  let hb = n - 1;
-  if (LC.hover && LC.hover.x < PW && LC.hover.y < PH) {
-    hb = Math.max(0, Math.min(n - 1, Math.round(v.a + LC.hover.x / bw - 0.5)));
-    g.strokeStyle = C.muted; g.globalAlpha = .6; g.setLineDash([3, 3]);
-    g.beginPath(); g.moveTo(Math.round(X(hb)) + 0.5, 0); g.lineTo(Math.round(X(hb)) + 0.5, PH); g.moveTo(0, Math.round(LC.hover.y) + 0.5); g.lineTo(PW, Math.round(LC.hover.y) + 0.5); g.stroke();
-    g.setLineDash([]); g.globalAlpha = 1; tag(Pv(LC.hover.y), C.line2, C.fg);
-  }
-  if (leg) { const [t, o, h, l, c] = B[hb], ch = c - o;
-    const op = openT[0];
-    leg.innerHTML = `<span class="mono">${new Date(t).toLocaleString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span>
-      <span>O <b class="mono">${px(o)}</b></span><span>H <b class="mono">${px(h)}</b></span><span>L <b class="mono">${px(l)}</b></span><span>C <b class="mono ${cls(ch)}">${px(c)}</b></span>
-      ${op ? `<span class="chip ${op.upnl >= 0 ? "good" : "bad"}" style="margin-left:auto">${op.side === "long" ? "Long" : "Short"} ${op.qty}× ${esc(op.root)} · offen ${sUsd(op.upnl || 0)}</span>` : ""}`; }
+  S.positions.forEach(posLive);
 }
-window.addEventListener("resize", () => { if (TAB === "cockpit") lcDraw(); });
+function posCard(p) {
+  const m = posMath(p, p.last), risk = m.pts(p.entry, p.sl), rew = p.tp != null ? m.pts(p.entry, p.tp) : null;
+  const rr = rew != null && risk < 0 ? rew / -risk : null, paper = p.broker === "paper";
+  const step = m.I.tick, pt = 1;
+  return `<article class="pc ${p.side}" id="pc-${p.id}">
+    <div class="pc-h">
+      <span class="side ${p.side}">${p.side === "long" ? "LONG" : "SHORT"}</span><b class="mono">${p.qty}× ${esc(p.contract)}</b>
+      <span class="chip">${esc(p.setup)}</span>${p.is_test ? '<span class="chip mute">Test</span>' : ""}${p.mgmt ? `<span class="chip">${esc(p.mgmt)}</span>` : ""}
+      <span class="hint" id="pcAge-${p.id}"></span>
+      <div class="pc-pl"><b id="pcPl-${p.id}">–</b><small id="pcPl2-${p.id}"></small></div>
+    </div>
+    <div class="pc-bar"><div class="pc-track"><i class="pc-risk"></i><i class="pc-rew"></i><span class="pc-mk e" id="pcMe-${p.id}"></span><span class="pc-mk n" id="pcMn-${p.id}"></span></div>
+      <div class="pc-bl"><span class="neg">Stop</span><span>Einstieg</span><span class="pos">${p.tp != null ? "Ziel" : "kein Ziel"}</span></div></div>
+    <div class="pc-g">
+      <div class="pc-c sl"><span class="l">Stop-Loss</span><b class="mono">${px(p.sl)}</b>
+        <small>${fPts(risk)} Pkt · ${fTicks(m.ticks(risk))}</small><small class="${risk >= 0 ? "pos" : "neg"}">${risk >= 0 ? "gesichert" : "Risiko"} ${sUsd(m.usdOf(risk))} ab Einstieg</small>
+        <small id="pcSlNow-${p.id}"></small></div>
+      <div class="pc-c"><span class="l">Einstieg</span><b class="mono">${px(p.entry)}</b>
+        <small>Kurs jetzt <b class="mono" id="pcNow-${p.id}">–</b></small><small id="pcNowD-${p.id}"></small><small>seit ${dtm(p.opened)}</small></div>
+      <div class="pc-c tp"><span class="l">Take-Profit</span><b class="mono">${p.tp != null ? px(p.tp) : "–"}</b>
+        ${rew != null ? `<small>${fPts(rew)} Pkt · ${fTicks(m.ticks(rew))}</small><small class="pos">Chance ${sUsd(m.usdOf(rew))} ab Einstieg</small><small id="pcTpNow-${p.id}"></small>` : "<small>kein festes Ziel</small>"}</div>
+      <div class="pc-c"><span class="l">Chance / Risiko</span><b class="mono">${rr != null ? "1 : " + rr.toFixed(2).replace(".", ",") : risk >= 0 ? "risikofrei" : "–"}</b>
+        <small>1 Tick = ${m.I.tick.toString().replace(".", ",")} Pkt = ${usd2(m.I.tick * m.I.pv)} je Kontrakt</small><small>1 Pkt = ${usd2(m.I.pv * p.qty)} bei ${p.qty} Kontrakt${p.qty === 1 ? "" : "en"}</small></div>
+    </div>
+    <div class="pc-a">
+      <div class="pc-e"><label for="sl-${p.id}">Stop verschieben</label>
+        <div class="pc-in"><button class="btn" data-adj="sl" data-id="${p.id}" data-d="-${pt}" title="1 Punkt runter">−1</button>
+          <input id="sl-${p.id}" type="number" step="${step}" value="${p.sl}" data-orig="${p.sl}">
+          <button class="btn" data-adj="sl" data-id="${p.id}" data-d="${pt}" title="1 Punkt hoch">+1</button>
+          <button class="btn primary" data-set="sl" data-id="${p.id}">Setzen</button></div>
+        <small class="hint" id="slPrev-${p.id}">&nbsp;</small></div>
+      <div class="pc-e"><label for="tp-${p.id}">Ziel verschieben</label>
+        <div class="pc-in"><button class="btn" data-adj="tp" data-id="${p.id}" data-d="-${pt}" title="1 Punkt runter">−1</button>
+          <input id="tp-${p.id}" type="number" step="${step}" value="${p.tp ?? ""}" data-orig="${p.tp ?? ""}" placeholder="kein Ziel">
+          <button class="btn" data-adj="tp" data-id="${p.id}" data-d="${pt}" title="1 Punkt hoch">+1</button>
+          <button class="btn primary" data-set="tp" data-id="${p.id}">Setzen</button>
+          ${paper && p.tp != null ? `<button class="btn" data-cleartp="${p.id}" title="Ziel entfernen, Trade läuft bis Stop oder manuell">Kein Ziel</button>` : ""}</div>
+        <small class="hint" id="tpPrev-${p.id}">&nbsp;</small></div>
+      <div class="pc-q">
+        <button class="btn be" data-id="${p.id}" ${p.sl === p.entry ? "disabled" : ""}>Stop auf Einstieg (BE)</button>
+        <button class="btn ghost-danger cl" data-id="${p.id}" data-key="cl-${p.id}" data-orig="Position schließen">${armed("cl-" + p.id) ? "Sicher?" : "Position schließen"}</button>
+      </div>
+    </div></article>`;
+}
+function posLive(p) {
+  const el = $("#pc-" + p.id); if (!el) return;
+  const m = posMath(p), now = p.last ?? p.entry, inPts = m.pts(p.entry, now);
+  const risk = -m.pts(p.entry, p.sl) || 1e-9, r = inPts / risk;
+  const pl = $("#pcPl-" + p.id); pl.textContent = sUsd(p.upnl ?? m.usdOf(inPts)); pl.className = "mono " + cls(p.upnl ?? inPts);
+  $("#pcPl2-" + p.id).textContent = `${fPts(inPts)} Pkt · ${fTicks(m.ticks(inPts))}${m.pts(p.entry, p.sl) < 0 ? ` · ${r >= 0 ? "+" : "−"}${Math.abs(r).toFixed(2).replace(".", ",")} R` : ""}`;
+  $("#pcNow-" + p.id).textContent = px(now);
+  const nd = $("#pcNowD-" + p.id); nd.textContent = `${fPts(inPts)} Pkt · ${fTicks(m.ticks(inPts))}`; nd.className = cls(inPts);
+  const toSl = m.pts(now, p.sl);
+  $("#pcSlNow-" + p.id).textContent = `ab jetzt bis Stop: ${fTicks(m.ticks(toSl))} · ${sUsd(m.usdOf(toSl))}`;
+  if (p.tp != null) { const toTp = m.pts(now, p.tp); $("#pcTpNow-" + p.id).textContent = `ab jetzt bis Ziel: ${fTicks(m.ticks(toTp))} · ${sUsd(m.usdOf(toTp))}`; }
+  const age = $("#pcAge-" + p.id); const mins = Math.max(0, Math.round((Date.now() / 1000 - p.opened) / 60)); age.textContent = mins < 60 ? `${mins} Min offen` : `${Math.floor(mins / 60)} Std ${mins % 60} Min offen`;
+  // Leiste: links Stop, Mitte Einstieg, rechts Ziel (ohne Ziel: 2R)
+  const lo = p.sl, hi = p.tp ?? (p.entry + (p.entry - p.sl) * 2);
+  const at = v => Math.max(0, Math.min(100, ((v - lo) / (hi - lo || 1)) * 100));
+  const e = at(p.entry), n = at(now);
+  el.querySelector(".pc-risk").style.width = e + "%"; el.querySelector(".pc-rew").style.left = e + "%"; el.querySelector(".pc-rew").style.width = (100 - e) + "%";
+  $("#pcMe-" + p.id).style.left = e + "%"; $("#pcMn-" + p.id).style.left = n + "%";
+}
+function posPreview(p, which) {
+  const inp = $(`#${which}-${p.id}`), out = $(`#${which}Prev-${p.id}`); if (!inp || !out) return;
+  const v = parseFloat(inp.value), m = posMath(p);
+  if (!isFinite(v) || String(v) === String(inp.dataset.orig)) { out.innerHTML = "&nbsp;"; return; }
+  const d = m.pts(p.entry, v);
+  out.innerHTML = `Neu: ${fPts(d)} Pkt · ${fTicks(m.ticks(d))} ab Einstieg = <b class="${cls(d)}">${sUsd(m.usdOf(d))}</b>`;
+}
+function posBind() {
+  const byId = id => S.positions.find(x => x.id === id);
+  document.querySelectorAll("#posBox [data-adj]").forEach(b => b.onclick = () => {
+    const p = byId(b.dataset.id), inp = $(`#${b.dataset.adj}-${p.id}`), I = posMath(p).I;
+    const base = parseFloat(inp.value) || (b.dataset.adj === "tp" ? p.last ?? p.entry : p.sl);
+    inp.value = (Math.round((base + parseFloat(b.dataset.d)) / I.tick) * I.tick).toFixed(2); posPreview(p, b.dataset.adj); });
+  document.querySelectorAll("#posBox .pc-in input").forEach(inp => inp.oninput = () => { const [w, id] = inp.id.split(/-(.+)/); posPreview(byId(id), w); });
+  document.querySelectorAll("#posBox [data-set]").forEach(b => b.onclick = () => {
+    const w = b.dataset.set, v = parseFloat($(`#${w}-${b.dataset.id}`).value);
+    if (!isFinite(v)) return toast(w === "sl" ? "Bitte einen Stop-Preis eintragen" : "Bitte einen Ziel-Preis eintragen");
+    act(() => api(`/api/position/${b.dataset.id}/modify`, {[w]: v}), w === "sl" ? "Stop verschoben" : "Ziel verschoben");
+  });
+  document.querySelectorAll("#posBox [data-cleartp]").forEach(b => b.onclick = () => act(() => api(`/api/position/${b.dataset.cleartp}/modify`, {clear_tp: true}), "Ziel entfernt"));
+  document.querySelectorAll("#posBox .be").forEach(b => b.onclick = () => act(() => api(`/api/position/${b.dataset.id}/breakeven`, {}), "Stop auf Break-even gezogen"));
+  document.querySelectorAll("#posBox .cl").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", () => act(() => api(`/api/position/${b.dataset.id}/close`, {}), "Position geschlossen")));
+}
 function cockpit(full) {
   const m = $("#main"), t = S.today, lossUsed = t.max_loss > 0 ? Math.min(100, Math.max(0, -t.pnl / t.max_loss * 100)) : 0;
   if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
@@ -1334,7 +1286,6 @@ function cockpit(full) {
     <section id="chCard" hidden></section>
     <section class="panel perf" id="perf"></section>
     <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
-    <section class="section" id="lcSec"></section>
     <div class="grid2 ck-2"><section class="section" id="lvSec"></section><section class="section" id="newsSec"></section></div>
     <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <div class="grid2">
@@ -1344,7 +1295,6 @@ function cockpit(full) {
   setupPanel();
   newsPanel();
   levelsPanel();
-  liveChart();
   chCard();
   const perfKey = JSON.stringify([PERF, S.daily]);
   if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
@@ -1378,15 +1328,7 @@ function cockpit(full) {
   }
   timers();
 
-  $("#posBox").innerHTML = S.positions.length ? `<div class="panel scroll"><table><thead><tr><th class="t">Kontrakt</th><th class="t">Strategie</th><th>Anz.</th><th>Einstieg</th><th>Kurs</th><th>Stop</th><th>Ziel</th><th>Offen</th><th></th></tr></thead><tbody>
-    ${S.positions.map(p => `<tr><td class="t"><span class="side ${p.side}" style="font-size:13px">${p.side === "long" ? "LONG" : "SHORT"}</span> ${esc(p.contract)}${p.is_test ? ' <span class="chip mute">Test</span>' : ""}</td>
-      <td class="t"><span class="chip">${esc(p.setup)}</span></td><td>${p.qty}</td><td>${px(p.entry)}</td><td>${px(p.last)}</td>
-      <td class="neg">${px(p.sl)}${p.sl === p.entry ? ' <span class="chip good">BE</span>' : ""}</td><td class="pos">${px(p.tp)}</td>
-      <td class="${cls(p.upnl)}">${usd(p.upnl)}</td>
-      <td><div class="rowbtns"><button class="btn be" data-id="${p.id}" ${p.sl === p.entry ? "disabled" : ""}>Break-even</button><button class="btn ghost-danger cl" data-id="${p.id}" data-key="cl-${p.id}" data-orig="Schließen">${armed("cl-" + p.id) ? "Sicher?" : "Schließen"}</button></div></td></tr>`).join("")}
-    </tbody></table></div>` : `<div class="empty">Keine offene Position.</div>`;
-  document.querySelectorAll("#posBox .be").forEach(b => b.onclick = () => act(() => api(`/api/position/${b.dataset.id}/breakeven`, {}), "Stop auf Break-even gezogen"));
-  document.querySelectorAll("#posBox .cl").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", () => act(() => api(`/api/position/${b.dataset.id}/close`, {}), "Position geschlossen")));
+  posPanel();
 
   const stChip = s => ({"ausgeführt": "good", "offen": "", "abgelehnt": "mute", "verfallen": "mute", "ersetzt": "mute", "blockiert": "warn", "fehler": "bad"}[s] ?? "mute");
   $("#sigBox").innerHTML = S.signals.length ? `<table><thead><tr><th class="t">Zeit</th><th class="t">Signal</th><th>Anz.</th><th>Stop</th><th class="t">Status</th><th class="t">Grund</th></tr></thead><tbody>
@@ -1986,7 +1928,7 @@ function localTime(hm) {
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 }
 function settings() {
-  settingsKey = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart]);
+  settingsKey = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart, S.service]);
   const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, t = c.tradovate, L = c.learning;
   const phoneUrl = (c.public_url || S.tunnel.url || "").replace(/\/+$/, "");
   const prev = fam => S.sizing_preview[fam].map((p, i) => {
@@ -2013,7 +1955,11 @@ function settings() {
       <button class="btn primary" id="updNowSet">Jetzt aktualisieren</button></div>
     ${S.platform.startsWith("win") ? `<div class="row"><label>Desktop-Symbol<small>Legt „FVG Trader“ auf dem Desktop und im Startmenü neu an.</small></label>
       <button class="btn" id="mkIcon">Desktop-Symbol anlegen</button></div>` : ""}
-    ${S.platform.startsWith("win") ? `<div class="row"><label>Mit Windows starten<small>Der Bot läuft nach dem Hochfahren still im Hintergrund.</small></label>
+    ${S.platform.startsWith("win") ? `<div class="row"><label>Als Dienst starten (ohne Anmeldung)<small>${(S.service || {}).installed
+        ? `Eingerichtet: FVG Trader startet beim Hochfahren des PCs/Servers von selbst, auch ohne dass sich jemand anmeldet.${(S.service || {}).running ? " Läuft gerade als Dienst." : " Läuft gerade noch normal, ab dem nächsten Hochfahren als Dienst."}`
+        : "Ideal für einen Windows-Server: startet beim Hochfahren, ohne Anmeldung. Windows fragt einmal nach Administratorrechten."}</small></label>
+      <button class="tgl" id="svcT" role="switch" aria-checked="${!!(S.service || {}).installed}" aria-label="Als Dienst starten"></button></div>` : ""}
+    ${S.platform.startsWith("win") && !(S.service || {}).installed ? `<div class="row"><label>Mit Windows starten<small>Startet nach deiner Anmeldung still im Hintergrund.</small></label>
       <button class="tgl" id="asT" role="switch" aria-checked="${S.autostart}" aria-label="Mit Windows starten"></button></div>` : ""}
     <div class="row"><label>FVG Trader beenden<small>Ohne Beenden läuft der Bot im Hintergrund weiter, auch wenn das Fenster zu ist.</small></label>
       <button class="btn ghost-danger" id="quit">App beenden</button></div>
@@ -2171,6 +2117,11 @@ function settings() {
     b.disabled = false; b.textContent = "Jetzt aktualisieren"; refresh(true);
   };
   const mk = $("#mkIcon"); if (mk) mk.onclick = () => act(() => api("/api/shortcut", {}), "Desktop-Symbol angelegt");
+  const sv = $("#svcT");
+  if (sv) sv.onclick = () => {
+    const on = !(S.service || {}).installed;
+    serviceSet(on);
+  };
   const as = $("#asT"); if (as) as.onclick = () => act(() => api("/api/autostart", {on: !S.autostart}), !S.autostart ? "Startet ab jetzt mit Windows" : "Autostart aus").then(() => render(true));
   $("#quit").onclick = () => confirmBtn($("#quit"), S.positions.length ? "Positionen offen. Trotzdem?" : "Wirklich beenden?", async () => {
     try { await api("/api/shutdown", {}); } catch (e) {}
@@ -2237,7 +2188,7 @@ function render(full) {
   else if (TAB === "challenge") challenge(false);
   else if (TAB === "settings" && !settingsDirty && !document.activeElement.matches("input,select")) {
     // Status-Anzeigen live nachziehen (Verbindung, Broker, Updates, Abruf), ohne Eingaben zu stören
-    const key = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart]);
+    const key = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart, S.service]);
     if (key !== settingsKey) { const y = scrollY; settings(); scrollTo(0, y); }
   }
   else if (TAB === "stats" || TAB === "learn" || TAB === "calendar") ({calendar, stats, learn}[TAB])();

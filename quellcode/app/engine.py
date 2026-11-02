@@ -970,6 +970,51 @@ class Engine:
             self.db.log(f"Stop für {pos['root']} auf Break-even {pos['entry']:.2f} gezogen")
             return {"ok": True}
 
+    def modify_position(self, pid, sl=None, tp=None, clear_tp=False):
+        """Stop und/oder Ziel einer offenen Position verschieben. Der Stop bleibt immer bestehen."""
+        with self.lock:
+            pos = self.db.position(pid)
+            if not pos or pos["status"] != "offen":
+                raise ValueError("Position ist nicht mehr offen")
+            tick = INSTR[pos["root"]]["tick"]
+            long_ = pos["side"] == "long"
+            last = (self.last_bar.get(family(pos["root"])) or {}).get("close") or pos["entry"]
+            upd, msgs = {}, []
+            if sl is not None:
+                sl = round_tick(float(sl), tick)
+                if (long_ and sl >= last) or (not long_ and sl <= last):
+                    raise ValueError(f"Stop muss {'unter' if long_ else 'über'} dem aktuellen Kurs ({last:.2f}) liegen, sonst würde er sofort auslösen")
+                mx = float(self.cfg["safe_stop"][family(pos["root"])]["max"])
+                if (pos["entry"] - sl if long_ else sl - pos["entry"]) > mx:
+                    raise ValueError(f"Safe-Stop: höchstens {mx:g} Punkte vom Einstieg entfernt")
+                if sl != pos["sl"]:
+                    try:
+                        self.broker.modify_stop(pos, sl)
+                    except BrokerError as e:
+                        raise ValueError(str(e))
+                    upd["sl"] = sl
+                    msgs.append(f"Stop {pos['sl']:.2f} → {sl:.2f}")
+            if clear_tp:
+                if self.broker.name != "paper" and pos["broker"] != "paper":
+                    raise ValueError("Das Ziel kann beim Broker nicht entfernt werden, nur verschoben")
+                upd["tp"] = None
+                msgs.append("Ziel entfernt")
+            elif tp is not None:
+                tp = round_tick(float(tp), tick)
+                if (long_ and tp <= last) or (not long_ and tp >= last):
+                    raise ValueError(f"Ziel muss {'über' if long_ else 'unter'} dem aktuellen Kurs ({last:.2f}) liegen")
+                if tp != pos["tp"]:
+                    try:
+                        self.broker.modify_target(pos, tp)
+                    except BrokerError as e:
+                        raise ValueError(str(e))
+                    upd["tp"] = tp
+                    msgs.append(f"Ziel {(pos['tp'] or 0):.2f} → {tp:.2f}" if pos["tp"] else f"Ziel gesetzt {tp:.2f}")
+            if upd:
+                self.db.update_position(pid, **upd)
+                self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']}: " + " · ".join(msgs))
+            return {"ok": True, "changed": msgs}
+
     def flatten_all(self):
         with self.lock:
             for s in self.db.pending():
