@@ -262,6 +262,7 @@ svg text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 .drw-b{flex:1;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:18px}
 .drw-pl{display:flex;flex-direction:column;gap:2px}
 .drw-pl > b{font-family:var(--f-mono);font-size:34px;font-weight:600;letter-spacing:-.02em}
+.drw-b > *{flex-shrink:0}
 .drw-st{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .drw-st > div{padding:10px 12px;display:flex;flex-direction:column;gap:2px;box-shadow:1px 0 0 var(--line),0 1px 0 var(--line);min-width:0}
 .drw-st b{font-family:var(--f-mono);font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -485,6 +486,11 @@ svg.chart{width:100%;height:auto}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,211,154,.6)}70%{box-shadow:0 0 0 6px rgba(47,211,154,0)}100%{box-shadow:0 0 0 0 rgba(47,211,154,0)}}
 .ssn{display:flex;gap:4px;flex-wrap:wrap}
 .ssn .chip b{font-weight:600;margin-left:2px}
+.td-g{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;padding:8px 0 2px;border-top:1px solid var(--line)}
+.td-g div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.td-g .l{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.td-g b{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.td-g small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -1693,9 +1699,8 @@ function drawDay() {
           <div class="tr-a"><span class="chip ${t.side === "long" ? "good" : "bad"}">${t.side === "long" ? "Long" : "Short"}</span>
             <b>${t.qty}× ${esc(t.root)}</b><span class="chip ${t.source === "eigen" ? "warn" : ""}">${t.source === "eigen" ? "Eigen" : "Bot"}</span>${t.is_test ? '<span class="chip mute">Test</span>' : ""}
             <span class="tr-p mono ${cls(t.pnl)}">${sUsd(t.pnl)}</span></div>
-          <div class="tr-b"><span class="mono">${t.source === "eigen" && t.opened === t.closed ? "" : `${tm(t.opened)}–${tm(t.closed)}`}</span>
-            ${t.entry ? `<span class="mono">${px(t.entry)} → ${px(t.exit)}</span>` : ""}
-            <span class="tr-n">${esc(t.source === "eigen" ? (t.note || "") : `${t.setup} · ${t.close_reason}`)}</span>
+          ${tradeDetail(t)}
+          <div class="tr-b"><span class="tr-n">${esc(t.source === "eigen" ? (t.note || "") : `${t.setup} · ${t.close_reason}`)}</span>
             ${t.source === "eigen" || t.is_test ? `<button class="lnk owndel" data-id="${t.id}" data-key="del-${t.id}" data-orig="Löschen">${armed("del-" + t.id) ? "Sicher?" : "Löschen"}</button>` : ""}</div>
         </div>`).join("")}
       </div>` : `<div class="empty">Keine ${CAL.filter === "bot" ? "Bot-" : CAL.filter === "eigen" ? "eigenen " : ""}Trades an diesem Tag.</div>`}
@@ -1717,6 +1722,27 @@ function drawDay() {
   }));
 }
 document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#dayDrw") && !$("#mdl")) closeDay(); });
+
+/* Details eines abgeschlossenen Trades: Preise, Punkte, Ticks, CRV und erreichtes R */
+function tradeDetail(t) {
+  const I = (S.instruments || {})[t.root], hasPx = t.entry && t.exit != null;
+  const times = t.source === "eigen" && t.opened === t.closed ? "" : `${tm(t.opened)} → ${tm(t.closed)}`;
+  if (!I || !hasPx) return `<div class="tr-b"><span class="mono">${times}</span>${t.entry ? `<span class="mono">${px(t.entry)} → ${px(t.exit)}</span>` : ""}</div>`;
+  const d = t.side === "long" ? 1 : -1, tk = v => Math.round(v / I.tick);
+  const move = (t.exit - t.entry) * d, sl0 = t.initial_sl ?? t.sl;
+  const risk = sl0 != null ? (t.entry - sl0) * d : null, rew = t.tp != null ? (t.tp - t.entry) * d : null;
+  const crv = risk > 0 && rew != null ? rew / risk : null, rr = risk > 0 ? move / risk : null;
+  const mins = t.closed && t.opened && t.closed > t.opened ? Math.round((t.closed - t.opened) / 60) : null;
+  const cell = (l, v, sub, c = "") => `<div><span class="l">${l}</span><b class="mono ${c}">${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  return `<div class="td-g">
+    ${cell("Einstieg", px(t.entry), times ? tm(t.opened) : "")}
+    ${cell("Ausstieg", px(t.exit), times ? `${tm(t.closed)}${mins != null ? ` · ${mins < 60 ? mins + " Min" : Math.floor(mins / 60) + " Std " + (mins % 60) + " Min"}` : ""}` : "")}
+    ${cell("Bewegung", `${fPts(move)} Pkt`, fTicks(tk(move)), cls(move))}
+    ${cell("Stop", sl0 != null ? px(sl0) : "–", risk != null ? `${fPts(-risk)} Pkt · ${fTicks(-tk(risk))}` : "", "neg")}
+    ${cell("Ziel", t.tp != null ? px(t.tp) : "–", rew != null ? `${fPts(rew)} Pkt · ${fTicks(tk(rew))}` : "kein Ziel", "pos")}
+    ${cell("CRV geplant", crv != null ? "1 : " + crv.toFixed(2).replace(".", ",") : "–", rr != null ? `erreicht ${rr >= 0 ? "+" : "−"}${Math.abs(rr).toFixed(2).replace(".", ",")} R` : "", rr != null ? cls(rr) : "")}
+  </div>`;
+}
 function modal(html) {
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-bg" id="mdl" role="dialog" aria-modal="true"><div class="panel modal">${html}</div></div>`);
   const close = () => $("#mdl") && $("#mdl").remove();

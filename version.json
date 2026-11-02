@@ -1,6 +1,6 @@
 {
-  "version": "2.9.0",
-  "file": "releases/FVG-Trader-2.9.0.cmd",
-  "sha256": "22e1c848d699dc6c94f2a79371f826229798be8aa29e95d05425fa9aa99681b7",
-  "notes": "Ganztägig handeln (App und Script) und Lernmodul je Session: schwache Sessions werden nur dort gebremst"
+  "version": "2.9.1",
+  "file": "releases/FVG-Trader-2.9.1.cmd",
+  "sha256": "7b25df6a5c8251d8033064abf8273869da9a9d0a4dac344050514ec61c75e63d",
+  "notes": "Kalender: jeder Trade mit Einstieg/Ausstieg, Punkten, Ticks, Stop, Ziel, geplantem CRV und erreichtem R"
 }
