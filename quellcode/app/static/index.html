@@ -1466,12 +1466,12 @@ function perfCard(compact) {
   const seg = (list, key) => `<div class="seg" role="group">${list.map(([k, l]) => `<button type="button" data-${key}="${k}" aria-pressed="${PERF[key] === k}">${l}</button>`).join("")}</div>`;
   return `<div class="perf-h"><h2>Performance</h2><div class="perf-ctl">${seg(PERIODS, "period")}${seg(SOURCES, "src")}</div></div>
     <div class="perf-b">
-      <div class="ring">${donutSvg(d.w, d.l)}<div class="ring-c"><span class="ring-v ${cls(d.pnl)}">${d.n ? sUsd(Math.round(d.pnl)) : "–"}</span><span class="ring-l">${wr == null ? "keine Trades" : `${Math.round(wr)} % Treffer`}</span></div></div>
+      <div class="ring">${donutSvg(d.w, d.l)}<div class="ring-c"><span class="ring-v ${cls(d.pnl)}">${d.n ? sUsd(d.pnl) : "–"}</span><span class="ring-l">${wr == null ? "keine Trades" : `${Math.round(wr)} % Treffer`}</span></div></div>
       <div class="perf-side">
         <div class="perf-stats">
           <div><span>Gewinner</span><b class="pos">${d.w}</b></div><div><span>Verlierer</span><b class="neg">${d.l}</b></div>
           <div><span>Handelstage</span><b>${d.days.length}${d.days.length ? ` <small class="hint">(${d.winDays} grün)</small>` : ""}</b></div>
-          <div><span>Ø pro Tag</span><b class="${cls(d.days.length ? d.pnl / d.days.length : 0)}">${d.days.length ? sUsd(Math.round(d.pnl / d.days.length)) : "–"}</b></div>
+          <div><span>Ø pro Tag</span><b class="${cls(d.days.length ? d.pnl / d.days.length : 0)}">${d.days.length ? sUsd(d.pnl / d.days.length) : "–"}</b></div>
         </div>
         ${compact ? "" : ""}<div class="spark">${sparkSvg(d.curve)}</div>
       </div>

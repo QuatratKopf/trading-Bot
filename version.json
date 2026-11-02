@@ -1,6 +1,6 @@
 {
-  "version": "2.8.0",
-  "file": "releases/FVG-Trader-2.8.0.cmd",
-  "sha256": "545a780f3ecee4a2d5760ad7fc83907bea8379ad05a400fd6243a6f95b6a3119",
-  "notes": "Live-P&L und Leiste bei offenen Trades: Script schickt den Kurs alle 20 s, solange ein Trade läuft; Paper prüft Stop/Ziel sofort; App am Handy fragt seltener (ngrok-Kontingent), Anzeige der ngrok-Anfragen"
+  "version": "2.8.1",
+  "file": "releases/FVG-Trader-2.8.1.cmd",
+  "sha256": "3c39d1a28d33750a40dffb2b8e05e630268e9973e68e18921899e90d15b05ed8",
+  "notes": "Gleiche Rundung bei P&L heute und Performance"
 }
