@@ -65,6 +65,7 @@ DEFAULT_CONFIG = {
     "broker": "paper",
     "public_url": "",          # feste eigene Adresse (optional), sonst automatische Verbindung
     "hook_confirmed": "",
+    "auto_update": False,      # neue Versionen selbst installieren (nur ohne offenen Trade)
     "update_url": DEFAULT_UPDATE_URL,   # Adresse der version.json für Updates      # zuletzt in TradingView eingetragene Webhook-Adresse
     "webhook_token": "",
     "follow_tv_exits": True,
@@ -1482,6 +1483,20 @@ class Engine:
         return {"fams": fams, "fam": fam, "bars": bars, "tf": tf, "src_tf": src_tf, "note": note, "trades": trades,
                 "pending": pending, "levels": levels, "last": (self.last_bar.get(fam) or {}).get("close"),
                 "has_m1": bool(self.db.one("SELECT 1 x FROM bars1 WHERE fam=? LIMIT 1", (fam,)))}
+
+    def live_backtest(self):
+        """Alle abgeschlossenen Strategie-Signale (Schatten-Trades) als Trade-Liste in $ für 1 Micro-Kontrakt."""
+        com = float(self.cfg["paper"]["commission"]) * 2
+        out = []
+        for x in self.db.rows("SELECT setup, side, fam, entry, exit, opened, bar_time FROM shadow "
+                              "WHERE status='geschlossen' AND exit IS NOT NULL ORDER BY opened"):
+            micro = INSTR.get(x["fam"], {}).get("micro") or x["fam"]
+            pv = INSTR.get(micro, INSTR.get(x["fam"], {"pv": 1}))["pv"]
+            d = 1 if x["side"] == "long" else -1
+            t = x["bar_time"] if x.get("bar_time") and abs(x["bar_time"] / 1000 - x["opened"]) < 86400 * 400 else x["opened"] * 1000
+            out.append({"time": t, "setup": x["setup"], "dir": "Long" if d > 0 else "Short",
+                        "pnl": round((x["exit"] - x["entry"]) * d * pv - com, 2)})
+        return {"trades": out[-20000:], "micro_note": True}
 
     def edge_data(self):
         rows = self.db.rows("SELECT setup, side, r, ny_hour, ny_weekday, opened, closed FROM shadow "

@@ -576,15 +576,45 @@ def restart():
         os._exit(0)
 
 
+def _download_install():
+    """Neue Version laden und einspielen (mit Wiederholung, falls GitHub kurz eine alte Datei liefert)."""
+    for attempt in range(3):
+        data = _fetch(UPDATE["file"])
+        try:
+            return install_update(data, UPDATE.get("sha256"))
+        except ValueError as e:
+            if "Prüfsumme" not in str(e) or attempt == 2:
+                raise
+            engine.db.log("Update: Prüfsumme passt noch nicht, lade erneut …", "warn")
+            time.sleep(4)
+            check_update()
+
+
 def _update_loop():
     time.sleep(20)
+    last_check = 0
     while True:
-        if engine.cfg.get("update_url"):
+        auto = bool(engine.cfg.get("auto_update"))
+        # mit automatischen Updates öfter nachsehen (stündlich), sonst alle 6 Stunden
+        if engine.cfg.get("update_url") and time.time() - last_check >= (3600 if auto else 6 * 3600):
+            last_check = time.time()
             was = UPDATE.get("available")
             check_update()
             if UPDATE["available"] and not was:
                 engine.db.log(f"Update verfügbar: Version {UPDATE['version']}")
-        time.sleep(6 * 3600)
+        if auto and UPDATE.get("available") and not UPDATE.get("busy"):
+            if engine.db.open_positions() or engine.db.pending():
+                pass   # nie mitten im Trade oder bei offenem Vorschlag: später nochmal versuchen
+            else:
+                UPDATE["busy"] = True
+                try:
+                    engine.db.log(f"Automatisches Update auf Version {UPDATE['version']} …")
+                    _download_install()
+                except Exception as e:  # noqa: BLE001
+                    engine.db.log(f"Automatisches Update fehlgeschlagen: {e}", "error")
+                finally:
+                    UPDATE["busy"] = False
+        time.sleep(300)
 
 
 @route("POST", r"/api/update/check")
@@ -600,18 +630,7 @@ def update_apply(h):
         raise ValueError(UPDATE.get("error") or "Du hast bereits die neueste Version.")
     UPDATE["busy"] = True
     try:
-        v = None
-        for attempt in range(3):   # GitHub speichert kurz zwischen: bei falscher Prüfsumme neu laden
-            data = _fetch(UPDATE["file"])
-            try:
-                v = install_update(data, UPDATE.get("sha256"))
-                break
-            except ValueError as e:
-                if "Prüfsumme" not in str(e) or attempt == 2:
-                    raise
-                engine.db.log("Update: Prüfsumme passt noch nicht, lade erneut …", "warn")
-                time.sleep(4)
-                check_update()
+        v = _download_install()
     finally:
         UPDATE["busy"] = False
     h._send(200, {"ok": True, "version": v})
@@ -780,6 +799,12 @@ def backtest_save(h):
     with open(os.path.join(DATA, "backtest.json"), "w", encoding="utf-8") as f:
         json.dump({"name": str(b.get("name") or "")[:200], "saved": time.time(), "trades": trades}, f)
     h._send(200, {"ok": True})
+
+
+@route("GET", r"/api/backtest/live")
+def backtest_live(h):
+    with engine.lock:
+        h._send(200, engine.live_backtest())
 
 
 @route("GET", r"/api/backtest")

@@ -1,6 +1,6 @@
 {
-  "version": "2.11.2",
-  "file": "releases/FVG-Trader-2.11.2.cmd",
-  "sha256": "2598ad57ddf147520e3689699b932a915d04ec1eab653563a7b811b38f8eacc7",
-  "notes": "Backtest liest den deutschen TradingView-Export (Trade-Nummer, Long-Einstieg …), offene Trades werden nicht mitgezählt"
+  "version": "2.12.0",
+  "file": "releases/FVG-Trader-2.12.0.cmd",
+  "sha256": "4d9ae76771b77c4f28f917b6070c64185a16b5cff174d0bf0a5189aa94cfa467",
+  "notes": "Automatische Updates (nur ohne offenen Trade) und Backtest mit Live-Signalen ohne Export"
 }
