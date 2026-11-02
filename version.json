@@ -1,6 +1,6 @@
 {
-  "version": "2.11.1",
-  "file": "releases/FVG-Trader-2.11.1.cmd",
-  "sha256": "c500ff4081c43bd58d442d09f24511df44af6c5ca71c0c69ebfb5bfdb4138eb0",
-  "notes": "Backtest: verständlichere Fehlermeldung mit erster Zeile der Datei"
+  "version": "2.11.2",
+  "file": "releases/FVG-Trader-2.11.2.cmd",
+  "sha256": "2598ad57ddf147520e3689699b932a915d04ec1eab653563a7b811b38f8eacc7",
+  "notes": "Backtest liest den deutschen TradingView-Export (Trade-Nummer, Long-Einstieg …), offene Trades werden nicht mitgezählt"
 }

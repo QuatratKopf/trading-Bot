@@ -1972,7 +1972,7 @@ function btDate(v) {
   if (m) return new Date(+(m[3].length === 2 ? "20" + m[3] : m[3]), +m[2] - 1, +m[1], +m[4], +m[5]);
   const d = new Date(s.replace(" ", "T")); return isNaN(d) ? new Date(s) : d;
 }
-const BT_ID = /^(trade\s*(#|nr\.?|nummer|no\.?|number|-nr\.?)|#|nr\.?)$/i, BT_ID2 = /trade\s*(#|nr|nummer|no|number)|trade-nr/i;
+const BT_ID = /^(trade[\s-]*(#|nr\.?|nummer|no\.?|number)|#|nr\.?)$/i, BT_ID2 = /trade[\s-]*(#|nr|nummer|no|number)/i;
 function btParse(rows) {
   let hi = -1;
   for (let i = 0; i < Math.min(rows.length, 40); i++) { const r = rows[i].map(c => String(c ?? "").trim());
@@ -1989,11 +1989,11 @@ function btParse(rows) {
     if (r[cT] == null || r[cT] === "") continue;
     const id = String(r[cT]), t = String(r[cType] || "").toLowerCase(), o = by.get(id) || {};
     if (/entry|einstieg|eintritt/.test(t)) { o.time = btDate(r[cD]); o.setup = String(cS >= 0 ? r[cS] || "" : ""); o.dir = /short|verkauf/.test(t) ? "Short" : "Long"; }
-    else { o.exit = btDate(r[cD]); if (!o.dir) o.dir = /short|verkauf/.test(t) ? "Short" : "Long"; }
+    else { if (/offen|open/i.test(String(r[cD]))) o.open = true; else o.exit = btDate(r[cD]); if (!o.dir) o.dir = /short|verkauf/.test(t) ? "Short" : "Long"; }
     const p = btNum(r[cP]); if (!isNaN(p)) o.pnl = p;
     by.set(id, o);
   }
-  const out = [...by.values()].filter(o => o.time && !isNaN(o.time) && typeof o.pnl === "number");
+  const out = [...by.values()].filter(o => !o.open && o.time && !isNaN(o.time) && typeof o.pnl === "number");   // noch offene Trades zählen nicht
   out.forEach(o => { o.setup = (o.setup || "").trim(); if (!/(long|short)$/i.test(o.setup)) o.setup = ((o.setup || "Trade") + " " + o.dir); });
   if (!out.length) throw new Error("Keine abgeschlossenen Trades in der Datei gefunden.");
   return out.sort((a, b) => a.time - b.time);
