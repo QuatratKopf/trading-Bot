@@ -887,6 +887,10 @@ def _welch_t(a, b):
     return (_mean(a) - _mean(b)) / se if se > 1e-9 else 0.0
 
 
+# Alle Strategien des TradingView-Scripts (Name wie im Signal), damit man sie schon vor dem ersten Signal steuern kann
+KNOWN_SETUPS = [f"{b} {d}" for b in ("FVG", "iFVG", "Silver Bullet", "ORB", "Sweep", "VWAP") for d in ("Long", "Short")]
+
+
 class Engine:
     def __init__(self, data_dir):
         os.makedirs(data_dir, exist_ok=True)
@@ -1816,8 +1820,9 @@ class Engine:
     def learning_view(self):
         rows = []
         names = set(self.learning.get("setups", {})) | set(self.cfg["setup_rules"]) | \
-            {s["setup"] for s in self.db.rows("SELECT DISTINCT setup FROM shadow")}
-        for name in sorted(names):
+            {s["setup"] for s in self.db.rows("SELECT DISTINCT setup FROM shadow")} | set(KNOWN_SETUPS)
+        order = {n: i for i, n in enumerate(KNOWN_SETUPS)}
+        for name in sorted(names, key=lambda n: (order.get(n, 99), n)):
             d = dict(self.learning.get("setups", {}).get(name) or {"status": "lernt", "n": 0, "total": 0})
             d["setup"] = name
             d["manual"] = self.cfg["setup_rules"].get(name, "auto")
@@ -3130,7 +3135,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "2.12.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "2.12.2"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 

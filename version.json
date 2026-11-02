@@ -1,6 +1,6 @@
 {
-  "version": "2.12.1",
-  "file": "releases/FVG-Trader-2.12.1.cmd",
-  "sha256": "4e302dc1af63f1e41ed1cd9e027bd3011b8ed8ea7126ef7a54ae19509a713154",
-  "notes": "Update-Prüfung direkt über die GitHub-API (ohne Zwischenspeicher), Backtest mit Live-Signalen, automatische Updates"
+  "version": "2.12.2",
+  "file": "releases/FVG-Trader-2.12.2.cmd",
+  "sha256": "dbc2132a8f3f09d4d7c96b0daaea3c83ab81323658924a4b1c9dd60be514e5aa",
+  "notes": "Lernmodul zeigt alle 12 Strategien von Anfang an, damit man sie vorab ein- oder ausschalten kann"
 }
