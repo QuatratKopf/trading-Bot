@@ -1,6 +1,6 @@
 {
-  "version": "2.5.3",
-  "file": "releases/FVG-Trader-2.5.3.cmd",
-  "sha256": "60c576f4339298358a9e0516768c19346d46d2fce1062a0630c18e2f00ecba53",
-  "notes": "Offene Positionen im Cockpit direkt unter der Performance"
+  "version": "2.6.0",
+  "file": "releases/FVG-Trader-2.6.0.cmd",
+  "sha256": "5cb7832b9101810f1e8c85de2d11cfcaa9892e6a6dcfcd7f8f8d9aad7043abbe",
+  "notes": "Live-Chart im Cockpit: Kerzen aus TradingView mit Einstiegen, Ausstiegen, Stop/Ziel offener Trades und Key Levels"
 }

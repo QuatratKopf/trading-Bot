@@ -617,6 +617,12 @@ def lab_rules(h):
         h._send(200, engine.rules_find())
 
 
+@route("GET", r"/api/chart/(NQ|ES|auto)/(\d{1,2})")
+def chart(h, fam, days):
+    with engine.lock:
+        h._send(200, engine.chart_data(None if fam == "auto" else fam, max(1, min(10, int(days)))))
+
+
 @route("GET", r"/api/edge")
 def edge(h):
     h._send(200, engine.edge_data())

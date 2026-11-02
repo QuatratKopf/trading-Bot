@@ -1194,6 +1194,41 @@ class Engine:
         self._sum_cache = cache
         return {"fams": fams, "fam": fam, "days": out}
 
+    def chart_data(self, fam=None, days=2):
+        """Kerzen + Trades für den Live-Chart im Cockpit."""
+        fams = self.db.bar_fams()
+        fam = fam if fam in fams else (fams[0] if fams else None)
+        if not fam:
+            return {"fams": [], "fam": None, "bars": []}
+        last = self.db.one("SELECT MAX(t) t FROM bars WHERE fam=?", (fam,))
+        anchor = min(time.time(), (last["t"] or 0) / 1000 + 3600) if last and last["t"] else time.time()
+        since = anchor - days * 86400   # am Wochenende/abends: ab der letzten Kerze zurückrechnen, damit der Chart nicht leer ist
+        bars = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in self.db.bars(fam, since * 1000)]
+        diffs = sorted(b[0] - a[0] for a, b in zip(bars, bars[1:]) if b[0] > a[0])
+        tf = diffs[len(diffs) // 2] if diffs else 300000
+        trades = []
+        for p in self.db.rows("SELECT * FROM positions WHERE (closed IS NULL OR closed >= ?) OR status='offen'", (since,)):
+            if family(p["root"]) != fam or p["broker"] not in (self.broker.name, "eigen"):
+                continue
+            if p["broker"] == "eigen" and (not p["opened"] or p["opened"] == p["closed"] or not p["entry"]):
+                continue   # eigene Trades ohne Uhrzeit/Preis lassen sich nicht einzeichnen
+            trades.append({k: p.get(k) for k in ("id", "side", "qty", "root", "entry", "exit", "sl", "tp", "initial_sl",
+                                                 "opened", "closed", "pnl", "status", "setup", "is_test", "mgmt")}
+                          | {"source": "eigen" if p["broker"] == "eigen" else "bot"})
+        px_now = (self.last_bar.get(fam) or {}).get("close") or (bars[-1][4] if bars else None)
+        for t in trades:
+            if t["status"] == "offen" and px_now is not None and t["entry"] is not None:
+                d = 1 if t["side"] == "long" else -1
+                t["upnl"] = round((px_now - t["entry"]) * d * t["qty"] * INSTR[t["root"]]["pv"], 2)
+        pending = [{k: s_.get(k) for k in ("id", "side", "entry", "sl", "tp", "qty", "root", "setup", "ts")}
+                   for s_ in self.db.pending() if family(s_["root"]) == fam]
+        lv = self.levels(fam).get("today") or {}
+        keys = (("pdh", "PDH"), ("pdl", "PDL"), ("pdc", "PDC"), ("onh", "ONH"), ("onl", "ONL"), ("asia_h", "AH"), ("asia_l", "AL"),
+                ("lon_h", "LH"), ("lon_l", "LL"), ("mid_open", "MO"), ("ib_h", "IBH"), ("ib_l", "IBL"))
+        levels = [{"k": lab, "v": lv[k]} for k, lab in keys if lv.get(k) is not None]
+        return {"fams": fams, "fam": fam, "bars": bars, "tf": tf, "trades": trades, "pending": pending, "levels": levels,
+                "last": (self.last_bar.get(fam) or {}).get("close")}
+
     def edge_data(self):
         rows = self.db.rows("SELECT setup, side, r, ny_hour, ny_weekday, opened, closed FROM shadow "
                             "WHERE status='geschlossen' AND r IS NOT NULL ORDER BY closed")

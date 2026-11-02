@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.5.3 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 2.6.0 "Notiz"`) |
 
 ## Funktionen
 
@@ -34,6 +34,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 - Regel-Finder: merkt sich die Marktlage je Signal und findet Bedingungen, unter denen eine Strategie klar besser oder schlechter läuft; Regeln per Klick als Filter übernehmen
 - Kalender mit Tages-, Wochen- und Monats-P&L, eigene Trades (eintragen oder CSV-Import), Filter Bot/Eigene, Statistiken
 - Reiter Fremdkapital: Prop-Firm-Challenge live (Verlustgrenze EOD/Intraday/statisch, Profitziel, Tageslimit, Konsistenz, Mindesttage, Bot-Schutz) plus Karte im Cockpit
+- Live-Chart im Cockpit: Kerzen aus TradingView mit Einstiegen, Ausstiegen, Stop/Ziel offener Trades und Key Levels
 - Key Levels im Cockpit: Vortageshoch/-tief/-schluss, Overnight, Asien, London, Midnight Open, Initial Balance, Gap
 - Edge-Check je Strategie: Trefferquote mit 95-%-Bereich, Breakeven, Edge, Note A–D, Vertrauen, Wochentage, Stunden
 - Session-Muster aus gesammelten Kerzen: Gap-Fill, London-/IB-/Asien-Breakout, PDH/PDL genommen, Zeitpunkt von Tageshoch und -tief

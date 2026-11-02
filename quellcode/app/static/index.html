@@ -446,6 +446,14 @@ svg.chart{width:100%;height:auto}
 .rfa{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--raise);font-size:13px}
 .rfa small{display:block} .rfa.off{opacity:.55}
 @media (max-width:560px){ .rf-g{grid-template-columns:repeat(2,minmax(0,1fr))} .rfa{grid-template-columns:auto minmax(0,1fr)} .rfa .btn{grid-column:auto} .rf-grid{grid-template-columns:1fr} }
+.lc-box{padding:0;overflow:hidden}
+.lc-leg{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;padding:10px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);min-height:41px}
+.lc-leg b{color:var(--fg);font-weight:500}
+.lc-wrap{position:relative;height:420px}
+.lc-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.lc-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted);font-size:13px}
+.lc-key{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--muted)} .lc-key i{width:14px;height:3px;border-radius:2px;display:inline-block;margin-left:6px}
+@media (max-width:640px){ .lc-wrap{height:300px} .lc-key{display:none} }
 .modal-bg{position:fixed;inset:0;z-index:40;background:rgba(10,12,20,.55);display:grid;place-items:center;padding:16px;overflow:auto}
 .modal{max-width:460px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .modal select{width:100%}
@@ -1116,6 +1124,169 @@ function chForm() {
   $("#cSave").onclick = () => save(true);
   if ($("#cOff")) $("#cOff").onclick = () => confirmBtn($("#cOff"), "Wirklich beenden?", () => save(false));
 }
+
+/* ───────── Live-Chart im Cockpit (eigener Canvas-Chart, ohne externe Bibliothek) ───────── */
+const LC = {fam: "auto", days: 2, lv: true, tr: true, data: null, at: 0, busy: false, view: null, hover: null, follow: true};
+try { Object.assign(LC, JSON.parse(localStorage.getItem("fvg-lc") || "{}"), {data: null, at: 0, busy: false, view: null, hover: null, follow: true}); } catch (e) {}
+const lcSave = () => { try { localStorage.setItem("fvg-lc", JSON.stringify({fam: LC.fam, days: LC.days, lv: LC.lv, tr: LC.tr})); } catch (e) {} };
+async function lcLoad() {
+  if (LC.busy) return; LC.busy = true;
+  try { LC.data = await api(`/api/chart/${LC.fam}/${LC.days}`); LC.at = Date.now(); } catch (e) { LC.err = e.message; }
+  LC.busy = false;
+  if (TAB === "cockpit") { liveChartFrame(); lcDraw(); }
+}
+function liveChart() {
+  if (!$("#lcSec")) return;
+  if (!$("#lcCv")) liveChartFrame();
+  if (!LC.data || Date.now() - LC.at > 15000) lcLoad();
+  else lcDraw();
+}
+function liveChartFrame() {
+  const box = $("#lcSec"), d = LC.data;
+  const fams = d && d.fams || [];
+  box.innerHTML = `<div class="section-h"><h2>Live-Chart${d && d.fam ? " · " + esc(d.fam) : ""}</h2>
+      <div class="nw-ctl">
+        ${fams.length > 1 ? `<div class="seg">${fams.map(f => `<button type="button" data-cf="${f}" aria-pressed="${d.fam === f}">${f}</button>`).join("")}</div>` : ""}
+        <div class="seg">${[[1, "Heute"], [2, "2 Tage"], [5, "5 Tage"]].map(([k, l]) => `<button type="button" data-cd="${k}" aria-pressed="${LC.days === k}">${l}</button>`).join("")}</div>
+        <div class="seg"><button type="button" id="lcTr" aria-pressed="${LC.tr}">Trades</button><button type="button" id="lcLv" aria-pressed="${LC.lv}">Levels</button></div>
+      </div></div>
+    <div class="panel lc-box">
+      <div class="lc-leg" id="lcLeg"></div>
+      <div class="lc-wrap" id="lcWrap"><canvas id="lcCv"></canvas>${!d || !d.bars || !d.bars.length ? `<div class="lc-empty">${!d ? "Chart wird geladen …" : "Noch keine Kerzen. Der Chart füllt sich, sobald der TradingView-Alert der Strategie läuft (jede abgeschlossene Kerze wird geschickt)."}</div>` : ""}</div>
+      <div class="nw-f"><span class="hint">Mausrad: zoomen · ziehen: verschieben · Doppelklick: zurück zum aktuellen Kurs · neue Kerze alle ${d && d.tf ? Math.round(d.tf / 60000) : 5} Min aus TradingView</span>
+        <span class="lc-key"><i style="background:var(--accent)"></i>Einstieg <i style="background:var(--neg)"></i>Stop <i style="background:var(--pos)"></i>Ziel</span></div>
+    </div>`;
+  box.querySelectorAll("[data-cf]").forEach(b => b.onclick = () => { LC.fam = b.dataset.cf; LC.view = null; LC.follow = true; lcSave(); lcLoad(); });
+  box.querySelectorAll("[data-cd]").forEach(b => b.onclick = () => { LC.days = +b.dataset.cd; LC.view = null; LC.follow = true; lcSave(); lcLoad(); });
+  $("#lcTr").onclick = () => { LC.tr = !LC.tr; lcSave(); $("#lcTr").setAttribute("aria-pressed", LC.tr); lcDraw(); };
+  $("#lcLv").onclick = () => { LC.lv = !LC.lv; lcSave(); $("#lcLv").setAttribute("aria-pressed", LC.lv); lcDraw(); };
+  lcBind();
+}
+function lcColors() {
+  const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
+  return {pos: g("--pos"), neg: g("--neg"), accent: g("--accent"), muted: g("--muted"), line: g("--line"), line2: g("--line2"), fg: g("--fg"), warn: g("--warn"), bg: g("--surface")};
+}
+function lcBind() {
+  const cv = $("#lcCv"); if (!cv) return;
+  let drag = null;
+  const bars = () => (LC.data && LC.data.bars) || [];
+  const idxAt = x => { const v = LC.view; if (!v) return null; const w = cv.clientWidth - 80; return v.a + (x / w) * (v.b - v.a); };
+  cv.onwheel = e => { if (!LC.view) return; e.preventDefault(); const v = LC.view, n = bars().length, f = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const m = idxAt(e.offsetX), span = Math.max(15, Math.min(Math.max(n, 15) * 1.2, (v.b - v.a) * f));
+    const r = (m - v.a) / (v.b - v.a); LC.view = {a: m - r * span, b: m - r * span + span}; LC.follow = LC.view.b >= n - 0.5; lcDraw(); };
+  cv.onpointerdown = e => { drag = {x: e.clientX, v: {...LC.view}}; cv.setPointerCapture(e.pointerId); };
+  cv.onpointermove = e => {
+    if (drag && LC.view) { const w = cv.clientWidth - 80, dx = (e.clientX - drag.x) / w * (drag.v.b - drag.v.a);
+      LC.view = {a: drag.v.a - dx, b: drag.v.b - dx}; LC.follow = LC.view.b >= bars().length - 0.5; LC.hover = null; lcDraw(); return; }
+    const r = cv.getBoundingClientRect(); LC.hover = {x: e.clientX - r.left, y: e.clientY - r.top}; lcDraw();
+  };
+  cv.onpointerup = e => { drag = null; };
+  cv.onpointerleave = () => { if (!drag) { LC.hover = null; lcDraw(); } };
+  cv.ondblclick = () => { LC.view = null; LC.follow = true; lcDraw(); };
+  if (!window._lcRO && "ResizeObserver" in window) { window._lcRO = new ResizeObserver(() => lcDraw()); }
+  if (window._lcRO) { window._lcRO.disconnect(); window._lcRO.observe($("#lcWrap")); }
+}
+function lcDraw() {
+  const cv = $("#lcCv"), d = LC.data; if (!cv || !d) return;
+  const B = d.bars || [], n = B.length, C = lcColors();
+  const W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const leg = $("#lcLeg");
+  if (!n) { if (leg) leg.innerHTML = ""; return; }
+  const AX = 80, TB = 22, PW = W - AX, PH = H - TB;
+  const defSpan = Math.min(n + 6, W < 600 ? 70 : 140);
+  if (!LC.view || LC.follow) { const span = LC.view ? LC.view.b - LC.view.a : defSpan; LC.view = {a: n + 4 - span, b: n + 4}; }
+  const v = LC.view, bw = PW / (v.b - v.a);
+  const X = i => (i - v.a + 0.5) * bw;
+  const i0 = Math.max(0, Math.floor(v.a)), i1 = Math.min(n - 1, Math.ceil(v.b));
+  const tf = d.tf || 300000, idxOf = ts => { const ms = ts * 1000; let lo = 0, hi = n - 1; if (ms < B[0][0]) return null;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (B[m][0] <= ms) lo = m; else hi = m - 1; } return ms - B[lo][0] > tf * 3 && lo === n - 1 ? n - 1 + (ms - B[lo][0]) / tf : lo; };
+  const trades = LC.tr ? (d.trades || []) : [], pend = LC.tr ? (d.pending || []) : [];
+  const openT = trades.filter(t => t.status === "offen");
+  // Preisbereich aus sichtbaren Kerzen + Linien offener Trades
+  let lo = Infinity, hi = -Infinity;
+  for (let i = i0; i <= i1; i++) { lo = Math.min(lo, B[i][3]); hi = Math.max(hi, B[i][2]); }
+  if (!isFinite(lo)) { lo = B[n - 1][3]; hi = B[n - 1][2]; }
+  [...openT.flatMap(t => [t.entry, t.sl, t.tp]), ...pend.flatMap(p => [p.entry, p.sl, p.tp])].forEach(x => { if (x != null) { lo = Math.min(lo, x); hi = Math.max(hi, x); } });
+  const pad = (hi - lo) * 0.08 || 5; lo -= pad; hi += pad;
+  const Y = p => (1 - (p - lo) / (hi - lo)) * PH;
+  const Pv = y => lo + (1 - y / PH) * (hi - lo);
+  g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono");
+  // Raster + Preisachse
+  const step = (() => { const raw = (hi - lo) / 6, m = 10 ** Math.floor(Math.log10(raw)); return [1, 2, 2.5, 5, 10].find(k => k * m >= raw) * m; })();
+  g.strokeStyle = C.line; g.fillStyle = C.muted; g.lineWidth = 1; g.textAlign = "left"; g.textBaseline = "middle";
+  for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) { const y = Math.round(Y(p)) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(PW, y); g.stroke(); g.fillText(px(p), PW + 6, y); }
+  // Zeitachse
+  g.textAlign = "center"; g.textBaseline = "top";
+  const every = Math.max(1, Math.ceil(80 / bw)); let lastDay = "", lastLx = -1e9;
+  for (let i = i0; i <= i1; i++) {
+    const dt0 = new Date(B[i][0]), day = dt0.toDateString();
+    const newDay = day !== lastDay && i > 0 && new Date(B[i - 1][0]).toDateString() !== day; lastDay = day;
+    if (newDay) { g.strokeStyle = C.line2; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(Math.round(X(i) - bw / 2) + 0.5, 0); g.lineTo(Math.round(X(i) - bw / 2) + 0.5, PH); g.stroke(); g.setLineDash([]); }
+    if ((i % every === 0 && X(i) - lastLx > 74) || newDay) { lastLx = X(i); g.fillStyle = newDay ? C.fg : C.muted;
+      g.fillText(newDay ? dt0.toLocaleDateString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit"}) : dt0.toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"}), X(i), PH + 5); }
+  }
+  // Levels
+  if (LC.lv) (d.levels || []).forEach(l => { const y = Math.round(Y(l.v)) + 0.5; if (y < 0 || y > PH) return;
+    const col = l.k.startsWith("PD") ? C.warn : C.muted; g.strokeStyle = col; g.globalAlpha = .55; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y); g.lineTo(PW, y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    g.fillStyle = col; g.textAlign = "left"; g.textBaseline = "bottom"; g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillText(l.k, 4, y - 2);
+    g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); });
+  // Kerzen
+  g.save(); g.beginPath(); g.rect(0, 0, PW, PH); g.clip();
+  const cw = Math.max(1, Math.min(14, bw * 0.7));
+  for (let i = i0; i <= i1; i++) { const [, o, h, l, c] = B[i], up = c >= o, x = Math.round(X(i));
+    g.strokeStyle = g.fillStyle = up ? C.pos : C.neg;
+    g.beginPath(); g.moveTo(x + 0.5, Y(h)); g.lineTo(x + 0.5, Y(l)); g.stroke();
+    const yt = Y(Math.max(o, c)), yb = Y(Math.min(o, c)); g.fillRect(Math.round(x - cw / 2), yt, Math.max(1, Math.round(cw)), Math.max(1, yb - yt)); }
+  // Trades: Einstieg ▲/▼, Ausstieg ●, Verbindungslinie
+  const hlines = [];
+  trades.forEach(t => {
+    const ie = idxOf(t.opened), long_ = t.side === "long", col = t.status === "offen" ? C.accent : (t.pnl || 0) >= 0 ? C.pos : C.neg;
+    if (ie == null) return;
+    const xe = X(ie), ye = Y(t.entry);
+    if (t.status !== "offen" && t.closed && t.exit != null) {
+      const ix = idxOf(t.closed); if (ix != null) { const xx = X(ix), yx = Y(t.exit);
+        g.strokeStyle = col; g.setLineDash([3, 3]); g.lineWidth = 1.4; g.beginPath(); g.moveTo(xe, ye); g.lineTo(xx, yx); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+        g.fillStyle = col; g.beginPath(); g.arc(xx, yx, 4.5, 0, 7); g.fill(); g.strokeStyle = C.bg; g.stroke();
+        g.font = "600 11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); g.textAlign = "left"; g.textBaseline = "middle";
+        g.fillText(((t.pnl || 0) >= 0 ? "+" : "−") + "$" + Math.abs(Math.round(t.pnl || 0)), xx + 8, yx); g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); }
+    }
+    g.fillStyle = long_ ? C.pos : C.neg; g.beginPath();
+    if (long_) { g.moveTo(xe, ye + 4); g.lineTo(xe - 7, ye + 15); g.lineTo(xe + 7, ye + 15); } else { g.moveTo(xe, ye - 4); g.lineTo(xe - 7, ye - 15); g.lineTo(xe + 7, ye - 15); }
+    g.closePath(); g.fill();
+    g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.textAlign = "center"; g.textBaseline = long_ ? "top" : "bottom";
+    g.fillText(`${long_ ? "L" : "S"} ${t.qty}×${t.is_test ? " Test" : ""}`, xe, long_ ? ye + 17 : ye - 17); g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono");
+    if (t.status === "offen") { hlines.push([t.entry, C.accent, "Einstieg", xe, []], [t.sl, C.neg, "Stop", xe, [5, 4]]); if (t.tp != null) hlines.push([t.tp, C.pos, "Ziel", xe, [5, 4]]); }
+  });
+  pend.forEach(p => { hlines.push([p.entry, C.muted, "Vorschlag", 0, [2, 3]], [p.sl, C.neg, "Stop (Vorschlag)", 0, [2, 3]]); if (p.tp != null) hlines.push([p.tp, C.pos, "Ziel (Vorschlag)", 0, [2, 3]]); });
+  hlines.forEach(([p, col, lab, x0, dash]) => { if (p == null) return; const y = Math.round(Y(p)) + 0.5; g.strokeStyle = col; g.setLineDash(dash); g.lineWidth = 1.3;
+    g.beginPath(); g.moveTo(Math.max(0, x0), y); g.lineTo(PW, y); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+    g.font = "600 10px " + getComputedStyle(document.body).getPropertyValue("--f-body"); g.fillStyle = col; g.textAlign = "right"; g.textBaseline = "bottom"; g.fillText(lab, PW - 6, y - 2);
+    g.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono"); });
+  g.restore();
+  // Preis-Etiketten rechts: offene Linien + letzter Kurs
+  const tag = (p, col, txtCol) => { const y = Y(p); if (y < 0 || y > PH) return; g.fillStyle = col; g.fillRect(PW + 1, y - 9, AX - 2, 18); g.fillStyle = txtCol; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(px(p), PW + 6, y); };
+  hlines.forEach(([p, col]) => p != null && tag(p, col, "#fff"));
+  const last = B[n - 1][4], ly = Math.round(Y(last)) + 0.5;
+  g.strokeStyle = C.accent; g.globalAlpha = .5; g.setLineDash([1, 2]); g.beginPath(); g.moveTo(0, ly); g.lineTo(PW, ly); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+  tag(last, last >= B[n - 1][1] ? C.pos : C.neg, "#fff");
+  // Fadenkreuz + Legende
+  let hb = n - 1;
+  if (LC.hover && LC.hover.x < PW && LC.hover.y < PH) {
+    hb = Math.max(0, Math.min(n - 1, Math.round(v.a + LC.hover.x / bw - 0.5)));
+    g.strokeStyle = C.muted; g.globalAlpha = .6; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(Math.round(X(hb)) + 0.5, 0); g.lineTo(Math.round(X(hb)) + 0.5, PH); g.moveTo(0, Math.round(LC.hover.y) + 0.5); g.lineTo(PW, Math.round(LC.hover.y) + 0.5); g.stroke();
+    g.setLineDash([]); g.globalAlpha = 1; tag(Pv(LC.hover.y), C.line2, C.fg);
+  }
+  if (leg) { const [t, o, h, l, c] = B[hb], ch = c - o;
+    const op = openT[0];
+    leg.innerHTML = `<span class="mono">${new Date(t).toLocaleString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span>
+      <span>O <b class="mono">${px(o)}</b></span><span>H <b class="mono">${px(h)}</b></span><span>L <b class="mono">${px(l)}</b></span><span>C <b class="mono ${cls(ch)}">${px(c)}</b></span>
+      ${op ? `<span class="chip ${op.upnl >= 0 ? "good" : "bad"}" style="margin-left:auto">${op.side === "long" ? "Long" : "Short"} ${op.qty}× ${esc(op.root)} · offen ${sUsd(op.upnl || 0)}</span>` : ""}`; }
+}
+window.addEventListener("resize", () => { if (TAB === "cockpit") lcDraw(); });
 function cockpit(full) {
   const m = $("#main"), t = S.today, lossUsed = t.max_loss > 0 ? Math.min(100, Math.max(0, -t.pnl / t.max_loss * 100)) : 0;
   if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
@@ -1124,6 +1295,7 @@ function cockpit(full) {
     <section id="chCard" hidden></section>
     <section class="panel perf" id="perf"></section>
     <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
+    <section class="section" id="lcSec"></section>
     <div class="grid2 ck-2"><section class="section" id="lvSec"></section><section class="section" id="newsSec"></section></div>
     <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <div class="grid2">
@@ -1133,6 +1305,7 @@ function cockpit(full) {
   setupPanel();
   newsPanel();
   levelsPanel();
+  liveChart();
   chCard();
   const perfKey = JSON.stringify([PERF, S.daily]);
   if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
