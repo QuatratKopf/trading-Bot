@@ -643,6 +643,11 @@ def tradovate_test(h):
     h._send(200, engine.test_tradovate())
 
 
+@route("POST", r"/api/tests/delete")
+def tests_delete(h):
+    h._send(200, engine.delete_tests())
+
+
 @route("POST", r"/api/own/([a-f0-9]+)/delete")
 def own_delete(h, pid):
     h._send(200, engine.own_delete(pid))

@@ -1,6 +1,6 @@
 {
-  "version": "2.5.1",
-  "file": "releases/FVG-Trader-2.5.1.cmd",
-  "sha256": "544f84ec75f75698bf3c66941b2a6296d1776553c19b5a5089e20ee8458a3546",
-  "notes": "Erkennt falsch eingerichtete TradingView-Alerts (Platzhalter statt Daten) und zeigt, wie man es behebt"
+  "version": "2.5.2",
+  "file": "releases/FVG-Trader-2.5.2.cmd",
+  "sha256": "16d05ef304b6b68edcbf3269eca18b8ec4bac3b4bd7ac3d8fd157450b30c26e3",
+  "notes": "Test-Trades erscheinen im Kalender (markiert) und lassen sich einzeln oder alle löschen"
 }

@@ -1360,12 +1360,12 @@ class Engine:
                 "setups": {s: len(v) for s, v in by.items()}, "min_scope": min_scope, "active": active}
 
     # ───────── Kalender: Bot-Trades + eigene Trades ─────────
-    def _calendar_trades(self):
+    def _calendar_trades(self, include_tests=False):
         out = []
         for t in self.db.closed_positions():
             if t["broker"] == "eigen":
                 t["source"] = "eigen"
-            elif t["broker"] == self.broker.name and not t["is_test"]:
+            elif t["broker"] == self.broker.name and (include_tests or not t["is_test"]):
                 t["source"] = "bot"
             else:
                 continue
@@ -1442,7 +1442,7 @@ class Engine:
     def daily(self):
         """P&L je Handelstag, getrennt nach Bot und eigenen Trades."""
         days = {}
-        for t in self._calendar_trades():
+        for t in self._calendar_trades(include_tests=True):
             d = days.setdefault(t["day"], {s: {"pnl": 0.0, "n": 0, "w": 0} for s in ("bot", "eigen")})
             b = d[t["source"]]
             b["pnl"] += t["pnl"] or 0
@@ -1454,7 +1454,7 @@ class Engine:
         return days
 
     def day_trades(self, day):
-        return sorted([t for t in self._calendar_trades() if t["day"] == day], key=lambda t: t["opened"] or t["closed"])
+        return sorted([t for t in self._calendar_trades(include_tests=True) if t["day"] == day], key=lambda t: t["opened"] or t["closed"])
 
     def _own_insert(self, t):
         pid = uuid.uuid4().hex[:10]
@@ -1552,12 +1552,28 @@ class Engine:
         return dict(st, ok=True)
 
     def own_delete(self, pid):
+        """Löscht einen eigenen Trade oder einen Test-Trade (samt Test-Signal). Echte Bot-Trades bleiben."""
         with self.lock:
             p = self.db.position(pid)
-            if not p or p["broker"] != "eigen":
-                raise ValueError("Nur eigene Trades können gelöscht werden")
+            if not p or not (p["broker"] == "eigen" or p["is_test"]):
+                raise ValueError("Nur eigene Trades und Test-Trades können gelöscht werden")
+            if p["status"] == "offen" and p["broker"] not in ("paper", "eigen"):
+                raise ValueError("Test-Position ist beim Broker noch offen. Bitte zuerst schließen.")
             self.db._exec("DELETE FROM positions WHERE id=?", (pid,))
+            if p["is_test"] and p.get("signal_id"):
+                self.db._exec("DELETE FROM signals WHERE id=?", (p["signal_id"],))
             return {"ok": True}
+
+    def delete_tests(self):
+        """Alle Test-Signale und Test-Trades entfernen (offene Test-Positionen beim Broker bleiben bestehen)."""
+        with self.lock:
+            keep = [p["id"] for p in self.db.open_positions() if p["is_test"] and p["broker"] != "paper"]
+            q = "DELETE FROM positions WHERE is_test=1" + (f" AND id NOT IN ({','.join('?' * len(keep))})" if keep else "")
+            n = self.db._exec(q, keep).rowcount
+            m = self.db._exec("DELETE FROM signals WHERE is_test=1 AND status != 'ausgeführt'" if keep else
+                              "DELETE FROM signals WHERE is_test=1").rowcount
+            self.db.log(f"Test-Daten gelöscht: {n} Trades, {m} Signale" + (f" ({len(keep)} offene Broker-Position bleibt)" if keep else ""))
+            return {"ok": True, "trades": n, "signals": m, "kept": len(keep)}
 
     def own_import(self, text, subtract_fees=True):
         """CSV-Import eigener Trades (Topstep/ProjectX, Tradovate, NinjaTrader u. a.). Spalten werden automatisch erkannt."""
@@ -1692,6 +1708,7 @@ class Engine:
                 "stats": self.stats(),
                 "learning": self.learning_view(),
                 "daily": self.daily(),
+                "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
                 "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
                 "sizing_preview": {fam: [self.size_preview(fam, pts) for pts in

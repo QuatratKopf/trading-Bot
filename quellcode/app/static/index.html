@@ -1127,7 +1127,7 @@ function cockpit(full) {
     <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
     <div class="grid2">
-      <section class="section"><h2>Signale</h2><div class="panel scroll" id="sigBox"></div></section>
+      <section class="section"><div class="section-h"><h2>Signale</h2><button class="btn ghost-danger" id="delTests" data-key="deltests" hidden style="padding:4px 10px;font-size:12px">Test-Daten löschen</button></div><div class="panel scroll" id="sigBox"></div></section>
       <section class="section"><h2>Aktivität</h2><div class="panel feed" id="feed"></div></section>
     </div></div>`;
   setupPanel();
@@ -1178,10 +1178,18 @@ function cockpit(full) {
 
   const stChip = s => ({"ausgeführt": "good", "offen": "", "abgelehnt": "mute", "verfallen": "mute", "ersetzt": "mute", "blockiert": "warn", "fehler": "bad"}[s] ?? "mute");
   $("#sigBox").innerHTML = S.signals.length ? `<table><thead><tr><th class="t">Zeit</th><th class="t">Signal</th><th>Anz.</th><th>Stop</th><th class="t">Status</th><th class="t">Grund</th></tr></thead><tbody>
-    ${S.signals.slice(0, 15).map(s => `<tr><td class="t mono">${tm(s.ts)}</td><td class="t"><b class="side ${s.side}" style="font-size:12px">${s.side === "long" ? "L" : "S"}</b> ${esc(s.root)} <span class="chip">${esc(s.setup)}</span></td>
+    ${S.signals.slice(0, 15).map(s => `<tr><td class="t mono">${tm(s.ts)}</td><td class="t"><b class="side ${s.side}" style="font-size:12px">${s.side === "long" ? "L" : "S"}</b> ${esc(s.root)} <span class="chip">${esc(s.setup)}</span>${s.is_test ? ' <span class="chip mute">Test</span>' : ""}</td>
       <td>${s.qty ?? "–"}</td><td>${px(s.sl)}</td><td class="t"><span class="chip ${stChip(s.status)}">${esc(s.status)}</span></td>
       <td class="wrap">${esc(s.reason || (s.flags || []).join(" · "))}</td></tr>`).join("")}</tbody></table>`
     : `<p class="hint">Noch keine Signale. Teste die Verbindung unter Einstellungen → TradingView.</p>`;
+  const dt = $("#delTests");
+  if (dt) {
+    dt.hidden = !(S.signals.some(x => x.is_test) || S.positions.some(x => x.is_test) || S.has_tests);
+    if (!armed("deltests")) dt.textContent = "Test-Daten löschen";
+    dt.onclick = () => confirmBtn(dt, "Alle Tests löschen?", async () => {
+      try { const r = await api("/api/tests/delete", {}); toast(`Gelöscht: ${r.trades} Test-Trades, ${r.signals} Test-Signale`); S = await api("/api/state"); render(true); } catch (e) { toast(e.message); }
+    });
+  }
   $("#feed").innerHTML = S.events.map(e => `<div><time>${tm(e.ts)}</time><span class="${e.level}">${esc(e.text)}</span></div>`).join("") || `<p class="hint">Noch keine Aktivität.</p>`;
 }
 let setupKey = "";
@@ -1520,12 +1528,12 @@ function drawDay() {
       <div class="drw-list"><span class="l">Trades</span>
         ${list.map(t => `<div class="tr ${t.pnl > 0 ? "w" : t.pnl < 0 ? "lo" : ""}">
           <div class="tr-a"><span class="chip ${t.side === "long" ? "good" : "bad"}">${t.side === "long" ? "Long" : "Short"}</span>
-            <b>${t.qty}× ${esc(t.root)}</b><span class="chip ${t.source === "eigen" ? "warn" : ""}">${t.source === "eigen" ? "Eigen" : "Bot"}</span>
+            <b>${t.qty}× ${esc(t.root)}</b><span class="chip ${t.source === "eigen" ? "warn" : ""}">${t.source === "eigen" ? "Eigen" : "Bot"}</span>${t.is_test ? '<span class="chip mute">Test</span>' : ""}
             <span class="tr-p mono ${cls(t.pnl)}">${sUsd(t.pnl)}</span></div>
           <div class="tr-b"><span class="mono">${t.source === "eigen" && t.opened === t.closed ? "" : `${tm(t.opened)}–${tm(t.closed)}`}</span>
             ${t.entry ? `<span class="mono">${px(t.entry)} → ${px(t.exit)}</span>` : ""}
             <span class="tr-n">${esc(t.source === "eigen" ? (t.note || "") : `${t.setup} · ${t.close_reason}`)}</span>
-            ${t.source === "eigen" ? `<button class="lnk owndel" data-id="${t.id}" data-key="del-${t.id}" data-orig="Löschen">${armed("del-" + t.id) ? "Sicher?" : "Löschen"}</button>` : ""}</div>
+            ${t.source === "eigen" || t.is_test ? `<button class="lnk owndel" data-id="${t.id}" data-key="del-${t.id}" data-orig="Löschen">${armed("del-" + t.id) ? "Sicher?" : "Löschen"}</button>` : ""}</div>
         </div>`).join("")}
       </div>` : `<div class="empty">Keine ${CAL.filter === "bot" ? "Bot-" : CAL.filter === "eigen" ? "eigenen " : ""}Trades an diesem Tag.</div>`}
     </div>
@@ -1542,7 +1550,7 @@ function drawDay() {
   $("#dNext").onclick = () => openDay(shiftDay(k, 1));
   $("#dAdd").onclick = () => ownTradeDialog(k);
   el.querySelectorAll(".owndel").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => {
-    try { await api(`/api/own/${b.dataset.id}/delete`, {}); toast("Eigener Trade gelöscht"); S = await api("/api/state"); openDay(k); } catch (e) { toast(e.message); }
+    try { await api(`/api/own/${b.dataset.id}/delete`, {}); toast("Trade gelöscht"); S = await api("/api/state"); openDay(k); } catch (e) { toast(e.message); }
   }));
 }
 document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#dayDrw") && !$("#mdl")) closeDay(); });
