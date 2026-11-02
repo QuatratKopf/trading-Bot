@@ -1,6 +1,6 @@
 {
-  "version": "2.12.0",
-  "file": "releases/FVG-Trader-2.12.0.cmd",
-  "sha256": "4d9ae76771b77c4f28f917b6070c64185a16b5cff174d0bf0a5189aa94cfa467",
-  "notes": "Automatische Updates (nur ohne offenen Trade) und Backtest mit Live-Signalen ohne Export"
+  "version": "2.12.1",
+  "file": "releases/FVG-Trader-2.12.1.cmd",
+  "sha256": "4e302dc1af63f1e41ed1cd9e027bd3011b8ed8ea7126ef7a54ae19509a713154",
+  "notes": "Update-Prüfung direkt über die GitHub-API (ohne Zwischenspeicher), Backtest mit Live-Signalen, automatische Updates"
 }

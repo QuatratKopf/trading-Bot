@@ -3130,7 +3130,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "2.12.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "2.12.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
@@ -3559,7 +3559,19 @@ def check_update():
         UPDATE.update(available=False, error="Keine Update-Quelle eingetragen", checked=time.time())
         return UPDATE
     try:
-        info = json.loads(_fetch(src, 100_000).decode("utf-8"))
+        info = None
+        # Zuerst direkt über die GitHub-API lesen: raw.githubusercontent.com hält Dateien einige Minuten im Zwischenspeicher
+        m = re.match(r"^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$", src)
+        if m:
+            api = f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/contents/{m.group(4)}?ref={m.group(3)}"
+            try:
+                req = urllib.request.Request(api, headers={"User-Agent": f"FVG-Trader/{APP_VERSION}", "Accept": "application/vnd.github.raw"})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    info = json.loads(r.read(100_000).decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                info = None
+        if info is None:
+            info = json.loads(_fetch(src, 100_000).decode("utf-8"))
         newer = APP_VERSION != "dev" and _vtuple(info["version"]) > _vtuple(APP_VERSION)
         UPDATE.update(available=newer, version=info["version"], notes=info.get("notes", ""), error="",
                       checked=time.time(), file=urllib.parse.urljoin(src, info["file"]), sha256=info["sha256"])
