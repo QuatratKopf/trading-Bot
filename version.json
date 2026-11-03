@@ -1,6 +1,6 @@
 {
-  "version": "2.18.4",
-  "file": "releases/FVG-Trader-2.18.4.cmd",
-  "sha256": "5c3e5df29558e20df2cb21f8f565a27ff2bfa9a43ac1d47ba19ae924bf190806",
-  "notes": "Getrennte Gebühren für Mini und Micro – realistischere Kosten im Paper-Trading und im Strategie-Finder"
+  "version": "2.18.5",
+  "file": "releases/FVG-Trader-2.18.5.cmd",
+  "sha256": "2ac00842ba4d790c60ad92252b30643889b7c425556cea1d77cf7fa139fa50b2",
+  "notes": "Webhook-Adresse nach Update/Neustart zuverlässig wieder erreichbar (altes ngrok wird beendet)"
 }

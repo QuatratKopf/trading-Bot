@@ -123,8 +123,17 @@ class Tunnel:
         return self._install("ngrok", NGROK + f"ngrok-v3-stable-linux-{a}.tgz", "ngrok", "tgz", ", ca. 10 MB")
 
     # ───────── Tunnel betreiben (startet bei Abbruch neu) ─────────
+    @staticmethod
+    def _kill_stray_ngrok():
+        """Ein altes ngrok (z. B. nach Update oder Absturz) hält die feste Adresse besetzt → beenden."""
+        if sys.platform.startswith("win"):
+            subprocess.run(["taskkill", "/F", "/IM", "ngrok.exe"], capture_output=True, creationflags=0x08000000)
+        else:
+            subprocess.run(["pkill", "-x", "ngrok"], capture_output=True)
+
     def _run(self):
         delay = 5
+        first = True
         while not self._stopped:
             token = (self.get_token() or "").strip()
             self.provider = "ngrok" if token else "cloudflare"
@@ -132,6 +141,9 @@ class Tunnel:
                 flags = 0x08000000 if sys.platform.startswith("win") else 0   # kein extra Fenster unter Windows
                 if token:
                     exe = self._ngrok()
+                    if first:
+                        self._kill_stray_ngrok()
+                        time.sleep(1)
                     cmd = [exe, "http", str(self.port), "--log", "stdout", "--log-format", "logfmt"]
                     env = dict(os.environ, NGROK_AUTHTOKEN=token)
                     pattern = r"url=(https://[^\s\"]+)"
@@ -159,7 +171,14 @@ class Tunnel:
                             self.log(f"Internet-Verbindung aktiv ({'feste Adresse' if token else 'wechselnde Adresse'}): {url}")
                         self.ok, self.status, delay = True, "aktiv", 5
                 self.ok = False
-                self.status = f"Fehler: {last_err}" if last_err else "getrennt, verbinde neu"
+                first = False
+                if token and re.search(r"ERR_NGROK_(108|334)|already online|simultaneous", last_err or ""):
+                    # Adresse noch von einem alten ngrok belegt: das alte beenden und sofort neu verbinden
+                    self.log("Internet-Verbindung: altes ngrok blockiert die Adresse, wird beendet und neu verbunden", "warn")
+                    self._kill_stray_ngrok()
+                    time.sleep(3)
+                    delay = 5
+                    continue
                 if last_err and last_err != getattr(self, "_last_logged", None):
                     self._last_logged = last_err
                     self.log(f"Internet-Verbindung: {last_err}", "error")
