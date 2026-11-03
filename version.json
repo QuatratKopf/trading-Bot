@@ -1,6 +1,6 @@
 {
-  "version": "2.18.7",
-  "file": "releases/FVG-Trader-2.18.7.cmd",
-  "sha256": "8c2d7ea13947d29a146c9d4682496533d130f6807bfcc632cc060b5f49fdef3e",
-  "notes": "Verbindungsanzeige passt zu gebündelten Kerzen (alle 15 Min)"
+  "version": "2.18.8",
+  "file": "releases/FVG-Trader-2.18.8.cmd",
+  "sha256": "39aebdbd70149e54e8db68584bc6d8afbae8abafdacf0f6f39804426f14a13c4",
+  "notes": "Fehler behoben: Hintergrundfehler bei offener Position und anstehenden News"
 }

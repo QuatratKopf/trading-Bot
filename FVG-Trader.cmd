@@ -2514,17 +2514,17 @@ class Engine:
             nw = self.cfg["news"]
             if nw["enabled"] and nw["close_before"] and self.db.open_positions():
                 for e in self.news_window():
-                    t = e["ts"] / 1000
+                    news_ts = e["ts"] / 1000
                     key = f"{e['title']}{e['ts']}"
                     # 1 Minute vor dem Termin (bzw. sofort, wenn die Pause schon läuft) offene Positionen schließen
-                    if key not in self._news_closed and time.time() >= min(t - 60, e["start"]) and time.time() <= e["end"]:
+                    if key not in self._news_closed and time.time() >= min(news_ts - 60, e["start"]) and time.time() <= e["end"]:
                         self._news_closed.add(key)
                         for pos in self.db.open_positions():
                             try:
                                 self._close(pos, None, f"News: {e['title']}")
                             except ValueError:
                                 pass
-                        self.db.log(f"Vor News geschlossen: {e['title']} um {ny_time(t).strftime('%H:%M')} NY", "warn")
+                        self.db.log(f"Vor News geschlossen: {e['title']} um {ny_time(news_ts).strftime('%H:%M')} NY", "warn")
             if r["flat_at_session_end"] and self.db.open_positions():
                 for pos in self.db.open_positions():
                     o = ny_time(pos["opened"])
@@ -5133,7 +5133,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "2.18.7"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "2.18.8"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
