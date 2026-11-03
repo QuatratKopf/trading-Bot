@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > (20_000_000 if self.path.startswith("/api/backtest/") else
+        if n > (40_000_000 if self.path.startswith(("/api/backtest/", "/api/disc/import")) else
                 9_000_000 if self.path.startswith(("/api/update/", "/api/own/import", "/api/trade/")) else 100_000):
             raise ValueError("Anfrage zu groß")
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
@@ -1272,6 +1272,31 @@ def lab_sessions_apply(h):
     if engine.sfit:
         engine.sfit = engine.session_fit()
     h._send(200, {"ok": True})
+
+
+@route("GET", r"/api/disc")
+def disc_get(h):
+    h._send(200, engine.disc_view())
+
+
+@route("POST", r"/api/disc/run")
+def disc_run(h):
+    engine.disc_async()
+    h._send(200, {"ok": True})
+
+
+@route("POST", r"/api/disc/item")
+def disc_item(h):
+    b = h._json()
+    h._send(200, engine.disc_action(str(b.get("id") or ""), str(b.get("action") or "")))
+
+
+@route("POST", r"/api/disc/import")
+def disc_import(h):
+    b = h._json()
+    with engine.lock:
+        res = engine.import_ohlc(str(b.get("fam") or ""), str(b.get("csv") or ""))
+    h._send(200, res)
 
 
 def main():

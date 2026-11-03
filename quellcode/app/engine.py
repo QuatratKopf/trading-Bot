@@ -13,6 +13,7 @@ import uuid
 
 from brokers import BROKERS, BrokerError
 from db import DB
+from discovery import DC_DETECTORS, DC_TPS, dc_describe, dc_detect, dc_evaluate, dc_name_of, dc_prepare, dc_simulate, dc_stats
 
 # Tickgröße und $ pro Punkt
 INSTR = {
@@ -392,6 +393,7 @@ class Engine:
         self.paths, self.pm_index, self.pm_info, self.sfit = {}, {}, {}, None
         self._pm_busy = False
         self._ratr_cache, self._smart_pos_cache = {}, {}
+        self.disc, self.disc_state, self._disc_sent, self.last_bundle = None, {"busy": False}, set(), 1
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
         self.news_source = lambda: []  # liefert die Termine des Wirtschaftskalenders (setzt der Server)
@@ -403,11 +405,14 @@ class Engine:
         self._sync_client = None
         self.sync_state = {"last": None, "added": 0, "error": "", "next": 0}
         self.db.on_log = self._on_log
+        self._disc_load()
         self._daystop_day = self.learning.get("daystop_day")
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
         threading.Thread(target=self._loop, daemon=True).start()
-        threading.Timer(8, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))).start()
+        _t = threading.Timer(8, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
+        if time.time() - (self.disc.get("last_run") or 0) > 20 * 3600:
+            _t = threading.Timer(90, self.disc_async); _t.daemon = True; _t.start()
 
     # ───────── Konfiguration ─────────
     def _load_cfg(self):
@@ -675,6 +680,11 @@ class Engine:
                 self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"], "len": tf_})
             bar["len"] = tf_
             self._process_bar(fam, bar)
+        self.last_bundle = len(extra) + 1
+        try:
+            self._disc_live(fam)
+        except Exception as e:  # noqa: BLE001  ein Fehler im Strategie-Finder darf den Handel nie stören
+            self.db.log(f"Strategie-Finder: Live-Prüfung fehlgeschlagen ({e})", "warn")
         return {"ok": True, "type": "bar", "m1": len(subs), "bars": len(extra) + 1}
 
     def _on_tick(self, p):
@@ -1539,7 +1549,8 @@ class Engine:
                     self.notify("weekly", f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
                                 self.weekly_text(rep), "good" if rep["net"] > 0 else "bad" if rep["net"] < 0 else "info")
                 self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
-                self.db.prune_bars1((now - 20 * 86400) * 1000)   # 1-Minuten-Kerzen: 20 Tage reichen für den Chart
+                self.db.prune_bars1((now - 400 * 86400) * 1000)  # 1-Minuten-Kerzen ~13 Monate (Strategie-Finder)
+                _t = threading.Timer(120, self.disc_async); _t.daemon = True; _t.start()     # nach der Tagesauswertung neue Strategien suchen
             nw = self.cfg["news"]
             if nw["enabled"] and nw["close_before"] and self.db.open_positions():
                 for e in self.news_window():
@@ -2587,6 +2598,379 @@ class Engine:
     def _session_scale_for(self, setup, sess):
         sc = self.cfg.get("session_scale") or {}
         return sc.get(f"{setup}|{sess}") or sc.get(sess)
+
+    # ───────── Strategie-Finder: neue Einstiege selbst suchen ─────────
+    def _disc_path(self):
+        return os.path.join(self.data_dir, "strategien.json")
+
+    def _disc_load(self):
+        if self.disc is None:
+            try:
+                with open(self._disc_path(), encoding="utf-8") as f:
+                    self.disc = json.load(f)
+            except (OSError, ValueError):
+                self.disc = {"items": {}, "last_run": None, "tested": 0, "data": {}}
+        return self.disc
+
+    def _disc_save(self):
+        tmp = self._disc_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.disc, f, ensure_ascii=False)
+        os.replace(tmp, self._disc_path())
+
+    def _disc_series(self, fam, tf_min, since_ms=0, limit=None):
+        """Kerzen einer Zeiteinheit: aus den 1-Minuten-Kerzen gebaut, ergänzt um die Chart-Kerzen."""
+        tf_ms = tf_min * 60000
+        if limit:
+            rows = self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t DESC LIMIT ?",
+                                (fam, since_ms, limit * tf_min + tf_min))[::-1]
+        else:
+            rows = self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+        if tf_min == 1:
+            bars = [[r["t"], r["o"], r["h"], r["l"], r["c"]] for r in rows]
+        else:
+            # nur vollständige Blöcke (sonst ist die letzte Kerze noch nicht fertig)
+            agg = {}
+            for r in rows:
+                b = r["t"] - r["t"] % tf_ms
+                x = agg.get(b)
+                if x is None:
+                    agg[b] = [b, r["o"], r["h"], r["l"], r["c"], 1, r["t"]]
+                else:
+                    x[2], x[3], x[4], x[5], x[6] = max(x[2], r["h"]), min(x[3], r["l"]), r["c"], x[5] + 1, r["t"]
+            merged = {b: x[:5] for b, x in agg.items() if x[6] >= b + tf_ms - 60000}
+            if not limit:
+                chart = self.db.rows("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+                if chart and (self._tf_of([[x["t"]] for x in chart[:200]]) or 0) == tf_ms:
+                    for x in chart:
+                        merged.setdefault(x["t"], [x["t"], x["o"], x["h"], x["l"], x["c"]])
+            bars = [merged[k] for k in sorted(merged)]
+            if limit:
+                bars = bars[-limit:]
+        return [list(col) for col in zip(*bars)] if bars else [[], [], [], [], []]
+
+    @staticmethod
+    def _disc_entry_fn(t, tf_ms, chart_ms):
+        """Live kommen Kerzen erst zum Schluss der Chart-Kerze an: Einstieg erst dann (wie im echten Betrieb)."""
+        if tf_ms >= chart_ms:
+            return lambda i: i
+        nxt = [None] * len(t)
+        for i in range(len(t) - 1, -1, -1):
+            if (t[i] + tf_ms) % chart_ms == 0:
+                nxt[i] = i
+            elif i + 1 < len(t) and nxt[i + 1] is not None and t[nxt[i + 1]] - t[i] < chart_ms:
+                nxt[i] = nxt[i + 1]
+        return lambda i: nxt[i]
+
+    def _disc_ctx(self, fam, tf_min, series):
+        t, o, h, l, c = series
+        chart_ms = self.chart_tf.get(fam) or 300000
+        sess_cache = {}
+
+        def sess_of(ts):
+            k = ts // 60000
+            if k not in sess_cache:
+                sess_cache[k] = session_of(ny_time(ts / 1000))
+            return sess_cache[k]
+        return {"P": dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000)), "entry": self._disc_entry_fn(t, tf_min * 60000, chart_ms), "sess_of": sess_of,
+                "cost": lambda entry, risk: self._cost_r(fam, entry, risk), "min_stop": float(self.cfg["safe_stop"][fam]["min"]),
+                "tick": INSTR[fam]["tick"], "hold": 60 if tf_min == 1 else 36}
+
+    def _disc_trades(self, it, series, ctx):
+        t, o, h, l, c = series
+        sigs = dc_detect(it["det"], it["n"], it["k"], o, h, l, c, ctx["P"], ctx["tick"])
+        tr = dc_simulate(sigs, o, h, l, c, t, it["tf"] * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"])
+        return dc_evaluate(tr, ctx["sess_of"], DC_TPS.index(it["tp"]), it["d"], it["sess"])
+
+    def disc_run(self):
+        """Durchsucht alle gespeicherten Kerzen nach neuen Strategien (läuft im Hintergrund, 1–3 Minuten)."""
+        if self.disc_state.get("busy"):
+            return
+        self.disc_state.update(busy=True, step="Lade Kursdaten", done=0, total=0, error="")
+        try:
+            D = self._disc_load()
+            items = D.setdefault("items", {})
+            found, tested, data = [], 0, {}
+            fams = self.db.bar_fams() or [r["fam"] for r in self.db.rows("SELECT DISTINCT fam FROM bars1")]
+            plan = [(fam, tf) for fam in fams for tf in (1, 5)]
+            combos = sum(len(v["N"]) * len(v["K"]) for v in DC_DETECTORS.values())
+            self.disc_state["total"] = len(plan) * combos
+            for fam, tf in plan:
+                series = self._disc_series(fam, tf)
+                t = series[0]
+                days = len({str(ny_date(x / 1000)) for x in t[::max(1, 60 // tf)]})
+                data[f"{fam} {tf}m"] = {"bars": len(t), "days": days,
+                                         "from": t[0] if t else None, "to": t[-1] if t else None}
+                need = 3000 if tf == 1 else 1500
+                if len(t) < need:
+                    self.disc_state["done"] += combos
+                    continue
+                ctx = self._disc_ctx(fam, tf, series)
+                _, o, h, l, c = series
+                for det, spec in DC_DETECTORS.items():
+                    for n in spec["N"]:
+                        for k in spec["K"]:
+                            self.disc_state.update(step=f"{fam} {tf} Min · {spec['name']}", done=self.disc_state["done"] + 1)
+                            sigs = dc_detect(det, n, k, o, h, l, c, ctx["P"], ctx["tick"])
+                            trs = dc_simulate(sigs, o, h, l, c, t, tf * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"])
+                            if len(trs) < 40:
+                                continue
+                            for x, tp in enumerate(DC_TPS):
+                                for d in (1, -1):
+                                    for sess in ("alle", "asia", "london", "ny_am", "ny_lunch", "ny_pm"):
+                                        ev = dc_evaluate(trs, ctx["sess_of"], x, d, sess)
+                                        if len(ev) < 40:
+                                            continue
+                                        tested += 1
+                                        rs = [r for _, r in ev]
+                                        st = dc_stats(rs)
+                                        k6 = int(len(rs) * 0.6)
+                                        s1, s2 = dc_stats(rs[:k6]), dc_stats(rs[k6:])
+                                        if st["avg"] >= 0.08 and st["t"] >= 2.0 and s1["avg"] > 0 and s2["avg"] > 0.03 and s2["n"] >= 15:
+                                            weeks = max(1.0, (ev[-1][0] - ev[0][0]) / 86400000 / 7)
+                                            cum, curve = 0.0, []
+                                            step = max(1, len(rs) // 60)
+                                            for idx, r in enumerate(rs):
+                                                cum += r
+                                                if idx % step == 0 or idx == len(rs) - 1:
+                                                    curve.append(round(cum, 2))
+                                            found.append({
+                                                "id": f"{fam}-{det}-{tf}-{n}-{k}-{d}-{sess}-{tp}", "fam": fam, "det": det, "tf": tf, "n": n, "k": k,
+                                                "d": d, "sess": sess, "tp": tp, "name": dc_name_of(det, tf, d, sess),
+                                                "desc": dc_describe(det, n, k, tf, d, tp),
+                                                "stats": {"n": st["n"], "avg": round(st["avg"], 3), "wr": round(st["wr"], 1),
+                                                          "pf": round(st["pf"], 2) if st["pf"] else None, "t": round(st["t"], 2),
+                                                          "avg1": round(s1["avg"], 3), "avg2": round(s2["avg"], 3), "n2": s2["n"],
+                                                          "per_week": round(st["n"] / weeks, 1)},
+                                                "curve": curve})
+            # beste je Muster/Zeiteinheit/Richtung/Session, höchstens 3 je Muster-Art, insgesamt 25
+            found.sort(key=lambda x: -x["stats"]["t"])
+            seen, per_det, top = set(), {}, []
+            for f in found:
+                key = (f["fam"], f["det"], f["tf"], f["d"], f["sess"])
+                same_tr = (f["fam"], f["det"], f["tf"], f["d"], f["stats"]["n"], f["stats"]["avg"])   # z. B. ORB „ganztags“ = „NY-Vorm.“
+                if key in seen or same_tr in seen or per_det.get(f["det"], 0) >= 3:
+                    continue
+                seen.add(key)
+                seen.add(same_tr)
+                per_det[f["det"]] = per_det.get(f["det"], 0) + 1
+                top.append(f)
+                if len(top) >= 25:
+                    break
+            now = time.time()
+            # Mitlernen: Gibt es für eine laufende Strategie inzwischen eine klar bessere Einstellung desselben Musters?
+            for it in list(items.values()):
+                if it["status"] not in ("aktiv", "probe") or it.get("succ"):
+                    continue
+                same = [f for f in found if (f["fam"], f["det"], f["tf"], f["d"], f["sess"]) == (it["fam"], it["det"], it["tf"], it["d"], it["sess"])
+                        and f["id"] != it["id"] and f["id"] not in items]
+                if not same:
+                    continue
+                b = max(same, key=lambda f: f["stats"]["t"])
+                if b["stats"]["t"] >= it["stats"]["t"] + 0.5 and b["stats"]["avg"] >= it["stats"]["avg"] + 0.08:
+                    ver = it.get("ver", 1) + 1
+                    items[b["id"]] = dict(b, name=f"{it['name'][:35]} v{ver}", ver=ver, parent=it["id"], status="probe",
+                                          found_at=now, promoted_at=now, auto=True)
+                    it["succ"] = b["id"]
+                    self.db.log(f"Lernmodul (automatisch): Strategie-Finder – verbesserte Einstellung für {it['name']} gefunden, startet als "
+                                f"„{items[b['id']]['name']}“ den Probelauf (Ø {_fmt(b['stats']['avg'], '+.2f')} statt {_fmt(it['stats']['avg'], '+.2f')} R)")
+            for f in top:
+                old = items.get(f["id"])
+                if old and old["status"] != "gefunden":
+                    old.update(stats=f["stats"], curve=f["curve"], desc=f["desc"])
+                else:
+                    items[f["id"]] = dict(f, status="gefunden", found_at=(old or {}).get("found_at") or now)
+            fresh = {f["id"] for f in top}
+            for iid in [i for i, v in items.items() if v["status"] == "gefunden" and i not in fresh]:
+                del items[iid]   # nicht mehr unter den besten: aus der Liste nehmen
+            self.disc_state["step"] = "Probelauf auswerten"
+            self._disc_forward(items)
+            D.update(last_run=now, tested=tested, data=data, combos=len(plan) * combos)
+            if self.cfg["learning"].get("auto_adopt", True):
+                with self.lock:
+                    self._disc_auto(items)
+            self._disc_save()
+            self.db.log(f"Strategie-Finder: {tested:,} Varianten geprüft, {len(top)} vielversprechend".replace(",", "."))
+        except Exception as e:  # noqa: BLE001
+            self.disc_state["error"] = str(e)
+            self.db.log(f"Strategie-Finder fehlgeschlagen: {e}", "warn")
+        finally:
+            self.disc_state.update(busy=False, step="")
+
+    def _disc_forward(self, items):
+        """Probelauf: Ergebnis nur auf Kerzen NACH dem Fund – der ehrliche Test gegen Zufallstreffer."""
+        cache = {}
+        for it in items.values():
+            if it["status"] not in ("probe", "aktiv", "bereit"):
+                continue
+            key = (it["fam"], it["tf"])
+            if key not in cache:
+                ser = self._disc_series(it["fam"], it["tf"])
+                cache[key] = (ser, self._disc_ctx(it["fam"], it["tf"], ser))
+            ser, ctx = cache[key]
+            ev = [r for ts, r in self._disc_trades(it, ser, ctx) if ts >= (it.get("promoted_at") or it["found_at"]) * 1000]
+            st = dc_stats(ev)
+            it["fwd"] = {"n": len(ev), "avg": round(st["avg"], 3) if st else None, "wr": round(st["wr"], 1) if st else None,
+                         "t": round(st["t"], 2) if st else None, "sum": round(sum(ev), 2)}
+
+    def _disc_auto(self, items):
+        probe = [i for i in items.values() if i["status"] == "probe"]
+        for it in sorted((i for i in items.values() if i["status"] == "gefunden" and i["stats"]["t"] >= 2.5),
+                         key=lambda i: -i["stats"]["t"]):
+            if len(probe) >= 6:
+                break
+            it.update(status="probe", promoted_at=time.time(), auto=True)
+            probe.append(it)
+            self.db.log(f"Lernmodul (automatisch): Strategie-Finder – {it['name']} startet den Probelauf")
+        for it in items.values():
+            f = it.get("fwd") or {}
+            if it["status"] in ("probe", "aktiv", "bereit") and f.get("n", 0) >= 20 and (f.get("avg") or 0) <= 0:
+                was = it["status"]
+                it.update(status="verworfen", dropped_at=time.time())
+                if was == "aktiv":
+                    self.cfg["setup_rules"][it["name"]] = "aus"
+                    self._write_cfg(self.cfg)
+                self.db.log(f"Lernmodul (automatisch): Strategie-Finder – {it['name']} verworfen "
+                            f"(Probelauf {f['n']} Trades, Ø {_fmt(f['avg'] or 0, '+.2f')} R)")
+            elif it["status"] == "probe" and f.get("n", 0) >= 20 and f["avg"] >= 0.1 and (f.get("t") or 0) >= 1.0:
+                if self.broker.name == "paper":
+                    self._disc_activate(it)
+                    self.db.log(f"Lernmodul (automatisch): Strategie-Finder – {it['name']} handelt ab jetzt mit "
+                                f"(Probelauf {f['n']} Trades, Ø {_fmt(f['avg'], '+.2f')} R)")
+                else:
+                    it["status"] = "bereit"
+                    self.db.log(f"Strategie-Finder: {it['name']} hat den Probelauf bestanden – Freigabe für den Echtgeld-Broker im Lernmodul")
+
+    def _disc_activate(self, it):
+        it.update(status="aktiv", activated_at=time.time())
+        self.cfg["setup_rules"][it["name"]] = "auto"
+        par = (self.disc or {}).get("items", {}).get(it.get("parent") or "")
+        if par and par["status"] in ("aktiv", "probe", "bereit"):   # die verbesserte Version löst die alte ab
+            if par["status"] == "aktiv":
+                self.cfg["setup_rules"][par["name"]] = "aus"
+            par.update(status="verworfen", dropped_at=time.time(), replaced_by=it["id"])
+            self.db.log(f"Strategie-Finder: {it['name']} löst {par['name']} ab")
+        self._write_cfg(self.cfg)
+
+    def disc_action(self, iid, action):
+        with self.lock:
+            D = self._disc_load()
+            it = D["items"].get(iid)
+            if not it:
+                raise ValueError("Strategie nicht gefunden")
+            if action == "probe":
+                it.update(status="probe", promoted_at=time.time(), auto=False, fwd=None)
+            elif action == "activate":
+                self._disc_activate(it)
+            elif action == "deactivate":
+                it["status"] = "probe"
+                self.cfg["setup_rules"][it["name"]] = "aus"
+                self._write_cfg(self.cfg)
+            elif action == "discard":
+                if it["status"] == "aktiv":
+                    self.cfg["setup_rules"][it["name"]] = "aus"
+                    self._write_cfg(self.cfg)
+                it.update(status="verworfen", dropped_at=time.time())
+            else:
+                raise ValueError("Unbekannte Aktion")
+            self._disc_save()
+            return {"ok": True}
+
+    def disc_view(self):
+        D = self._disc_load()
+        bundle = getattr(self, "last_bundle", 1)
+        return {"items": list(D.get("items", {}).values()), "last_run": D.get("last_run"), "tested": D.get("tested", 0),
+                "data": D.get("data", {}), "state": dict(self.disc_state), "detectors": {k: v["name"] for k, v in DC_DETECTORS.items()},
+                "bundle": bundle, "chart_tf": {k: v / 60000 for k, v in self.chart_tf.items()}, "broker": self.broker.name}
+
+    def disc_async(self):
+        if not self.disc_state.get("busy"):
+            threading.Thread(target=self.disc_run, daemon=True).start()
+
+    def _disc_live(self, fam):
+        """Aktive gefundene Strategien: Signal prüfen, sobald frische Kerzen da sind, und wie ein TradingView-Signal behandeln."""
+        D = self.disc
+        if not D:
+            return
+        act = [i for i in D.get("items", {}).values() if i["status"] == "aktiv" and i["fam"] == fam]
+        if not act:
+            return
+        now_ms = time.time() * 1000
+        chart_ms = self.chart_tf.get(fam) or 300000
+        for tf in sorted({i["tf"] for i in act}):
+            ser = self._disc_series(fam, tf, since_ms=now_ms - 4 * 86400000, limit=2000 if tf == 1 else 600)
+            t, o, h, l, c = ser
+            if len(t) < 100 or t[-1] + tf * 60000 < now_ms - 150000:
+                continue   # keine frischen Kerzen (z. B. gebündelt): lieber kein Signal als ein veraltetes
+            ctx = self._disc_ctx(fam, tf, ser)
+            last = len(t) - 1
+            for it in (i for i in act if i["tf"] == tf):
+                for i, d, stop in dc_detect(it["det"], it["n"], it["k"], o, h, l, c, ctx["P"], ctx["tick"], start=max(0, last - 120)):
+                    if d != it["d"] or ctx["entry"](i) != last:
+                        continue
+                    if it["sess"] != "alle" and ctx["sess_of"](t[last]) != it["sess"]:
+                        continue
+                    key = (it["id"], t[i])
+                    if key in self._disc_sent:
+                        continue
+                    self._disc_sent.add(key)
+                    entry = c[last]
+                    risk = (entry - stop) * d
+                    if risk < ctx["min_stop"]:
+                        continue
+                    self.db.log(f"Strategie-Finder: Signal {it['name']}")
+                    self._on_entry({"action": "buy" if d > 0 else "sell", "ticker": fam, "price": entry, "stopLoss": stop,
+                                    "takeProfit": entry + d * it["tp"] * risk, "setup": it["name"],
+                                    "time": t[last] + tf * 60000 - chart_ms})
+
+    def import_ohlc(self, fam, text):
+        """Kursdaten aus TradingView (Chart → Chart-Daten exportieren) einlesen: 1- oder 5-Minuten-Kerzen."""
+        import csv
+        import io
+        if fam not in ("NQ", "ES"):
+            raise ValueError("Bitte NQ oder ES wählen")
+        rows = list(csv.reader(io.StringIO(text.strip()), delimiter=";" if text.count(";") > text.count(",") else ","))
+        if len(rows) < 50:
+            raise ValueError("Zu wenige Zeilen")
+        head = [x.strip().lower() for x in rows[0]]
+        try:
+            it, io_, ih, il, ic = (head.index(x) for x in ("time", "open", "high", "low", "close"))
+        except ValueError:
+            raise ValueError("Spalten time, open, high, low, close nicht gefunden – bitte „Chart-Daten exportieren“ aus TradingView nehmen")
+        out = []
+        for r in rows[1:]:
+            try:
+                ts = r[it].strip()
+                if re.match(r"^\d+(\.\d+)?$", ts):
+                    v = float(ts)
+                    ms = v if v > 1e11 else v * 1000
+                else:
+                    x = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if x.tzinfo is None:
+                        x = x.replace(tzinfo=dt.timezone.utc)
+                    ms = x.timestamp() * 1000
+                vals = [float(r[j].replace(",", ".")) if ";" in text[:500] else float(r[j]) for j in (io_, ih, il, ic)]
+                out.append([ms, *vals])
+            except (ValueError, IndexError):
+                continue
+        out.sort()
+        if len(out) < 50:
+            raise ValueError("Keine Kerzen erkannt")
+        tf = self._tf_of(out)
+        if tf == 60000:
+            for i in range(0, len(out), 2000):
+                self.db.add_bars1(fam, out[i:i + 2000])
+            kind = "1-Minuten-Kerzen"
+        elif tf == 300000:
+            for x in out:
+                self.db.add_bar(fam, *x)
+            kind = "5-Minuten-Kerzen"
+        else:
+            raise ValueError(f"Die Datei hat {round((tf or 0) / 60000)}-Minuten-Kerzen. Bitte den Chart auf 1 oder 5 Minuten stellen und neu exportieren.")
+        days = len({str(ny_date(x[0] / 1000)) for x in out})
+        self.db.log(f"Kursdaten importiert: {len(out):,} {kind} ({days} Handelstage) für {fam}".replace(",", "."))
+        return {"ok": True, "bars": len(out), "kind": kind, "days": days,
+                "from": out[0][0], "to": out[-1][0]}
 
     # ───────── Tageszusammenfassung, Timeline, Tages-Stopp ─────────
     @staticmethod

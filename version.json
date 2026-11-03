@@ -1,6 +1,6 @@
 {
-  "version": "2.17.0",
-  "file": "releases/FVG-Trader-2.17.0.cmd",
-  "sha256": "2af860d5a8707fe57d005405537e2a176ac0815648f76af3c523d105f42fd5e2",
-  "notes": "Smart-BE: Der Bot lernt selbst, wann der Stop auf Einstieg gehört (z. B. wenn der Trade zäh wird) – ohne feste Regel"
+  "version": "2.18.0",
+  "file": "releases/FVG-Trader-2.18.0.cmd",
+  "sha256": "4ed12792a64d341734a3a4501369409bde3f0cf069a7279a8d636a775861fba9",
+  "notes": "Strategie-Finder: sucht selbst neue Scalping-Strategien (Orderblock, Breaker, FVG, Sweep, OTE, Judas Swing, CRT, ORB …), Probelauf vor dem Mithandeln, verbessert laufende Strategien selbst"
 }

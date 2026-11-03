@@ -64,7 +64,7 @@ exit /b 0
 """
 
 LOCAL_IMPORTS = re.compile(
-    r"^(from (db|brokers|engine|tunnel|appshell) import .*|sys\.path\.insert\(0, os\.path\.dirname\(os\.path\.abspath\(__file__\)\)\))\s*$",
+    r"^(from (db|brokers|discovery|engine|tunnel|appshell) import .*|sys\.path\.insert\(0, os\.path\.dirname\(os\.path\.abspath\(__file__\)\)\))\s*$",
     re.M)
 
 
@@ -80,7 +80,7 @@ def main():
         html = f.read()
     with open(os.path.join(HERE, "tradingview", "fvg_bot_multi.pine"), encoding="utf-8") as f:
         pine = f.read()
-    body = "".join(module(m) for m in ("db.py", "brokers.py", "engine.py", "tunnel.py", "appshell.py"))
+    body = "".join(module(m) for m in ("db.py", "brokers.py", "discovery.py", "engine.py", "tunnel.py", "appshell.py"))
     server = module("server.py")
     server = server.replace(
         'DATA = os.environ.get("FVG_DATA", os.path.join(ROOT, "data"))',

@@ -655,6 +655,18 @@ table.cmp td,table.cmp th{white-space:normal}
 @media (max-width:820px){.mc-big{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:12px}.mc-big > div:nth-child(odd){border-left:0;padding-left:0}}
 .pc-sm{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.5;padding:8px 10px;margin:8px 0 2px;border-radius:8px;background:var(--sunk)}
 .pc-sm .dot{margin-top:6px;flex-shrink:0}
+.df-list{display:flex;flex-direction:column;gap:10px}
+.df-c{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.df-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.df-s{display:flex;flex-wrap:wrap;gap:6px 22px}
+.df-s span{display:flex;flex-direction:column;gap:1px}
+.df-s small{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.df-s .df-f{padding-left:18px;border-left:1px solid var(--line)}
+.df-a{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
+.df-a .hint{margin-right:auto}
+.df-d{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.df-imp{margin-top:10px}
+.df-imp select{background:var(--sunk);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
 </style>
 </head>
 <body>
@@ -2147,7 +2159,7 @@ try { LTAB = localStorage.getItem("fvg-ltab") || "strategien"; } catch (e) {}
 function learn() {
   if (!$("#lnWrap")) {
     $("#main").innerHTML = `<div id="lnWrap" style="display:contents">
-      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["sessionziele", "Session-Ziele"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
+      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["sessionziele", "Session-Ziele"], ["finder", "Strategie-Finder"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
         `<button type="button" role="tab" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
       <div id="lnBody" style="display:contents"></div></div>`;
     document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab", LTAB); } catch (e) {}
@@ -2156,6 +2168,7 @@ function learn() {
   if (LTAB === "varianten") return labVariants();
   if (LTAB === "regeln") return labRules();
   if (LTAB === "sessionziele") return labSessions();
+  if (LTAB === "finder") return labFinder();
   if (LTAB === "backtest") return backtestView();
   learnStrategies();
 }
@@ -2304,6 +2317,72 @@ async function labSessions(force) {
     try { await api("/api/lab/sessions/apply", b.dataset.rm ? {key: b.dataset.szk, remove: true} : {key: b.dataset.szk, f: +b.dataset.f, g: +b.dataset.g});
       toast(b.dataset.rm ? "Zurück auf die Signal-Abstände" : "Übernommen – gilt ab dem nächsten Signal"); S = await api("/api/state"); labSessions(true); } catch (e) { toast(e.message); } });
   $("#szRe").onclick = async () => { try { await api("/api/lab/sessions/refresh", {}); toast("Wird im Hintergrund neu berechnet"); setTimeout(() => labSessions(true), 4000); } catch (e) { toast(e.message); } };
+}
+/* ───────── Strategie-Finder ───────── */
+const DF = {data: null, at: 0, err: null, open: null, fam: "NQ"};
+function dfCurve(v) {
+  if (!v || v.length < 2) return "";
+  const W = 160, H = 34, lo = Math.min(0, ...v), hi = Math.max(0, ...v), sp = hi - lo || 1;
+  const x = i => 2 + (W - 4) * i / (v.length - 1), y = q => 3 + (H - 6) * (1 - (q - lo) / sp);
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="width:${W}px;height:${H}px;flex-shrink:0" aria-hidden="true"><line x1="2" x2="${W - 2}" y1="${y(0)}" y2="${y(0)}" class="gl" stroke-dasharray="2 2"/>
+    <path d="${v.map((q, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(q).toFixed(1)}`).join("")}" fill="none" stroke="${v[v.length - 1] >= 0 ? "var(--pos)" : "var(--neg)"}" stroke-width="1.6"/></svg>`;
+}
+async function labFinder(force) {
+  const body = $("#lnBody");
+  if (force || !DF.data || Date.now() - DF.at > (DF.data && DF.data.state.busy ? 2500 : 30000)) {
+    if (!DF.data) body.innerHTML = '<p class="hint">Lade …</p>';
+    try { DF.data = await api("/api/disc"); DF.at = Date.now(); DF.err = null; } catch (e) { DF.err = e.message; }
+  }
+  if (TAB !== "learn" || LTAB !== "finder") return;
+  const d = DF.data; if (!d) { body.innerHTML = `<p class="err-msg">${esc(DF.err || "")}</p>`; return; }
+  const st = d.state || {}, items = d.items || [];
+  const by = k => items.filter(i => i.status === k).sort((a, b) => b.stats.t - a.stats.t);
+  const rel = t => t >= 3.5 ? ["good", "hoch"] : t >= 2.5 ? ["warn", "mittel"] : ["mute", "niedrig"];
+  const card = (it, actions) => { const s = it.stats, f = it.fwd, [rc, rl] = rel(s.t);
+    return `<div class="df-c">
+      <div class="df-h"><b>${esc(it.name)}</b><span class="chip ${rc}" title="t-Wert ${num2(s.t)}">Zuverlässigkeit ${rl}</span>${it.auto ? '<span class="chip mute">vom Bot gewählt</span>' : ""}<span style="flex:1"></span>${dfCurve(it.curve)}</div>
+      <p class="hint" style="margin:4px 0 8px;line-height:1.55">${esc(it.desc)}</p>
+      <div class="df-s">
+        <span><small>Rückblick</small><b class="mono">${s.n} Trades</b></span><span><small>Treffer</small><b class="mono">${pct(s.wr)}</b></span>
+        <span><small>Ø nach Gebühren</small><b class="mono ${cls(s.avg)}">${s.avg > 0 ? "+" : ""}${num2(s.avg)} R</b></span><span><small>Profit-Faktor</small><b class="mono">${num2(s.pf)}</b></span>
+        <span><small>Zeit-Hälften</small><b class="mono">${num2(s.avg1)} / ${num2(s.avg2)}</b></span><span><small>pro Woche</small><b class="mono">~${Math.round(s.per_week)}</b></span>
+        ${f ? `<span class="df-f"><small>Probelauf (nach dem Fund)</small><b class="mono ${f.n ? cls(f.avg) : ""}">${f.n} Trades${f.n ? ` · Ø ${f.avg > 0 ? "+" : ""}${num2(f.avg)} R` : ""}</b></span>` : ""}
+      </div>
+      <div class="df-a">${actions}</div></div>`; };
+  const btn = (it, a, l, cl = "") => `<button class="btn ${cl}" data-dfa="${a}" data-id="${esc(it.id)}" style="padding:5px 11px;font-size:12.5px">${l}</button>`;
+  const act = by("aktiv"), bereit = by("bereit"), probe = by("probe"), found = by("gefunden"), gone = by("verworfen");
+  const data = Object.entries(d.data || {});
+  const lowTf = act.some(i => i.tf < 5) || probe.some(i => i.tf < 5);
+  body.innerHTML = `
+    <section class="panel"><div class="section-h"><div><h2>Strategie-Finder</h2><p class="hint" style="max-width:92ch;margin:4px 0 0;line-height:1.6">Sucht in allen gespeicherten 1- und 5-Minuten-Kerzen nach <b>neuen Einstiegen</b> – Orderblock-Retest, Breaker-Block, FVG-Retest, Liquiditäts-Sweep, BOS-Pullback/OTE, Range-Ausbruch, Rückkehr zum Mittel und bekannte Scalping-Konzepte: Judas Swing (Asien-Range-Sweep), Vortages-Hoch/Tief-Sweep (Turtle Soup), Candle Range Theory und Opening Range Breakout – je Session, Richtung und Ziel. Läuft eine Strategie, prüft er jeden Abend, ob es inzwischen eine klar bessere Einstellung desselben Musters gibt; die muss dann ihren eigenen Probelauf bestehen und löst die alte ab. Gerechnet wird ehrlich: nach Gebühren, Stop vor Ziel bei Unklarheit, Einstieg erst dann, wenn die Kerzen live auch ankommen. Was hier gut aussieht, kann trotzdem Zufall sein (bei ${(d.tested || 0).toLocaleString("de-DE")} geprüften Varianten sind ein paar Glückstreffer normal). Deshalb muss jede Strategie erst einen <b>Probelauf</b> auf neuen Kerzen bestehen (20 Trades, Ø mind. +0,1 R), bevor sie mithandelt.</p></div>
+      <div class="inline" style="gap:8px;flex-wrap:wrap;justify-content:flex-end"><button class="btn primary" id="dfRun" ${st.busy ? "disabled" : ""}>${st.busy ? "Sucht …" : "Jetzt suchen"}</button></div></div>
+      ${st.busy ? `<div class="df-prog"><div class="mc-bar" style="margin:10px 0 4px"><i class="p" style="width:${st.total ? Math.round(st.done / st.total * 100) : 3}%;background:var(--accent)"></i></div><span class="hint">${esc(st.step || "")} · ${st.done || 0} / ${st.total || "?"}</span></div>` : ""}
+      ${st.error ? `<p class="err-msg">${esc(st.error)}</p>` : ""}
+      <div class="df-d">${data.length ? data.map(([k, v]) => `<span class="chip ${v.days >= 20 ? "good" : v.days >= 5 ? "warn" : "mute"}">${esc(k)}: ${v.days} Handelstage</span>`).join("") : '<span class="hint">Noch nicht gesucht.</span>'}
+        ${d.last_run ? `<span class="hint">Letzte Suche ${dtm(d.last_run)} · sucht jeden Abend nach der Tagesauswertung neu</span>` : ""}</div>
+      <details class="df-imp"><summary class="hint" style="cursor:pointer">Mehr Kursdaten = bessere Suche: Kursdaten aus TradingView importieren</summary>
+        <p class="hint" style="line-height:1.6">Die App sammelt Kerzen selbst, aber das dauert. Schneller: In TradingView den Chart (NQ1! oder ES1!) auf <b>1 Minute</b> (oder 5 Minuten) stellen, weit nach links scrollen, damit viel Verlauf geladen ist, dann oben im Menü des Charts <b>„Chart-Daten exportieren“</b> wählen (je nach TradingView-Abo verfügbar) und die CSV-Datei hier einlesen.</p>
+        <div class="inline" style="gap:8px;flex-wrap:wrap"><select id="dfFam"><option value="NQ" ${DF.fam === "NQ" ? "selected" : ""}>NQ / MNQ</option><option value="ES" ${DF.fam === "ES" ? "selected" : ""}>ES / MES</option></select>
+          <label class="btn">CSV-Datei wählen<input type="file" id="dfFile" accept=".csv,text/csv" hidden></label><span class="hint" id="dfMsg"></span></div></details>
+    </section>
+    ${d.bundle > 1 && act.length ? `<div class="banner">Neue Strategien handeln nur mit frischen Kerzen. In TradingView in den Einstellungen der Strategie „Kerzen bündeln“ auf <b>1</b> stellen, sonst fallen die meisten Signale weg.</div>` : ""}
+    ${act.length || bereit.length ? `<section class="section"><h2>Handelt mit</h2><div class="df-list">${[...act, ...bereit].map(it => card(it, it.status === "bereit"
+        ? `<span class="hint">Probelauf bestanden. Dein Broker handelt mit echtem Geld – bitte selbst freigeben.</span>${btn(it, "activate", "Freigeben", "primary")}${btn(it, "discard", "Verwerfen")}`
+        : `<span class="hint">Signale laufen durch alle Schutz-Regeln, das Lernmodul bewertet sie wie jede andere Strategie.</span>${btn(it, "deactivate", "Pausieren")}${btn(it, "discard", "Verwerfen")}`)).join("")}</div></section>` : ""}
+    ${probe.length ? `<section class="section"><h2>Im Probelauf</h2><div class="df-list">${probe.map(it => card(it, `<span class="hint">Wird nur mitgerechnet, handelt noch nicht.${lowTf ? "" : ""}</span>${btn(it, "activate", d.broker === "paper" ? "Sofort mithandeln" : "Freigeben")}${btn(it, "discard", "Verwerfen")}`)).join("")}</div></section>` : ""}
+    <section class="section"><h2>Gefunden</h2>${found.length ? `<div class="df-list">${found.map(it => card(it, `${btn(it, "probe", "Probelauf starten", "primary")}${btn(it, "discard", "Verwerfen")}`)).join("")}</div>`
+      : `<div class="empty">${d.last_run ? "Bei der letzten Suche hat nichts die Prüfung bestanden. Mit mehr Kursdaten steigt die Chance." : "Noch nicht gesucht. Für eine Suche braucht es mindestens rund 3 Handelstage 1-Minuten-Kerzen."}</div>`}</section>
+    ${gone.length ? `<details class="set-sec"><summary><span class="s-ic">${icon('<path d="M6 6l12 12M18 6 6 18"/>')}</span><span class="s-t"><b>Verworfen</b><span class="hint">${gone.length} Strategien – Probelauf nicht bestanden oder von dir verworfen</span></span><span></span></summary><div class="set-b"><div class="df-list">${gone.map(it => card(it, btn(it, "probe", "Neuer Probelauf"))).join("")}</div></div></details>` : ""}`;
+  body.querySelectorAll("[data-dfa]").forEach(b => b.onclick = async () => {
+    try { await api("/api/disc/item", {id: b.dataset.id, action: b.dataset.dfa}); toast({probe: "Probelauf gestartet", activate: "Handelt ab jetzt mit", deactivate: "Pausiert", discard: "Verworfen"}[b.dataset.dfa]); labFinder(true); } catch (e) { toast(e.message); } });
+  $("#dfRun").onclick = async () => { try { await api("/api/disc/run", {}); toast("Suche läuft im Hintergrund"); setTimeout(() => labFinder(true), 800); } catch (e) { toast(e.message); } };
+  $("#dfFam").onchange = e => { DF.fam = e.target.value; };
+  $("#dfFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; const msg = $("#dfMsg"); msg.textContent = "Lese ein …";
+    try { const r = await api("/api/disc/import", {fam: DF.fam, csv: await f.text()}); msg.textContent = `${r.bars.toLocaleString("de-DE")} ${r.kind} (${r.days} Handelstage) importiert. Jetzt „Jetzt suchen“ klicken.`; }
+    catch (err) { msg.textContent = err.message; }
+  };
+  if (st.busy) setTimeout(() => { if (TAB === "learn" && LTAB === "finder") labFinder(true); }, 2500);
 }
 const BT = {trades: null, name: "", loaded: false, filter: "Alle", err: null, src: "export", live: null, liveAt: 0};
 try { BT.src = localStorage.getItem("fvg-bt-src") || "export"; } catch (e) {}
