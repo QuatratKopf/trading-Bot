@@ -1548,8 +1548,8 @@ class Engine:
                     rep = self.weekly_report()
                     self.notify("weekly", f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
                                 self.weekly_text(rep), "good" if rep["net"] > 0 else "bad" if rep["net"] < 0 else "info")
-                self.db.prune_bars((now - 420 * 86400) * 1000)   # Kerzen älter als ~14 Monate löschen
-                self.db.prune_bars1((now - 400 * 86400) * 1000)  # 1-Minuten-Kerzen ~13 Monate (Strategie-Finder)
+                self.db.prune_bars((now - 1100 * 86400) * 1000)  # Kerzen älter als ~3 Jahre löschen
+                self.db.prune_bars1((now - 1100 * 86400) * 1000)  # 1-Minuten-Kerzen ~3 Jahre (Strategie-Finder, auch importierte)
                 _t = threading.Timer(120, self.disc_async); _t.daemon = True; _t.start()     # nach der Tagesauswertung neue Strategien suchen
             nw = self.cfg["news"]
             if nw["enabled"] and nw["close_before"] and self.db.open_positions():
@@ -2695,8 +2695,9 @@ class Engine:
             plan = [(fam, tf) for fam in fams for tf in (1, 5)]
             combos = sum(len(v["N"]) * len(v["K"]) for v in DC_DETECTORS.values())
             self.disc_state["total"] = len(plan) * combos
+            since = (time.time() - 730 * 86400) * 1000   # höchstens 2 Jahre (Rechenzeit)
             for fam, tf in plan:
-                series = self._disc_series(fam, tf)
+                series = self._disc_series(fam, tf, since_ms=since)
                 t = series[0]
                 days = len({str(ny_date(x / 1000)) for x in t[::max(1, 60 // tf)]})
                 data[f"{fam} {tf}m"] = {"bars": len(t), "days": days,
@@ -2924,35 +2925,80 @@ class Engine:
                                     "time": t[last] + tf * 60000 - chart_ms})
 
     def import_ohlc(self, fam, text):
-        """Kursdaten aus TradingView (Chart → Chart-Daten exportieren) einlesen: 1- oder 5-Minuten-Kerzen."""
+        """Kursdaten einlesen: TradingView-Export, Databento-CSV oder NinjaTrader-Export, 1- oder 5-Minuten-Kerzen."""
         import csv
         import io
         if fam not in ("NQ", "ES"):
             raise ValueError("Bitte NQ oder ES wählen")
-        rows = list(csv.reader(io.StringIO(text.strip()), delimiter=";" if text.count(";") > text.count(",") else ","))
+        sample = text[:5000]
+        delim = ";" if sample.count(";") > sample.count(",") else "\t" if sample.count("\t") > sample.count(",") else ","
+        rows = list(csv.reader(io.StringIO(text.strip()), delimiter=delim))
         if len(rows) < 50:
             raise ValueError("Zu wenige Zeilen")
         head = [x.strip().lower() for x in rows[0]]
-        try:
-            it, io_, ih, il, ic = (head.index(x) for x in ("time", "open", "high", "low", "close"))
-        except ValueError:
-            raise ValueError("Spalten time, open, high, low, close nicht gefunden – bitte „Chart-Daten exportieren“ aus TradingView nehmen")
         out = []
-        for r in rows[1:]:
-            try:
-                ts = r[it].strip()
-                if re.match(r"^\d+(\.\d+)?$", ts):
-                    v = float(ts)
-                    ms = v if v > 1e11 else v * 1000
+
+        def fnum(v):
+            v = v.strip()
+            if delim == ";" and "," in v:
+                v = v.replace(".", "").replace(",", ".")
+            f = float(v)
+            return f / 1e9 if f > 1e7 else f   # Databento ohne „pretty prices“: Festkomma ×1e9
+
+        def berlin_to_utc(x):
+            # NinjaTrader exportiert in PC-Zeit (hier Deutschland): MEZ/MESZ ohne Zeitzonen-Datenbank umrechnen
+            y = x.year
+            last_sun = lambda m: max(dt.date(y, m, d) for d in range(25, 32) if dt.date(y, m, d).weekday() == 6)  # noqa: E731
+            dst = dt.datetime.combine(last_sun(3), dt.time(2)) <= x < dt.datetime.combine(last_sun(10), dt.time(3))
+            return x - dt.timedelta(hours=2 if dst else 1)
+
+        tcol = next((head.index(x) for x in ("time", "ts_event", "datetime", "date", "timestamp") if x in head), None)
+        if tcol is not None and all(x in head for x in ("open", "high", "low", "close")):
+            io_, ih, il, ic = (head.index(x) for x in ("open", "high", "low", "close"))
+            sym = head.index("symbol") if "symbol" in head else None
+            by_sym = {}
+            for r in rows[1:]:
+                try:
+                    ts = r[tcol].strip()
+                    if re.match(r"^\d+(\.\d+)?$", ts):
+                        v = float(ts)
+                        ms = v / 1e6 if v > 1e17 else v if v > 1e11 else v * 1000   # Nanosekunden / ms / s
+                    else:
+                        x = dt.datetime.fromisoformat(re.sub(r"\.\d+", "", ts.replace("Z", "+00:00")).replace(" ", "T", 1))
+                        if x.tzinfo is None:
+                            x = x.replace(tzinfo=dt.timezone.utc)
+                        ms = x.timestamp() * 1000
+                    row = [ms, fnum(r[io_]), fnum(r[ih]), fnum(r[il]), fnum(r[ic])]
+                except (ValueError, IndexError):
+                    continue
+                if sym is not None:
+                    by_sym.setdefault(r[sym], []).append(row)
                 else:
-                    x = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    if x.tzinfo is None:
-                        x = x.replace(tzinfo=dt.timezone.utc)
-                    ms = x.timestamp() * 1000
-                vals = [float(r[j].replace(",", ".")) if ";" in text[:500] else float(r[j]) for j in (io_, ih, il, ic)]
-                out.append([ms, *vals])
-            except (ValueError, IndexError):
-                continue
+                    out.append(row)
+            if by_sym:
+                # mehrere Kontrakte (z. B. ohne fortlaufendes Symbol): je Tag den meistgehandelten nehmen
+                days = {}
+                for sname, lst in by_sym.items():
+                    if "-" in sname:
+                        continue   # Spreads auslassen
+                    for row in lst:
+                        days.setdefault(str(dt.datetime.utcfromtimestamp(row[0] / 1000).date()), {}).setdefault(sname, []).append(row)
+                for d_, per in days.items():
+                    out.extend(max(per.values(), key=len))
+        else:
+            # NinjaTrader-Export ohne Kopfzeile: yyyyMMdd HHmmss;open;high;low;close;volume (Zeit = Ende der Kerze)
+            for r in rows:
+                try:
+                    x = dt.datetime.strptime(r[0].strip(), "%Y%m%d %H%M%S")
+                    utc = berlin_to_utc(x)
+                    ms = utc.replace(tzinfo=dt.timezone.utc).timestamp() * 1000
+                    out.append([ms, fnum(r[1]), fnum(r[2]), fnum(r[3]), fnum(r[4])])
+                except (ValueError, IndexError):
+                    continue
+            if not out:
+                raise ValueError("Format nicht erkannt. Unterstützt: TradingView-Export, Databento-CSV (OHLCV-1m) und NinjaTrader-Export.")
+            tf_ = self._tf_of(sorted(out)) or 60000
+            out = [[r[0] - tf_] + r[1:] for r in out]   # NinjaTrader stempelt das Kerzen-Ende
         out.sort()
         if len(out) < 50:
             raise ValueError("Keine Kerzen erkannt")

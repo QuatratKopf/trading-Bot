@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > (40_000_000 if self.path.startswith(("/api/backtest/", "/api/disc/import")) else
+        if n > (250_000_000 if self.path.startswith("/api/disc/import") else 40_000_000 if self.path.startswith("/api/backtest/") else
                 9_000_000 if self.path.startswith(("/api/update/", "/api/own/import", "/api/trade/")) else 100_000):
             raise ValueError("Anfrage zu groß")
         raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""

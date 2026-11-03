@@ -1,6 +1,6 @@
 {
-  "version": "2.18.0",
-  "file": "releases/FVG-Trader-2.18.0.cmd",
-  "sha256": "4ed12792a64d341734a3a4501369409bde3f0cf069a7279a8d636a775861fba9",
-  "notes": "Strategie-Finder: sucht selbst neue Scalping-Strategien (Orderblock, Breaker, FVG, Sweep, OTE, Judas Swing, CRT, ORB …), Probelauf vor dem Mithandeln, verbessert laufende Strategien selbst"
+  "version": "2.18.1",
+  "file": "releases/FVG-Trader-2.18.1.cmd",
+  "sha256": "813dbe18a71d22bd504375f78133548ba0910858039f71481f861c40e59b14dd",
+  "notes": "Kursdaten-Import auch von Databento und NinjaTrader (viele Jahre 1-Minuten-Kerzen für den Strategie-Finder)"
 }
