@@ -1,6 +1,6 @@
 {
-  "version": "2.18.1",
-  "file": "releases/FVG-Trader-2.18.1.cmd",
-  "sha256": "813dbe18a71d22bd504375f78133548ba0910858039f71481f861c40e59b14dd",
-  "notes": "Kursdaten-Import auch von Databento und NinjaTrader (viele Jahre 1-Minuten-Kerzen für den Strategie-Finder)"
+  "version": "2.18.2",
+  "file": "releases/FVG-Trader-2.18.2.cmd",
+  "sha256": "82d1bff4d87eb40b9d10db8c111fdbf40f5d5bfe4c2c6bd1ee9c14de1a2bbe74",
+  "notes": "Großer Kursdaten-Import braucht weniger Speicher und blockiert den Handel nicht mehr"
 }

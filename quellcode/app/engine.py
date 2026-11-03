@@ -2932,10 +2932,12 @@ class Engine:
             raise ValueError("Bitte NQ oder ES wählen")
         sample = text[:5000]
         delim = ";" if sample.count(";") > sample.count(",") else "\t" if sample.count("\t") > sample.count(",") else ","
-        rows = list(csv.reader(io.StringIO(text.strip()), delimiter=delim))
-        if len(rows) < 50:
-            raise ValueError("Zu wenige Zeilen")
-        head = [x.strip().lower() for x in rows[0]]
+        def reader():   # Zeile für Zeile, damit große Dateien wenig Speicher brauchen
+            return csv.reader(io.StringIO(text), delimiter=delim)
+        first = next(reader(), None)
+        if not first:
+            raise ValueError("Datei ist leer")
+        head = [x.strip().lower() for x in first]
         out = []
 
         def fnum(v):
@@ -2952,42 +2954,51 @@ class Engine:
             dst = dt.datetime.combine(last_sun(3), dt.time(2)) <= x < dt.datetime.combine(last_sun(10), dt.time(3))
             return x - dt.timedelta(hours=2 if dst else 1)
 
-        tcol = next((head.index(x) for x in ("time", "ts_event", "datetime", "date", "timestamp") if x in head), None)
+        def parse_ts(ts):
+            ts = ts.strip()
+            if ts[:1].isdigit() and ts.replace(".", "", 1).isdigit():
+                v = float(ts)
+                return v / 1e6 if v > 1e17 else v if v > 1e11 else v * 1000   # Nanosekunden / ms / s
+            if len(ts) >= 19 and ts[10] in "T " and ts.endswith("Z"):   # schneller Weg für Databento/UTC
+                return dt.datetime(int(ts[0:4]), int(ts[5:7]), int(ts[8:10]), int(ts[11:13]), int(ts[14:16]), int(ts[17:19]),
+                                   tzinfo=dt.timezone.utc).timestamp() * 1000
+            x = dt.datetime.fromisoformat(re.sub(r"\.\d+", "", ts.replace("Z", "+00:00")).replace(" ", "T", 1))
+            if x.tzinfo is None:
+                x = x.replace(tzinfo=dt.timezone.utc)
+            return x.timestamp() * 1000
+
+        tcol = next((head.index(x) for x in ("ts_event", "time", "datetime", "date", "timestamp") if x in head), None)
         if tcol is not None and all(x in head for x in ("open", "high", "low", "close")):
             io_, ih, il, ic = (head.index(x) for x in ("open", "high", "low", "close"))
             sym = head.index("symbol") if "symbol" in head else None
-            by_sym = {}
-            for r in rows[1:]:
+            main = None
+            if sym is not None:
+                # 1. Durchgang: je Tag den Kontrakt mit den meisten Kerzen bestimmen (Spreads auslassen)
+                cnt = {}
+                it_ = reader()
+                next(it_, None)
+                for r in it_:
+                    if len(r) <= sym or "-" in r[sym]:
+                        continue
+                    k = (r[tcol][:10], r[sym])
+                    cnt[k] = cnt.get(k, 0) + 1
+                main = {}
+                for (d_, sname), n_ in cnt.items():
+                    if n_ > main.get(d_, ("", 0))[1]:
+                        main[d_] = (sname, n_)
+                main = {d_: v[0] for d_, v in main.items()}
+            it_ = reader()
+            next(it_, None)
+            for r in it_:
                 try:
-                    ts = r[tcol].strip()
-                    if re.match(r"^\d+(\.\d+)?$", ts):
-                        v = float(ts)
-                        ms = v / 1e6 if v > 1e17 else v if v > 1e11 else v * 1000   # Nanosekunden / ms / s
-                    else:
-                        x = dt.datetime.fromisoformat(re.sub(r"\.\d+", "", ts.replace("Z", "+00:00")).replace(" ", "T", 1))
-                        if x.tzinfo is None:
-                            x = x.replace(tzinfo=dt.timezone.utc)
-                        ms = x.timestamp() * 1000
-                    row = [ms, fnum(r[io_]), fnum(r[ih]), fnum(r[il]), fnum(r[ic])]
+                    if main is not None and main.get(r[tcol][:10]) != r[sym]:
+                        continue
+                    out.append([parse_ts(r[tcol]), fnum(r[io_]), fnum(r[ih]), fnum(r[il]), fnum(r[ic])])
                 except (ValueError, IndexError):
                     continue
-                if sym is not None:
-                    by_sym.setdefault(r[sym], []).append(row)
-                else:
-                    out.append(row)
-            if by_sym:
-                # mehrere Kontrakte (z. B. ohne fortlaufendes Symbol): je Tag den meistgehandelten nehmen
-                days = {}
-                for sname, lst in by_sym.items():
-                    if "-" in sname:
-                        continue   # Spreads auslassen
-                    for row in lst:
-                        days.setdefault(str(dt.datetime.utcfromtimestamp(row[0] / 1000).date()), {}).setdefault(sname, []).append(row)
-                for d_, per in days.items():
-                    out.extend(max(per.values(), key=len))
         else:
             # NinjaTrader-Export ohne Kopfzeile: yyyyMMdd HHmmss;open;high;low;close;volume (Zeit = Ende der Kerze)
-            for r in rows:
+            for r in reader():
                 try:
                     x = dt.datetime.strptime(r[0].strip(), "%Y%m%d %H%M%S")
                     utc = berlin_to_utc(x)

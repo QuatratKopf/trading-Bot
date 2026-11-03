@@ -1294,8 +1294,10 @@ def disc_item(h):
 @route("POST", r"/api/disc/import")
 def disc_import(h):
     b = h._json()
-    with engine.lock:
-        res = engine.import_ohlc(str(b.get("fam") or ""), str(b.get("csv") or ""))
+    text = str(b.pop("csv", "") or "")
+    fam = str(b.get("fam") or "")
+    b.clear()
+    res = engine.import_ohlc(fam, text)   # ohne die Engine zu sperren: Signale laufen währenddessen weiter
     h._send(200, res)
 
 
