@@ -272,8 +272,12 @@ VARIANTS = {
     "Trailing 1R": {"trail": 1.0}, "Bis Session-Ende": {},
     # Ohne feste Regel: wägt nach jeder Kerze anhand ähnlicher früherer Trades ab, ob sich Halten noch lohnt
     "Signal-Ziel + Smart-Ausstieg": {"signal_tp": True, "smart": True},
+    # Wägt ab, ob der Stop auf Einstieg (Break-even) gehört, z. B. wenn der Trade zäh wird
+    "Signal-Ziel + Smart-BE": {"signal_tp": True, "smart_be": True},
+    "Signal-Ziel + Smart-BE + Ausstieg": {"signal_tp": True, "smart": True, "smart_be": True},
 }
 SMART_EXIT = "Signal-Ziel + Smart-Ausstieg"
+SMART_VARS = [k for k, v in VARIANTS.items() if v.get("smart") or v.get("smart_be")]
 PAPER_ONLY_VARIANTS = ("Trailing 1R", "Bis Session-Ende")   # brauchen eine Order ohne festes Ziel
 
 
@@ -722,18 +726,22 @@ class Engine:
                 continue
             best = max(v["best"], bar["high"]) if long_ else min(v["best"], bar["low"])
             vr = VARIANTS.get(v["var"], {})
-            if vr.get("smart") and self._chart_close(fam, bar):
-                dec = self._smart_for(v, bar, v["entry"], v["risk"], v["stop"], v["tp"], best, v["setup"], fam, v["side"], v["shadow_id"])
-                if dec and dec["exit"]:
+            stop = v["stop"]
+            if (vr.get("smart") or vr.get("smart_be")) and self._chart_close(fam, bar):
+                dec = self._smart_for(v, bar, v["entry"], v["risk"], v["stop"], v["tp"], best, v["setup"], fam, v["side"], v["shadow_id"],
+                                      want_be=bool(vr.get("smart_be")))
+                if dec and dec["exit"] and vr.get("smart"):
                     self._close_variant(v, bar["close"])
                     continue
-            stop = manage_stop(v["side"], v["entry"], v["risk"], v["stop"], best, vr)
+                if dec and dec["be"] and vr.get("smart_be"):
+                    stop = v["entry"]
+            stop = manage_stop(v["side"], v["entry"], v["risk"], stop, best, vr)
             if best != v["best"] or stop != v["stop"]:
                 self.db.update_variant(v["id"], best=best, stop=stop)
         # Break-even/Trailing für Bot-Positionen mit übernommenem Ausstieg (wirkt ab der nächsten Kerze)
         for pos in self.db.open_positions():
             rule = VARIANTS.get(pos.get("mgmt") or "")
-            if not rule or not (rule.get("be") or rule.get("trail") or rule.get("smart")) \
+            if not rule or not (rule.get("be") or rule.get("trail") or rule.get("smart") or rule.get("smart_be")) \
                     or family(pos["root"]) != fam or not self._bar_after(pos, bar):
                 continue
             long_ = pos["side"] == "long"
@@ -744,24 +752,27 @@ class Engine:
             risk = abs(pos["entry"] - (pos["initial_sl"] or pos["sl"]))
             prev = pos.get("best") or pos["entry"]
             best = max(prev, bar["high"]) if long_ else min(prev, bar["low"])
-            if rule.get("smart") and self._chart_close(fam, bar):
-                dec = self._smart_for(pos, bar, pos["entry"], risk, pos["sl"], pos["tp"], best, pos["setup"], fam, pos["side"])
-                why = "Smart-Ausstieg: " + dec["text"] if dec and dec["exit"] else None
-                if why:
-                    try:
-                        if bar.get("time"):
-                            self.db.update_position(pos["id"], exit_bar=bar["time"])
-                        self._close(pos, bar["close"], why)
-                        self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} vorzeitig geschlossen · {why}")
-                    except ValueError as e:
-                        self.db.log(f"Smart-Ausstieg fehlgeschlagen: {e}", "error")
-                    continue
-            new = round_tick(manage_stop(pos["side"], pos["entry"], risk, pos["sl"], best, rule), INSTR[pos["root"]]["tick"])
+            dec = None
+            if (rule.get("smart") or rule.get("smart_be")) and self._chart_close(fam, bar):
+                dec = self._smart_for(pos, bar, pos["entry"], risk, pos["sl"], pos["tp"], best, pos["setup"], fam, pos["side"],
+                                      want_be=bool(rule.get("smart_be")))
+            why = "Smart-Ausstieg: " + dec["text"] if dec and dec["exit"] and rule.get("smart") else None
+            if why:
+                try:
+                    if bar.get("time"):
+                        self.db.update_position(pos["id"], exit_bar=bar["time"])
+                    self._close(pos, bar["close"], why)
+                    self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} vorzeitig geschlossen · {why}")
+                except ValueError as e:
+                    self.db.log(f"Smart-Ausstieg fehlgeschlagen: {e}", "error")
+                continue
+            base_sl = pos["entry"] if dec and dec["be"] and rule.get("smart_be") else pos["sl"]
+            new = round_tick(manage_stop(pos["side"], pos["entry"], risk, base_sl, best, rule), INSTR[pos["root"]]["tick"])
             if new != pos["sl"]:
                 try:
                     self.broker.modify_stop(pos, new)
                     self.db.update_position(pos["id"], sl=new, best=best)
-                    self.db.log(f"Stop {pos['root']} nachgezogen auf {new:.2f} ({pos['mgmt']})")
+                    self.db.log(f"Stop {pos['root']} nachgezogen auf {new:.2f} · " + (dec["be_text"] if dec and dec["be"] and base_sl != pos["sl"] else pos["mgmt"]))
                 except BrokerError as e:
                     self.db.log(f"Stop nachziehen fehlgeschlagen: {e}", "error")
             elif best != prev:
@@ -2313,7 +2324,7 @@ class Engine:
                         "snapshots": sum(len(v) for k, v in index.items() if len(k) == 5 and k[0] != "*")}
         return self.pm_info
 
-    def smart_check(self, setup, mins, r_now, best, ratr, s_r, t_r, max_bars, before_ms, exclude=None):
+    def smart_check(self, setup, mins, r_now, best, ratr, s_r, t_r, max_bars, before_ms, exclude=None, want_be=True):
         """Wägt ab: Was bringt Halten im Schnitt, wenn ähnliche Trades in der Vergangenheit so standen?
         Keine feste Regel – entschieden wird nach Erfahrung und nur, wenn der Unterschied deutlich ist."""
         idx = self.pm_index
@@ -2335,30 +2346,53 @@ class Engine:
         if not cand:
             return None
         picks = sorted(cand.items(), key=lambda kv: -self.paths[kv[0]]["opened"])[:40]
-        out = []
-        for sid, k in picks:
-            p = self.paths[sid]
-            base = p["cl"][k]
-            res = None
-            last = min(len(p["cl"]), k + 1 + max(1, int(max_bars)))
-            for j in range(k + 1, last):
-                if r_now + p["adv"][j] - base <= s_r:
-                    res = s_r
-                    break
-                if t_r is not None and r_now + p["fav"][j] - base >= t_r:
-                    res = t_r
-                    break
-            out.append(res if res is not None else r_now + p["cl"][last - 1] - base)
-        n = len(out)
-        hold = sum(out) / n
-        sd = (sum((x - hold) ** 2 for x in out) / (n - 1)) ** 0.5 if n > 1 else 1.0
-        se = sd / n ** 0.5
-        edge = r_now - hold
-        return {"exit": edge > 0.05 + se, "hold": round(hold, 3), "now": round(r_now, 3), "n": n, "se": round(se, 3),
-                "p_win": round(sum(1 for x in out if x > r_now) / n * 100), "text":
-                f"Halten bringt bei {n} ähnlichen Trades im Schnitt {_fmt(hold, '+.2f')} R, jetzt raus {_fmt(r_now, '+.2f')} R"}
+        # Break-even nur prüfen, wenn der Stop noch unter dem Einstieg liegt und der Kurs darüber
+        be_ok = want_be and s_r < -0.02 and r_now > 0.05
 
-    def _smart_for(self, obj, bar, entry, r0, stop, tp, best_px, setup, fam, side, exclude=None):
+        def run(stop_r):
+            res = []
+            for sid, k in picks:
+                p = self.paths[sid]
+                base = p["cl"][k]
+                r = None
+                last = min(len(p["cl"]), k + 1 + max(1, int(max_bars)))
+                for j in range(k + 1, last):
+                    if r_now + p["adv"][j] - base <= stop_r:
+                        r = stop_r
+                        break
+                    if t_r is not None and r_now + p["fav"][j] - base >= t_r:
+                        r = t_r
+                        break
+                res.append(r if r is not None else r_now + p["cl"][last - 1] - base)
+            return res
+
+        def mse(v):
+            m = sum(v) / len(v)
+            sd = (sum((x - m) ** 2 for x in v) / (len(v) - 1)) ** 0.5 if len(v) > 1 else 1.0
+            return m, sd / len(v) ** 0.5
+
+        out = run(s_r)
+        n = len(out)
+        hold, se = mse(out)
+        res = {"exit": r_now - hold > 0.05 + se, "be": False, "hold": round(hold, 3), "now": round(r_now, 3), "n": n,
+               "se": round(se, 3), "p_win": round(sum(1 for x in out if x > r_now) / n * 100), "be_val": None,
+               "text": f"Halten bringt bei {n} ähnlichen Trades im Schnitt {_fmt(hold, '+.2f')} R, jetzt raus {_fmt(r_now, '+.2f')} R"}
+        if be_ok:
+            be = run(0.0)
+            # gepaarter Vergleich auf denselben Verläufen: Stop auf Einstieg gegen Stop lassen
+            dm, dse = mse([b - h for b, h in zip(be, out)])
+            bm, bse = mse(be)
+            res["be_val"] = round(bm, 3)
+            res["be"] = dm > 0.03 + dse
+            if res["exit"] and r_now - bm <= 0.05 + bse:
+                res["exit"] = False   # Break-even ist mindestens so gut wie Aussteigen: drin bleiben, Stop hoch
+                res["be"] = res["be"] or dm > 0
+            if res["be"]:
+                res["be_text"] = (f"Stop auf Einstieg: bei {n} ähnlichen Trades {_fmt(bm, '+.2f')} R statt {_fmt(hold, '+.2f')} R "
+                                  f"mit altem Stop (jetzt {_fmt(r_now, '+.2f')} R)")
+        return res
+
+    def _smart_for(self, obj, bar, entry, r0, stop, tp, best_px, setup, fam, side, exclude=None, want_be=True):
         tf = self.chart_tf.get(fam) or 300000
         d = 1 if side == "long" else -1
         e_ms = self._entry_ms(obj, tf)
@@ -2366,7 +2400,7 @@ class Engine:
         bar_end = bar["time"] + (bar.get("len") or tf) if bar.get("time") else time.time() * 1000
         return self.smart_check(setup, (bar_end - e_ms) / 60000, (bar["close"] - entry) * d / r0, (best_px - entry) * d / r0,
                                 self._ratr(fam, e_ms, r0, tf), (stop - entry) * d / r0, (tp - entry) * d / r0 if tp else None,
-                                max(1, (end_ms - bar_end) / tf), time.time() * 1000, exclude)
+                                max(1, (end_ms - bar_end) / tf), time.time() * 1000, exclude, want_be)
 
     def _chart_close(self, fam, bar):
         tf = self.chart_tf.get(fam) or 300000
@@ -2375,32 +2409,55 @@ class Engine:
         return bool(bar.get("time")) and (bar["time"] + bar["len"]) % tf == 0
 
     def smart_backfill(self):
-        """Smart-Ausstieg rückwirkend für alle fertigen Signale durchrechnen – jeweils nur mit dem Wissen,
+        """Smart-Varianten rückwirkend für alle fertigen Signale durchrechnen – jeweils nur mit dem Wissen,
         das zum Zeitpunkt des Signals schon da war (kein Blick in die Zukunft)."""
-        have = {x["shadow_id"] for x in self.db.rows("SELECT shadow_id FROM variants WHERE var=?", (SMART_EXIT,))}
-        rows = []
-        for p in sorted((p for p in self.paths.values() if p and p["id"] not in have), key=lambda p: p["opened"]):
-            r, best = None, -9.0
-            for k in range(len(p["cl"])):
-                if p["adv"][k] <= -1 or p["fav"][k] >= p["t_r0"]:
-                    break
-                best = max(best, p["fav"][k])
-                if k >= 96:
-                    break
-                dec = self.smart_check(p["setup"], (k + 1) * p["tf_min"], p["cl"][k], best, p["ratr"], -1.0, p["t_r0"],
-                                       len(p["cl"]) - k - 1, p["entry_ms"], p["id"])
-                if dec and dec["exit"]:
-                    r = p["cl"][k]
-                    break
-            if r is None:
-                r = p["r"]   # Smart-Ausstieg hat nicht eingegriffen: genau wie das Signal-Ziel
-            d = 1 if p["side"] == "long" else -1
-            rows.append({"id": uuid.uuid4().hex[:12], "shadow_id": p["id"], "setup": p["setup"], "fam": p["fam"], "side": p["side"],
-                         "var": SMART_EXIT, "entry": p["entry"], "stop": p["sl"], "risk": p["r0"], "tp": p["tp"],
-                         "best": p["entry"], "opened": p["opened"], "closed": p["closed"], "exit": p["entry"] + d * r * p["r0"],
-                         "r": round(r, 3), "status": "geschlossen", "bar_time": p["bar_time"]})
-        self.db.add_variants(rows)
-        return len(rows)
+        total = 0
+        for var in SMART_VARS:
+            vr = VARIANTS[var]
+            have = {x["shadow_id"] for x in self.db.rows("SELECT shadow_id FROM variants WHERE var=?", (var,))}
+            rows = []
+            for p in sorted((p for p in self.paths.values() if p and p["id"] not in have), key=lambda p: p["opened"]):
+                r, best, stop, acted = None, -9.0, -1.0, False
+                for k in range(len(p["cl"])):
+                    if p["adv"][k] <= stop:
+                        r = stop
+                        break
+                    if p["fav"][k] >= p["t_r0"]:
+                        r = p["t_r0"]
+                        break
+                    best = max(best, p["fav"][k])
+                    if k >= 96:
+                        break
+                    dec = self.smart_check(p["setup"], (k + 1) * p["tf_min"], p["cl"][k], best, p["ratr"], stop, p["t_r0"],
+                                           len(p["cl"]) - k - 1, p["entry_ms"], p["id"], bool(vr.get("smart_be")))
+                    if dec and dec["exit"] and vr.get("smart"):
+                        r = p["cl"][k]
+                        acted = True
+                        break
+                    if dec and dec["be"] and vr.get("smart_be") and stop < 0:
+                        stop = 0.0
+                        acted = True
+                if not acted:
+                    r = p["r"]   # nicht eingegriffen: genau wie das Signal-Ziel
+                elif r is None:
+                    if stop >= 0 and len(p["cl"]) > 96:   # nach BE weiter bis Sessionende verfolgen
+                        for k in range(97, len(p["cl"])):
+                            if p["adv"][k] <= stop:
+                                r = stop
+                                break
+                            if p["fav"][k] >= p["t_r0"]:
+                                r = p["t_r0"]
+                                break
+                    if r is None:
+                        r = p["cl"][-1]
+                d = 1 if p["side"] == "long" else -1
+                rows.append({"id": uuid.uuid4().hex[:12], "shadow_id": p["id"], "setup": p["setup"], "fam": p["fam"], "side": p["side"],
+                             "var": var, "entry": p["entry"], "stop": p["sl"], "risk": p["r0"], "tp": p["tp"],
+                             "best": p["entry"], "opened": p["opened"], "closed": p["closed"], "exit": p["entry"] + d * r * p["r0"],
+                             "r": round(r, 3), "status": "geschlossen", "bar_time": p["bar_time"]})
+            self.db.add_variants(rows)
+            total += len(rows)
+        return total
 
     def learn_paths_async(self, adopt=False):
         def run():

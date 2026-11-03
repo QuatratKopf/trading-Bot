@@ -1,6 +1,6 @@
 {
-  "version": "2.16.0",
-  "file": "releases/FVG-Trader-2.16.0.cmd",
-  "sha256": "0767aaae11a73495d30e94cd777ceab0abdb22ac823b47ca9fe6df0c9d7a135c",
-  "notes": "Spart ngrok-Anfragen: neues TradingView-Script (Kerzen gebündelt, Live-Kurs sparsam) – Script in TradingView ersetzen und Alert neu anlegen. Verbrauch je Art und Hochrechnung in den Einstellungen"
+  "version": "2.17.0",
+  "file": "releases/FVG-Trader-2.17.0.cmd",
+  "sha256": "2af860d5a8707fe57d005405537e2a176ac0815648f76af3c523d105f42fd5e2",
+  "notes": "Smart-BE: Der Bot lernt selbst, wann der Stop auf Einstieg gehört (z. B. wenn der Trade zäh wird) – ohne feste Regel"
 }
