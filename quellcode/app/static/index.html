@@ -653,6 +653,8 @@ table.cmp td,table.cmp th{white-space:normal}
 .mc-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--sunk);margin-bottom:12px}
 .mc-bar i.p{background:var(--pos)} .mc-bar i.o{background:var(--muted);opacity:.5} .mc-bar i.n{background:var(--neg)}
 @media (max-width:820px){.mc-big{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:12px}.mc-big > div:nth-child(odd){border-left:0;padding-left:0}}
+.pc-sm{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.5;padding:8px 10px;margin:8px 0 2px;border-radius:8px;background:var(--sunk)}
+.pc-sm .dot{margin-top:6px;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -1541,6 +1543,7 @@ function posCard(p) {
       <span class="hint" id="pcAge-${p.id}"></span>
       <div class="pc-pl"><b id="pcPl-${p.id}">–</b><small id="pcPl2-${p.id}"></small></div>
     </div>
+    <div class="pc-sm" id="pcSm-${p.id}"></div>
     <div class="pc-bar"><div class="pc-track"><i class="pc-risk"></i><i class="pc-rew"></i><span class="pc-mk e" id="pcMe-${p.id}"></span><span class="pc-mk n" id="pcMn-${p.id}"></span></div>
       <div class="pc-bl"><span class="neg">Stop</span><span class="pc-le" id="pcLe-${p.id}">Einstieg</span><span class="pos">${p.tp != null ? "Ziel" : "kein Ziel"}</span></div></div>
     <div class="pc-g">
@@ -1595,6 +1598,9 @@ function posLive(p) {
   el.querySelector(".pc-risk").style.width = e + "%"; el.querySelector(".pc-rew").style.left = e + "%"; el.querySelector(".pc-rew").style.width = (100 - e) + "%";
   $("#pcMe-" + p.id).style.left = e + "%"; $("#pcMn-" + p.id).style.left = n + "%";
   const le = $("#pcLe-" + p.id); if (le) le.style.left = Math.max(12, Math.min(88, e)) + "%";
+  const sm = $("#pcSm-" + p.id), x = p.smart;
+  if (sm) sm.innerHTML = !x ? `<span class="hint">Bot-Einschätzung: noch zu wenig ähnliche Trades für eine Einschätzung</span>`
+    : `<span class="dot ${x.exit ? "warn" : "ok"}"></span><span><b>Bot-Einschätzung:</b> ${x.exit ? "lohnt sich eher nicht mehr" : x.hold >= x.now ? "Halten lohnt sich" : "kein klarer Unterschied, bleibt drin"} – ähnliche Trades brachten von hier aus im Schnitt <b class="mono ${cls(x.hold)}">${x.hold > 0 ? "+" : ""}${num2(x.hold)} R</b> (jetzt ${x.now > 0 ? "+" : ""}${num2(x.now)} R · ${x.n} Vergleiche · ${x.p_win} % liefen weiter ins Plus)${x.exit && p.mgmt === "Signal-Ziel + Smart-Ausstieg" ? " · <b>steigt zum Kerzenschluss aus</b>" : x.exit ? " · nur Hinweis, Smart-Ausstieg ist für diese Strategie (noch) nicht übernommen" : ""}</span>`;
 }
 function posPreview(p, which) {
   const inp = $(`#${which}-${p.id}`), out = $(`#${which}Prev-${p.id}`); if (!inp || !out) return;
@@ -2139,7 +2145,7 @@ try { LTAB = localStorage.getItem("fvg-ltab") || "strategien"; } catch (e) {}
 function learn() {
   if (!$("#lnWrap")) {
     $("#main").innerHTML = `<div id="lnWrap" style="display:contents">
-      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
+      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["sessionziele", "Session-Ziele"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
         `<button type="button" role="tab" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
       <div id="lnBody" style="display:contents"></div></div>`;
     document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab", LTAB); } catch (e) {}
@@ -2147,6 +2153,7 @@ function learn() {
   }
   if (LTAB === "varianten") return labVariants();
   if (LTAB === "regeln") return labRules();
+  if (LTAB === "sessionziele") return labSessions();
   if (LTAB === "backtest") return backtestView();
   learnStrategies();
 }
@@ -2190,7 +2197,7 @@ async function labVariants(force) {
         <b class="${cls(c.avg)}">${c.avg > 0 ? "+" : ""}${num2(c.avg)}</b><small>${Math.round(c.wr)} % · ${c.n}</small></td>`;
   body.innerHTML = `<section class="panel lab-v">
     <div class="section-h"><div><h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">Varianten-Labor</h2>
-      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Für jedes Signal rechnet die App im Hintergrund ${cols.length - 1} Ausstiegs-Varianten mit: feste Ziele von 1R bis 3R, Stop auf Break-even ab +1R, Trailing-Stop, Halten bis Session-Ende und <b>Früh-Ausstiege</b>, wenn der Trade „nichts wird“: Zeit-Stop (nach 30/60 Min noch nicht +0,5R), raus bei Kerzenschluss −0,5R, Stagnation (in 30 Min nie über +0,3R). Die Zahl ist das <b>Ø R pro Signal</b> (darunter Trefferquote und Anzahl). <b>Grün umrandet</b> = beste Variante, <b>blau</b> = aktuell genutzt.
+      <p class="hint" style="max-width:85ch;margin-top:4px;line-height:1.6">Für jedes Signal rechnet die App im Hintergrund ${cols.length - 1} Ausstiegs-Varianten mit: feste Ziele von 1R bis 3R, Stop auf Break-even ab +1R, Trailing-Stop, Halten bis Session-Ende und den <b>Smart-Ausstieg</b>: Er hat keine feste Regel, sondern wägt nach jeder Kerze ab, was ähnliche frühere Trades von genau diesem Punkt aus noch gebracht haben (gleiche Strategie, gleiche Zeit im Trade, gleicher Stand in R, gleicher Höchststand, ähnliche Volatilität). Bringt Halten im Schnitt deutlich weniger als jetzt auszusteigen, geht er raus. Für vergangene Signale wurde das rückwirkend gerechnet – jeweils nur mit dem Wissen von damals. Die Zahl ist das <b>Ø R pro Signal</b> (darunter Trefferquote und Anzahl). <b>Grün umrandet</b> = beste Variante, <b>blau</b> = aktuell genutzt.
       Eine Empfehlung gibt es erst ab ${V.min_n} Signalen, wenn die Variante im Schnitt mindestens 0,15 R besser ist <b>und</b> in beiden Zeit-Hälften vorne liegt, damit es kein Zufall ist.</p></div>
       <button class="btn" id="labVRef">Neu berechnen</button></div>
     ${V.setups.length ? `<div class="scroll"><table class="vt"><thead><tr><th class="t">Strategie</th>${cols.map(k => `<th>${k === "Signal-Ziel" ? "Signal-Ziel<br><small>aus TradingView</small>" : esc(k)}</th>`).join("")}<th class="t">Empfehlung</th></tr></thead><tbody>
@@ -2257,6 +2264,45 @@ async function labRules(force) {
 
 
 /* ───────── Backtest: Trade-Liste aus dem TradingView-Strategietester auswerten ───────── */
+/* ───────── Session-Ziele ───────── */
+const SZ = {data: null, at: 0, err: null};
+async function labSessions(force) {
+  const body = $("#lnBody");
+  if (force || !SZ.data || Date.now() - SZ.at > 60000) {
+    if (!SZ.data) body.innerHTML = '<p class="hint">Rechne Kursverläufe durch …</p>';
+    try { SZ.data = await api("/api/lab/sessions"); SZ.at = Date.now(); SZ.err = null; } catch (e) { SZ.err = e.message; }
+  }
+  if (TAB !== "learn" || LTAB !== "sessionziele") return;
+  const d = SZ.data; if (!d) { body.innerHTML = `<p class="err-msg">${esc(SZ.err || "")}</p>`; return; }
+  const G = d.fit.groups || {}, N = d.names || {}, fam = Object.keys(d.vol || {})[0], vol = fam ? d.vol[fam] : {};
+  const order = ["asia", "london", "ny_am", "ny_lunch", "ny_pm", "aus"];
+  const sess = order.filter(k => G[k]), subs = Object.keys(G).filter(k => k.includes("|")).sort();
+  const pctF = v => Math.round(v * 100) + " %";
+  const row = (k, label) => { const g = G[k], ap = d.applied[k];
+    const st = ap ? `<span class="chip good">übernommen: Ziel ${pctF(ap.f)} · Stop ${pctF(ap.g)}</span>` : g.rec ? `<span class="chip warn">Empfehlung</span>` : g.n < 30 ? `<span class="chip mute">sammelt (${g.n}/30)</span>` : `<span class="chip mute">Signal-Abstände passen</span>`;
+    const better = g.best.f < 1 || g.best.g < 1;
+    return `<tr><td class="t">${label}<small class="hint" style="display:block">${g.n} Signale</small></td>
+      <td>${g.sl_ticks}</td><td>${g.tp_ticks}</td><td>${g.mfe_ticks ?? "–"}</td><td>${pct(g.tp_hit)}</td>
+      <td class="t">${better ? `Ziel ${pctF(g.best.f)} · Stop ${pctF(g.best.g)}` : "wie Signal"}<small class="hint" style="display:block">${num2(g.cur.avg)} → <b class="${cls(g.best.avg)}">${num2(g.best.avg)} R</b> · Hälften ${num2(g.best.a1)} / ${num2(g.best.a2)}</small></td>
+      <td class="t">${st}</td>
+      <td class="t">${g.rec ? `<button class="btn primary" data-szk="${esc(k)}" data-f="${g.rec.f}" data-g="${g.rec.g}" style="padding:4px 10px;font-size:12px">Übernehmen</button>` : ap ? `<button class="btn" data-szk="${esc(k)}" data-rm="1" style="padding:4px 10px;font-size:12px">Zurück</button>` : ""}</td></tr>`; };
+  const head = `<thead><tr><th class="t">Session</th><th>Ø Stop<small class="hint" style="display:block;font-weight:400">Ticks</small></th><th>Ø Ziel<small class="hint" style="display:block;font-weight:400">Ticks</small></th><th>Typische Bewegung<small class="hint" style="display:block;font-weight:400">Ticks in 2 Std</small></th><th>Ziel erreicht</th><th class="t">Bestes Verhältnis</th><th class="t">Status</th><th></th></tr></thead>`;
+  const sm = d.smart || {};
+  body.innerHTML = `
+    <section class="panel"><div class="section-h"><div><h2>Session-Ziele</h2><p class="hint" style="max-width:90ch;margin:4px 0 0;line-height:1.6">Nicht jede Session bewegt sich gleich viel. Für jedes vergangene Signal hat die App den echten Kursverlauf gespeichert und rechnet durch, welche Stop- und Ziel-Abstände in welcher Session wirklich erreicht werden – inklusive Gebühren (engerer Stop = mehr Kontrakte = mehr Gebühren). <b>Typische Bewegung</b> ist, wie weit der Kurs nach dem Einstieg in 2 Stunden meist in Trade-Richtung läuft. Liegt das Ziel weit darüber, ist es in dieser Session unrealistisch. Übernommen wird nur, was in beiden Zeit-Hälften besser war; mit „Gelerntes selbst umsetzen“ macht der Bot das jeden Abend selbst.</p></div>
+      <button class="btn" id="szRe">${sm.busy ? "Rechnet …" : "Neu berechnen"}</button></div></section>
+    ${sess.length ? `<section class="panel scroll"><table>${head}<tbody>${sess.map(k => row(k, esc(N[k] || k))).join("")}</tbody></table></section>`
+      : `<div class="empty">Noch keine fertigen Kursverläufe. Ein Signal zählt, sobald seine Session vorbei ist (16:00 New York) und die Kerzen dafür gespeichert sind.</div>`}
+    ${subs.length ? `<details class="set-sec"><summary><span class="s-ic">${icon('<path d="M4 6h16M4 12h16M4 18h10"/>')}</span><span class="s-t"><b>Je Strategie und Session</b><span class="hint">wird ab 60 Signalen einzeln angepasst, vorher gilt die Session</span></span><span></span></summary><div class="set-b scroll"><table>${head}<tbody>${subs.map(k => { const [a, b] = k.split("|"); return row(k, `${esc(a)}<br><span class="hint">${esc(N[b] || b)}</span>`); }).join("")}</tbody></table></div></details>` : ""}
+    <div class="grid2">
+      <section class="section"><h2>Kerzen-Spanne je Session</h2><div class="panel">${fam ? `<div class="hbars">${order.filter(k => vol[k] != null).map(k => { const mx = Math.max(...order.map(x => vol[x] || 0)); return `<div class="hbar"><div class="hbar-l"><span class="chip">${esc(N[k] || k)}</span></div><div class="hbar-t"><i style="left:0;width:${vol[k] / mx * 100}%;background:var(--accent)"></i></div><b class="mono">${num2(vol[k]).replace(",00", "")} Ticks</b></div>`; }).join("")}</div><p class="hint" style="margin:8px 0 0">Ø Hoch-Tief-Spanne einer ${vol._tf_min}-Minuten-Kerze (${esc(fam)}), letzte 20 Tage.</p>` : '<p class="hint">Noch keine Kerzen gespeichert.</p>'}</div></section>
+      <section class="section"><h2>Smart-Ausstieg</h2><div class="panel"><p class="hint" style="margin:0;line-height:1.6">Lernt aus <b>${sm.trades || 0}</b> fertigen Kursverläufen. Nach jeder Kerze vergleicht er einen laufenden Trade mit ähnlichen früheren Situationen und steigt aus, wenn Halten im Schnitt deutlich schlechter war als jetzt rauszugehen. Ob er sich lohnt, steht im <b>Varianten-Labor</b> in der Spalte „Signal-Ziel + Smart-Ausstieg“ – bewährt er sich, übernimmt der Bot ihn selbst. Im Cockpit zeigt jede offene Position die aktuelle Einschätzung.</p></div></section>
+    </div>`;
+  body.querySelectorAll("[data-szk]").forEach(b => b.onclick = async () => {
+    try { await api("/api/lab/sessions/apply", b.dataset.rm ? {key: b.dataset.szk, remove: true} : {key: b.dataset.szk, f: +b.dataset.f, g: +b.dataset.g});
+      toast(b.dataset.rm ? "Zurück auf die Signal-Abstände" : "Übernommen – gilt ab dem nächsten Signal"); S = await api("/api/state"); labSessions(true); } catch (e) { toast(e.message); } });
+  $("#szRe").onclick = async () => { try { await api("/api/lab/sessions/refresh", {}); toast("Wird im Hintergrund neu berechnet"); setTimeout(() => labSessions(true), 4000); } catch (e) { toast(e.message); } };
+}
 const BT = {trades: null, name: "", loaded: false, filter: "Alle", err: null, src: "export", live: null, liveAt: 0};
 try { BT.src = localStorage.getItem("fvg-bt-src") || "export"; } catch (e) {}
 const BT_NEWS = {

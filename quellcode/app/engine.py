@@ -104,6 +104,7 @@ DEFAULT_CONFIG = {
         "enabled": True, "before_min": 10, "after_min": 10, "impact": "high", "usd_only": True, "close_before": True,
     },
     "exit_rules": {},          # Strategie -> übernommene Ausstiegs-Variante (Varianten-Labor)
+    "session_scale": {},       # Session (oder Strategie|Session) -> {"f": Ziel-Faktor, "g": Stop-Faktor} (Session-Ziele)
     "rule_filters": [],        # übernommene Regeln aus dem Regel-Finder
     "challenge": {             # Fremdkapital / Prop-Firm-Challenge
         "enabled": False, "name": "", "phase": "Challenge", "start_balance": 50000.0, "start_day": "",
@@ -269,28 +270,10 @@ VARIANTS = {
     "1R": {"tp": 1.0}, "1,5R": {"tp": 1.5}, "2R": {"tp": 2.0}, "3R": {"tp": 3.0},
     "2R + BE": {"tp": 2.0, "be": 1.0}, "3R + BE": {"tp": 3.0, "be": 1.0},
     "Trailing 1R": {"trail": 1.0}, "Bis Session-Ende": {},
-    # Früh-Ausstiege: raus, wenn der Trade „nichts mehr wird“ (Ziel sonst 2R)
-    "2R + Zeit 30 Min": {"tp": 2.0, "time_min": 30, "time_need": 0.5},
-    "2R + Zeit 60 Min": {"tp": 2.0, "time_min": 60, "time_need": 0.5},
-    "2R + Raus bei −0,5R": {"tp": 2.0, "cut_close": -0.5},
-    "2R + Stagnation": {"tp": 2.0, "stag_min": 30, "stag_need": 0.3},
+    # Ohne feste Regel: wägt nach jeder Kerze anhand ähnlicher früherer Trades ab, ob sich Halten noch lohnt
+    "Signal-Ziel + Smart-Ausstieg": {"signal_tp": True, "smart": True},
 }
-EARLY_KEYS = ("time_min", "cut_close", "stag_min")
-
-
-def early_exit(rule, side, entry, risk, close, best, minutes):
-    """Grund für einen vorzeitigen Ausstieg zum Kerzenschluss oder None."""
-    if not rule or not risk:
-        return None
-    d = 1 if side == "long" else -1
-    r_now, r_best = (close - entry) * d / risk, (best - entry) * d / risk
-    if rule.get("cut_close") is not None and r_now <= rule["cut_close"]:
-        return f"Früh raus: Schluss bei {r_now:+.2f} R"
-    if rule.get("time_min") and minutes >= rule["time_min"] and r_now < rule.get("time_need", 0.5):
-        return f"Zeit-Stop: nach {int(minutes)} Min erst {r_now:+.2f} R"
-    if rule.get("stag_min") and minutes >= rule["stag_min"] and r_best < rule.get("stag_need", 0.3):
-        return f"Stagnation: in {int(minutes)} Min nie über {r_best:+.2f} R"
-    return None
+SMART_EXIT = "Signal-Ziel + Smart-Ausstieg"
 PAPER_ONLY_VARIANTS = ("Trailing 1R", "Bis Session-Ende")   # brauchen eine Order ohne festes Ziel
 
 
@@ -401,6 +384,9 @@ class Engine:
         self._silent = False
         self._daystop_day = None   # wird nach dem Laden des Lernstands gesetzt
         self._last_loop = time.time()
+        self.paths, self.pm_index, self.pm_info, self.sfit = {}, {}, {}, None
+        self._pm_busy = False
+        self._ratr_cache, self._smart_pos_cache = {}, {}
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
         self.news_source = lambda: []  # liefert die Termine des Wirtschaftskalenders (setzt der Server)
@@ -416,6 +402,7 @@ class Engine:
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
         threading.Thread(target=self._loop, daemon=True).start()
+        threading.Timer(8, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))).start()
 
     # ───────── Konfiguration ─────────
     def _load_cfg(self):
@@ -506,6 +493,18 @@ class Engine:
             raise ValueError("News-Pause: Minuten vorher/nachher zwischen 0 und 240")
         if nw["impact"] not in ("high", "medium"):
             raise ValueError("News-Pause: Wichtigkeit muss hoch oder mittel sein")
+        sc = c.get("session_scale") or {}
+        clean_sc = {}
+        for k, v in sc.items():
+            if v is None:
+                continue
+            f_, g_ = float(v.get("f", 1)), float(v.get("g", 1))
+            if not (0.3 <= f_ <= 1.0 and 0.3 <= g_ <= 1.0):
+                raise ValueError("Session-Ziele: Faktoren zwischen 0,3 und 1,0")
+            if f_ < 1.0 or g_ < 1.0:
+                clean_sc[str(k)[:60]] = {"f": f_, "g": g_, "added": float(v.get("added") or time.time()), "auto": bool(v.get("auto")),
+                                         "gain": float(v.get("gain") or 0)}
+        c["session_scale"] = clean_sc
         er = c.get("exit_rules") or {}
         c["exit_rules"] = {str(k)[:40]: v for k, v in er.items() if v in VARIANTS}
         rf = c.get("rule_filters") or []
@@ -706,9 +705,9 @@ class Engine:
                 continue
             best = max(v["best"], bar["high"]) if long_ else min(v["best"], bar["low"])
             vr = VARIANTS.get(v["var"], {})
-            if any(k in vr for k in EARLY_KEYS):
-                why = early_exit(vr, v["side"], v["entry"], v["risk"], bar["close"], best, self._minutes_in(v, bar))
-                if why:
+            if vr.get("smart") and self._chart_close(fam, bar):
+                dec = self._smart_for(v, bar, v["entry"], v["risk"], v["stop"], v["tp"], best, v["setup"], fam, v["side"], v["shadow_id"])
+                if dec and dec["exit"]:
                     self._close_variant(v, bar["close"])
                     continue
             stop = manage_stop(v["side"], v["entry"], v["risk"], v["stop"], best, vr)
@@ -717,7 +716,7 @@ class Engine:
         # Break-even/Trailing für Bot-Positionen mit übernommenem Ausstieg (wirkt ab der nächsten Kerze)
         for pos in self.db.open_positions():
             rule = VARIANTS.get(pos.get("mgmt") or "")
-            if not rule or not (rule.get("be") or rule.get("trail") or any(k in rule for k in EARLY_KEYS)) \
+            if not rule or not (rule.get("be") or rule.get("trail") or rule.get("smart")) \
                     or family(pos["root"]) != fam or not self._bar_after(pos, bar):
                 continue
             long_ = pos["side"] == "long"
@@ -728,8 +727,9 @@ class Engine:
             risk = abs(pos["entry"] - (pos["initial_sl"] or pos["sl"]))
             prev = pos.get("best") or pos["entry"]
             best = max(prev, bar["high"]) if long_ else min(prev, bar["low"])
-            if any(k in rule for k in EARLY_KEYS):
-                why = early_exit(rule, pos["side"], pos["entry"], risk, bar["close"], best, self._minutes_in(pos, bar))
+            if rule.get("smart") and self._chart_close(fam, bar):
+                dec = self._smart_for(pos, bar, pos["entry"], risk, pos["sl"], pos["tp"], best, pos["setup"], fam, pos["side"])
+                why = "Smart-Ausstieg: " + dec["text"] if dec and dec["exit"] else None
                 if why:
                     try:
                         if bar.get("time"):
@@ -737,7 +737,7 @@ class Engine:
                         self._close(pos, bar["close"], why)
                         self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} vorzeitig geschlossen · {why}")
                     except ValueError as e:
-                        self.db.log(f"Früh-Ausstieg fehlgeschlagen: {e}", "error")
+                        self.db.log(f"Smart-Ausstieg fehlgeschlagen: {e}", "error")
                     continue
             new = round_tick(manage_stop(pos["side"], pos["entry"], risk, pos["sl"], best, rule), INSTR[pos["root"]]["tick"])
             if new != pos["sl"]:
@@ -829,15 +829,25 @@ class Engine:
                 self.db.add_variants([{
                     "id": uuid.uuid4().hex[:12], "shadow_id": shid, "setup": base["setup"], "fam": fam, "side": side,
                     "var": k, "entry": price, "stop": sl, "risk": risk,
-                    "tp": price + d * v["tp"] * risk if v.get("tp") else None, "best": price,
+                    "tp": tp if v.get("signal_tp") else price + d * v["tp"] * risk if v.get("tp") else None, "best": price,
                     "opened": time.time(), "status": "offen", "bar_time": base["bar_time"]} for k, v in VARIANTS.items()])
+        # Session-Ziele: Stop/Ziel an die übliche Bewegung der Session anpassen (gelernt, nur wenn bewährt)
+        sc = self._session_scale_for(base["setup"], session_of(ny_time(sig_ts)))
+        if sc and not is_test:
+            d_ = 1 if side == "long" else -1
+            tick_ = INSTR[fam]["tick"]
+            sl0, tp0 = sl, tp
+            sl = round_tick(price - d_ * max(abs(price - sl0) * sc["g"], self.cfg["safe_stop"][fam]["min"]), tick_)
+            tp = round_tick(price + d_ * abs(tp0 - price) * sc["f"], tick_)
+            flags.append(f"Session-Ziele: Stop {abs(price - sl) / tick_:.0f} statt {abs(price - sl0) / tick_:.0f} Ticks, "
+                         f"Ziel {abs(tp - price) / tick_:.0f} statt {abs(tp0 - price) / tick_:.0f} Ticks")
         # Vom Varianten-Labor übernommener Ausstieg für diese Strategie
         mgmt = (self.cfg.get("exit_rules") or {}).get(base["setup"])
         if mgmt in VARIANTS and not (mgmt in PAPER_ONLY_VARIANTS and self.broker.name != "paper"):
             v = VARIANTS[mgmt]
             d = 1 if side == "long" else -1
             tick = INSTR[fam]["tick"]
-            tp = round_tick(price + d * v["tp"] * abs(price - sl), tick) if v.get("tp") else None
+            tp = tp if v.get("signal_tp") else round_tick(price + d * v["tp"] * abs(price - sl), tick) if v.get("tp") else None
             base["mgmt"] = mgmt
             flags.append(f"Ausstieg {mgmt} (Varianten-Labor)")
         sized = self._size(fam, price, sl)
@@ -1416,7 +1426,24 @@ class Engine:
                 have.add(key)
                 done.append(f"Regel übernommen – {f['setup']} {'meiden' if f['action'] == 'avoid' else 'nur'}, wenn {f['label']} "
                             f"(Ø {_fmt(f['avg_match'], '+.2f')} R gegenüber {_fmt(f['avg_rest'], '+.2f')} R, {f['n']} Signale)")
+            # 3) Session-Ziele: realistische Stop-/Ziel-Abstände je Session
+            sc = {k: dict(v) for k, v in (self.cfg.get("session_scale") or {}).items()}
+            fit = (self.sfit or {}).get("groups") or {}
+            for key, g in sorted(fit.items()):
+                if not g["rec"] or ("|" in key and g["n"] < 60):
+                    continue
+                name = key if "|" not in key else key.split("|")[0] + " in " + SESSION_NAMES.get(key.split("|")[1], key.split("|")[1])
+                name = SESSION_NAMES.get(name, name)
+                if g["rec"]["f"] >= 1.0 and g["rec"]["g"] >= 1.0:
+                    sc[key] = None
+                    done.append(f"Session-Ziele {name}: zurück auf die Abstände aus dem Signal")
+                else:
+                    sc[key] = {"f": g["rec"]["f"], "g": g["rec"]["g"], "added": time.time(), "auto": True,
+                               "gain": round(g["best"]["avg"] - g["cur"]["avg"], 3)}
+                    done.append(f"Session-Ziele {name}: Ziel {g['rec']['f'] * 100:.0f} %, Stop {g['rec']['g'] * 100:.0f} % der Signal-Abstände "
+                                f"(Ø {_fmt(g['cur']['avg'], '+.2f')} → {_fmt(g['best']['avg'], '+.2f')} R aus {g['n']} Signalen)")
             if done:
+                self.cfg["session_scale"] = {k: v for k, v in sc.items() if v}
                 self.update_cfg({"exit_rules": er, "rule_filters": rules})
                 if any(k not in er for k in (self.cfg.get("exit_rules") or {})):
                     self.cfg["exit_rules"] = er
@@ -1476,10 +1503,7 @@ class Engine:
                     if last:
                         self._close_variant(v, last)
                 self.learn()
-                try:
-                    self.auto_adopt()
-                except Exception as e:   # Lernen darf den Handel nie stören
-                    self.db.log(f"Lernmodul: automatische Übernahme fehlgeschlagen ({e})", "warn")
+                self.learn_paths_async(adopt=True)   # Kursverläufe, Smart-Ausstieg, Session-Ziele, dann selbst übernehmen
                 self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
                 self.notify("daily", f"Tagesabschluss {t.strftime('%d.%m.')}", self.day_report_text(), "info")
                 if t.weekday() == 4:
@@ -2185,6 +2209,311 @@ class Engine:
             self.db.log(f"Eigene Trades importiert: {added} neu, {skipped} schon vorhanden, {bad} nicht lesbar")
         return {"ok": True, "added": added, "skipped": skipped, "bad": bad, "fees": bool(c_fee) and subtract_fees}
 
+    # ───────── Gelerntes Abwägen: Kursverläufe vergangener Signale ─────────
+    # Für jedes abgeschlossene Signal wird der Kursverlauf nach dem Einstieg (bis 16:00 NY) in R gespeichert.
+    # Daraus lernt der Bot (1) ob sich ein laufender Trade noch lohnt (Smart-Ausstieg, ohne feste Regel)
+    # und (2) welche Stop-/Ziel-Abstände in welcher Session realistisch sind (Session-Ziele).
+
+    def _ny_epoch(self, naive):
+        guess = (naive - dt.datetime(1970, 1, 1)).total_seconds() + 5 * 3600
+        off = (ny_time(guess) - dt.datetime.fromtimestamp(guess, dt.timezone.utc).replace(tzinfo=None)).total_seconds()
+        return (naive - dt.datetime(1970, 1, 1)).total_seconds() - off
+
+    def _entry_ms(self, obj, tf):
+        bt = obj.get("bar_time")
+        if bt and abs(bt / 1000 - obj["opened"]) < 400 * 86400:
+            return bt + tf
+        return obj["opened"] * 1000
+
+    def _ratr(self, fam, entry_ms, r0, tf=None):
+        """Stop-Abstand im Verhältnis zur normalen Kerzen-Spanne vor dem Einstieg."""
+        key = (fam, int(entry_ms // 60000), round(r0, 2))
+        if key in self._ratr_cache:
+            return self._ratr_cache[key]
+        tf = tf or self.chart_tf.get(fam) or 300000
+        rows = self.db.rows("SELECT h, l FROM bars WHERE fam=? AND t<? AND t>=? ORDER BY t DESC LIMIT 12",
+                            (fam, entry_ms, entry_ms - 40 * tf))
+        rng = [x["h"] - x["l"] for x in rows if x["h"] > x["l"]]
+        val = r0 / (sum(rng) / len(rng)) if len(rng) >= 4 else None
+        if len(self._ratr_cache) > 5000:
+            self._ratr_cache.clear()
+        self._ratr_cache[key] = val
+        return val
+
+    @staticmethod
+    def _pm_keys(setup, mins, r_now, best, ratr):
+        mb = 0 if mins < 10 else 1 if mins < 20 else 2 if mins < 40 else 3 if mins < 80 else 4 if mins < 160 else 5
+        rb = max(-4, min(8, math.floor(r_now / 0.25)))
+        bb = max(0, min(4, math.floor(max(0.0, best) / 0.5)))
+        ab = 9 if ratr is None else 0 if ratr < 1.5 else 1 if ratr < 3 else 2 if ratr < 6 else 3
+        return [(setup, mb, rb, bb, ab), ("*", mb, rb, bb, ab), ("*", mb, rb, bb), ("*", mb, rb)]
+
+    def paths_build(self):
+        """Kursverläufe aller fertigen Signale aufbauen (läuft im Hintergrund, ändert nichts am Handel)."""
+        now = time.time()
+        paths = dict(self.paths)
+        for sh in self.db.rows("SELECT id, setup, fam, side, entry, sl, tp, opened, closed, r, bar_time, ctx FROM shadow "
+                               "WHERE status='geschlossen' AND r IS NOT NULL ORDER BY opened"):
+            if sh["id"] in paths:
+                continue
+            end = self._ny_epoch(self._session_end(sh))
+            if end > now - 300:
+                continue   # Verlauf bis Sessionende noch nicht komplett
+            r0 = abs(sh["entry"] - sh["sl"])
+            if r0 <= 0:
+                paths[sh["id"]] = None
+                continue
+            probe = self.db.rows("SELECT t FROM bars WHERE fam=? AND t>=? ORDER BY t LIMIT 40",
+                                 (sh["fam"], (sh["bar_time"] or sh["opened"] * 1000) - 40 * 3600 * 1000))
+            tf = self._tf_of([[x["t"]] for x in probe]) or self.chart_tf.get(sh["fam"]) or 300000
+            e_ms = self._entry_ms(sh, tf)
+            bars = self.db.rows("SELECT t, h, l, c FROM bars WHERE fam=? AND t>=? AND t<? ORDER BY t LIMIT 300",
+                                (sh["fam"], e_ms, end * 1000))
+            if not bars:
+                paths[sh["id"]] = None
+                continue
+            d = 1 if sh["side"] == "long" else -1
+            e = sh["entry"]
+            fav = [((x["h"] if d > 0 else x["l"]) - e) * d / r0 for x in bars]
+            adv = [((x["l"] if d > 0 else x["h"]) - e) * d / r0 for x in bars]
+            cl = [(x["c"] - e) * d / r0 for x in bars]
+            paths[sh["id"]] = {"id": sh["id"], "setup": sh["setup"], "fam": sh["fam"], "side": sh["side"], "entry": e, "r0": r0,
+                               "t_r0": abs(sh["tp"] - e) / r0 if sh["tp"] else 2.0, "tf_min": tf / 60000, "entry_ms": e_ms,
+                               "end_ms": end * 1000, "opened": sh["opened"], "closed": sh["closed"], "r": sh["r"],
+                               "sess": self._shadow_session(sh), "ratr": self._ratr(sh["fam"], e_ms, r0, tf),
+                               "fav": fav, "adv": adv, "cl": cl, "bar_time": sh["bar_time"], "sl": sh["sl"], "tp": sh["tp"]}
+        index = {}
+        for p in paths.values():
+            if not p:
+                continue
+            best = -9.0
+            for k in range(min(len(p["cl"]), 96)):
+                best = max(best, p["fav"][k])
+                for key in self._pm_keys(p["setup"], (k + 1) * p["tf_min"], p["cl"][k], best, p["ratr"]):
+                    index.setdefault(key, []).append((p["id"], k))
+        self.paths, self.pm_index = paths, index
+        self.pm_info = {"built": time.time(), "trades": sum(1 for p in paths.values() if p),
+                        "snapshots": sum(len(v) for k, v in index.items() if len(k) == 5 and k[0] != "*")}
+        return self.pm_info
+
+    def smart_check(self, setup, mins, r_now, best, ratr, s_r, t_r, max_bars, before_ms, exclude=None):
+        """Wägt ab: Was bringt Halten im Schnitt, wenn ähnliche Trades in der Vergangenheit so standen?
+        Keine feste Regel – entschieden wird nach Erfahrung und nur, wenn der Unterschied deutlich ist."""
+        idx = self.pm_index
+        if not idx:
+            return None
+        cand = None
+        for key in self._pm_keys(setup, mins, r_now, best, ratr):
+            seen = {}
+            for sid, k in idx.get(key, ()):
+                if sid == exclude or sid in seen:
+                    continue
+                p = self.paths.get(sid)
+                if not p or p["end_ms"] >= before_ms or k + 1 >= len(p["cl"]):
+                    continue
+                seen[sid] = k
+            if len(seen) >= 25:
+                cand = seen
+                break
+        if not cand:
+            return None
+        picks = sorted(cand.items(), key=lambda kv: -self.paths[kv[0]]["opened"])[:40]
+        out = []
+        for sid, k in picks:
+            p = self.paths[sid]
+            base = p["cl"][k]
+            res = None
+            last = min(len(p["cl"]), k + 1 + max(1, int(max_bars)))
+            for j in range(k + 1, last):
+                if r_now + p["adv"][j] - base <= s_r:
+                    res = s_r
+                    break
+                if t_r is not None and r_now + p["fav"][j] - base >= t_r:
+                    res = t_r
+                    break
+            out.append(res if res is not None else r_now + p["cl"][last - 1] - base)
+        n = len(out)
+        hold = sum(out) / n
+        sd = (sum((x - hold) ** 2 for x in out) / (n - 1)) ** 0.5 if n > 1 else 1.0
+        se = sd / n ** 0.5
+        edge = r_now - hold
+        return {"exit": edge > 0.05 + se, "hold": round(hold, 3), "now": round(r_now, 3), "n": n, "se": round(se, 3),
+                "p_win": round(sum(1 for x in out if x > r_now) / n * 100), "text":
+                f"Halten bringt bei {n} ähnlichen Trades im Schnitt {_fmt(hold, '+.2f')} R, jetzt raus {_fmt(r_now, '+.2f')} R"}
+
+    def _smart_for(self, obj, bar, entry, r0, stop, tp, best_px, setup, fam, side, exclude=None):
+        tf = self.chart_tf.get(fam) or 300000
+        d = 1 if side == "long" else -1
+        e_ms = self._entry_ms(obj, tf)
+        end_ms = self._ny_epoch(self._session_end(obj)) * 1000
+        bar_end = bar["time"] + (bar.get("len") or tf) if bar.get("time") else time.time() * 1000
+        return self.smart_check(setup, (bar_end - e_ms) / 60000, (bar["close"] - entry) * d / r0, (best_px - entry) * d / r0,
+                                self._ratr(fam, e_ms, r0, tf), (stop - entry) * d / r0, (tp - entry) * d / r0 if tp else None,
+                                max(1, (end_ms - bar_end) / tf), time.time() * 1000, exclude)
+
+    def _chart_close(self, fam, bar):
+        tf = self.chart_tf.get(fam) or 300000
+        if (bar.get("len") or tf) >= tf:
+            return True
+        return bool(bar.get("time")) and (bar["time"] + bar["len"]) % tf == 0
+
+    def smart_backfill(self):
+        """Smart-Ausstieg rückwirkend für alle fertigen Signale durchrechnen – jeweils nur mit dem Wissen,
+        das zum Zeitpunkt des Signals schon da war (kein Blick in die Zukunft)."""
+        have = {x["shadow_id"] for x in self.db.rows("SELECT shadow_id FROM variants WHERE var=?", (SMART_EXIT,))}
+        rows = []
+        for p in sorted((p for p in self.paths.values() if p and p["id"] not in have), key=lambda p: p["opened"]):
+            r, best = None, -9.0
+            for k in range(len(p["cl"])):
+                if p["adv"][k] <= -1 or p["fav"][k] >= p["t_r0"]:
+                    break
+                best = max(best, p["fav"][k])
+                if k >= 96:
+                    break
+                dec = self.smart_check(p["setup"], (k + 1) * p["tf_min"], p["cl"][k], best, p["ratr"], -1.0, p["t_r0"],
+                                       len(p["cl"]) - k - 1, p["entry_ms"], p["id"])
+                if dec and dec["exit"]:
+                    r = p["cl"][k]
+                    break
+            if r is None:
+                r = p["r"]   # Smart-Ausstieg hat nicht eingegriffen: genau wie das Signal-Ziel
+            d = 1 if p["side"] == "long" else -1
+            rows.append({"id": uuid.uuid4().hex[:12], "shadow_id": p["id"], "setup": p["setup"], "fam": p["fam"], "side": p["side"],
+                         "var": SMART_EXIT, "entry": p["entry"], "stop": p["sl"], "risk": p["r0"], "tp": p["tp"],
+                         "best": p["entry"], "opened": p["opened"], "closed": p["closed"], "exit": p["entry"] + d * r * p["r0"],
+                         "r": round(r, 3), "status": "geschlossen", "bar_time": p["bar_time"]})
+        self.db.add_variants(rows)
+        return len(rows)
+
+    def learn_paths_async(self, adopt=False):
+        def run():
+            if self._pm_busy:
+                return
+            self._pm_busy = True
+            try:
+                self.paths_build()
+                n = self.smart_backfill()
+                self.sfit = self.session_fit()
+                if n:
+                    self.db.log(f"Lernmodul: Smart-Ausstieg für {n} vergangene Signale durchgerechnet")
+                if adopt:
+                    self.auto_adopt()
+            except Exception as e:  # noqa: BLE001
+                self.db.log(f"Lernmodul: Kursverläufe konnten nicht ausgewertet werden ({e})", "warn")
+            finally:
+                self._pm_busy = False
+        threading.Thread(target=run, daemon=True).start()
+
+    def smart_view_pos(self, pos):
+        """Aktuelle Einschätzung für eine offene Position (für das Cockpit)."""
+        key = (pos["id"], int(time.time() // 20))
+        if self._smart_pos_cache.get(pos["id"], (None,))[0] == key:
+            return self._smart_pos_cache[pos["id"]][1]
+        price, _ = self.last_price(family(pos["root"]))
+        res = None
+        if price is not None and pos.get("initial_sl") and pos["entry"] != pos["initial_sl"]:
+            long_ = pos["side"] == "long"
+            best = pos.get("best") or pos["entry"]
+            best = max(best, price) if long_ else min(best, price)
+            fam = family(pos["root"])
+            res = self._smart_for(pos, {"close": price, "time": None, "len": None}, pos["entry"], abs(pos["entry"] - pos["initial_sl"]),
+                                  pos["sl"], pos["tp"], best, pos["setup"], fam, pos["side"])
+        self._smart_pos_cache[pos["id"]] = (key, res)
+        return res
+
+    # ───────── Session-Ziele: realistische Abstände je Session ─────────
+    def _cost_r(self, fam, entry, stop_pts):
+        """Gebühr + Slippage in R. Bei engerem Stop handelt der Bot mehr Kontrakte, dadurch wiegen Kosten schwerer."""
+        sz = self._size(fam, entry, entry - stop_pts)
+        root = sz[0] if not isinstance(sz, str) else INSTR[fam]["micro"]
+        pv, tick = INSTR[root]["pv"], INSTR[root]["tick"]
+        per = 2 * float(self.cfg["paper"]["commission"]) + float(self.cfg["paper"]["slippage_ticks"]) * tick * pv
+        return per / (stop_pts * pv)
+
+    def session_fit(self):
+        F = (0.4, 0.5, 0.6, 0.75, 0.9, 1.0)
+        G = (0.5, 0.6, 0.75, 0.9, 1.0)
+        groups = {}
+        for p in self.paths.values():
+            if p:
+                groups.setdefault(p["sess"], []).append(p)
+                groups.setdefault(p["setup"] + "|" + p["sess"], []).append(p)
+        cur = self.cfg.get("session_scale") or {}
+        out = {}
+        cost_cache = {}
+        for key, lst in groups.items():
+            lst = sorted(lst, key=lambda p: p["opened"])
+            n = len(lst)
+            tick = INSTR[lst[0]["fam"]]["tick"]
+            res = {}
+            for f in F:
+                for g in G:
+                    rs = []
+                    for p in lst:
+                        t, s = p["t_r0"] * f, -g
+                        r = None
+                        for a, b in zip(p["adv"], p["fav"]):
+                            if a <= s:
+                                r = s
+                                break
+                            if b >= t:
+                                r = t
+                                break
+                        if r is None:
+                            r = p["cl"][-1]
+                        ck = (p["id"], g)
+                        if ck not in cost_cache:
+                            cost_cache[ck] = self._cost_r(p["fam"], p["entry"], p["r0"] * g)
+                        rs.append(r / g - cost_cache[ck])
+                    res[(f, g)] = rs
+            k = int(n * 0.6)
+            summ = {fg: (_mean(rs), _mean(rs[:k]) if k else 0.0, _mean(rs[k:]) if rs[k:] else 0.0) for fg, rs in res.items()}
+            c = cur.get(key) or {}
+            cur_fg = (c.get("f", 1.0), c.get("g", 1.0)) if c else (1.0, 1.0)
+            if cur_fg not in summ:
+                cur_fg = (1.0, 1.0)
+            best_fg = max(summ, key=lambda fg: summ[fg][0])
+            b, cu = summ[best_fg], summ[cur_fg]
+            rec = None
+            if n >= 30 and best_fg != cur_fg and b[0] - cu[0] >= 0.1 and b[1] - cu[1] > 0.03 and b[2] - cu[2] > 0.03 and b[0] > 0:
+                rec = {"f": best_fg[0], "g": best_fg[1]}
+            base_hits = sum(1 for p in lst if any(x >= p["t_r0"] for x in p["fav"]) and
+                            next((i for i, x in enumerate(p["fav"]) if x >= p["t_r0"]), 1e9) <
+                            next((i for i, x in enumerate(p["adv"]) if x <= -1), 1e9))
+            mfe2h = sorted(max(p["fav"][:max(1, int(120 / p["tf_min"]))]) * p["r0"] / tick for p in lst)
+            out[key] = {"n": n, "sl_ticks": round(_mean([p["r0"] / tick for p in lst])), "tp_ticks": round(_mean([p["t_r0"] * p["r0"] / tick for p in lst])),
+                        "mfe_ticks": round(mfe2h[len(mfe2h) // 2]) if mfe2h else None, "tp_hit": round(base_hits / n * 100, 1),
+                        "base": round(summ[(1.0, 1.0)][0], 3), "cur": {"f": cur_fg[0], "g": cur_fg[1], "avg": round(cu[0], 3)},
+                        "best": {"f": best_fg[0], "g": best_fg[1], "avg": round(b[0], 3), "a1": round(b[1], 3), "a2": round(b[2], 3)},
+                        "rec": rec, "applied": key in cur}
+        return {"groups": out, "built": time.time(), "trades": sum(1 for p in self.paths.values() if p)}
+
+    def session_vol(self, days=20):
+        """Ø Kerzen-Spanne je Session in Ticks (letzte 20 Tage)."""
+        out = {}
+        for fam in self.db.bar_fams():
+            rows = self.db.bars(fam, (time.time() - days * 86400) * 1000)
+            tick = INSTR[fam]["tick"]
+            tf = self._tf_of([[x["t"]] for x in rows]) or 300000
+            for x in rows:
+                k = session_of(ny_time(x["t"] / 1000))
+                o = out.setdefault(fam, {}).setdefault(k, [0.0, 0])
+                o[0] += (x["h"] - x["l"]) / tick
+                o[1] += 1
+            out[fam] = {k: round(v[0] / v[1], 1) for k, v in out.get(fam, {}).items() if v[1]}
+            out[fam]["_tf_min"] = round(tf / 60000)
+        return out
+
+    def session_targets_view(self):
+        if not self.sfit:
+            self.sfit = self.session_fit()
+        return {"fit": self.sfit, "vol": self.session_vol(), "applied": self.cfg.get("session_scale") or {},
+                "smart": dict(self.pm_info or {}, busy=self._pm_busy), "names": SESSION_NAMES}
+
+    def _session_scale_for(self, setup, sess):
+        sc = self.cfg.get("session_scale") or {}
+        return sc.get(f"{setup}|{sess}") or sc.get(sess)
+
     # ───────── Tageszusammenfassung, Timeline, Tages-Stopp ─────────
     @staticmethod
     def _r_of(p):
@@ -2691,6 +3020,10 @@ class Engine:
             opens = self.db.open_positions()
             for p in opens:
                 p["upnl"] = round(self._unrealized(p), 2)
+                try:
+                    p["smart"] = self.smart_view_pos(p)
+                except Exception:   # noqa: BLE001  Einschätzung ist nur Anzeige
+                    p["smart"] = None
                 p["last"], p["last_ts"] = self.last_price(family(p["root"]))
             r = self.cfg["risk"]
             now_ny = ny_time()

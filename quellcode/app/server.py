@@ -1226,6 +1226,30 @@ def shot_get(h, name, ext):
                 headers={"Cache-Control": "private, max-age=86400"})
 
 
+@route("GET", r"/api/lab/sessions")
+def lab_sessions(h):
+    h._send(200, engine.session_targets_view())
+
+
+@route("POST", r"/api/lab/sessions/refresh")
+def lab_sessions_refresh(h):
+    engine.learn_paths_async(adopt=False)
+    h._send(200, {"ok": True})
+
+
+@route("POST", r"/api/lab/sessions/apply")
+def lab_sessions_apply(h):
+    b = h._json()
+    key = str(b.get("key") or "")[:60]
+    if not key:
+        raise ValueError("Session fehlt")
+    val = None if b.get("remove") else {"f": float(b.get("f")), "g": float(b.get("g")), "added": time.time(), "auto": False}
+    engine.update_cfg({"session_scale": {key: val}})
+    if engine.sfit:
+        engine.sfit = engine.session_fit()
+    h._send(200, {"ok": True})
+
+
 def main():
     global SRV
     srv = None

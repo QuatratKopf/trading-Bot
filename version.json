@@ -1,6 +1,6 @@
 {
-  "version": "2.14.0",
-  "file": "releases/FVG-Trader-2.14.0.cmd",
-  "sha256": "9d01002cb5836b402554dbe8230528bce77e27c5aa790bfed8c0284b05a0954e",
-  "notes": "Neu: Tageszusammenfassung und Gesundheits-Check im Cockpit, Timeline der Bot-Entscheidungen, Tagesziel als Tages-Stopp, Discord-Benachrichtigungen, Wochenbericht, Bot vs. Backtest, Monte-Carlo für die Challenge, Notizen und Screenshots je Trade"
+  "version": "2.15.0",
+  "file": "releases/FVG-Trader-2.15.0.cmd",
+  "sha256": "bc1522227d0df5f0a831c3b90b7ef4bc8b1db2736099c6c234144d2f7c24d8a0",
+  "notes": "Smart-Ausstieg ohne feste Regel (wägt anhand ähnlicher früherer Trades ab) und Session-Ziele: realistische Stop-/Ziel-Abstände je Session, vom Bot selbst gelernt und angepasst"
 }
