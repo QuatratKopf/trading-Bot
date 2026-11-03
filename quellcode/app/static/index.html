@@ -2680,7 +2680,8 @@ function settings() {
     ${field("ngt", "ngrok-Schlüssel für feste Adresse", (c.tunnel || {}).ngrok_token, {type: "password", help: "Kostenlos: ngrok.com → registrieren → im Dashboard „Your Authtoken“ kopieren und hier einfügen"})}
     <div><span class="lbl">Webhook-Adresse für den Alert</span><div class="copyrow"><div class="code" id="hook">${esc(S.hook_url || "wird automatisch erzeugt …")}</div><button class="btn" id="cp" ${S.hook_url ? "" : "disabled"}>Kopieren</button></div></div>
     <div><span class="lbl">Alert-Nachricht</span><div class="copyrow"><div class="code" id="msgTpl">{{strategy.order.alert_message}}</div><button class="btn" id="cp2">Kopieren</button></div></div>
-    <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button></div>`)}
+    <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button><button class="btn" id="tNet">Webhook über Internet testen</button></div>
+    ${intro("„Test-Signal senden“ prüft nur die App selbst. „Webhook über Internet testen“ schickt eine Nachricht über ngrok an die Webhook-Adresse – genau den Weg, den TradingView nimmt.")}`)}
 
   ${sec("acc", "Konten & Broker", `Bot handelt über ${c.broker === "tradovate" ? "Tradovate" : "Paper-Trading"}${c.own_sync && c.own_sync.tradovate ? " · eigene Trades werden übernommen" : ""}`, accChip, `
     ${intro("Einmal verbinden: Deine eigenen Trades kommen dann automatisch in den Kalender.")}
@@ -2815,6 +2816,10 @@ function settings() {
   });
   $("#cp").onclick = () => copyText(S.hook_url, "Adresse"); $("#cp2").onclick = () => copyText("{{strategy.order.alert_message}}", "Nachricht");
   $("#cpPine2").onclick = async () => { try { const r = await api("/api/pine"); copyText(r.source, "Script"); } catch (e) { toast(e.message); } };
+  $("#tNet").onclick = async () => { const b = $("#tNet"); b.disabled = true; b.textContent = "Teste …";
+    try { const r = await api("/api/hook/selftest", {}); toast(`Webhook über das Internet erreichbar (${r.ms} ms). Kommt trotzdem nichts an, liegt es am Alert in TradingView.`); }
+    catch (e) { toast(e.message); }
+    b.disabled = false; b.textContent = "Webhook über Internet testen"; };
   $("#tL").onclick = () => act(() => api("/api/test-signal", {fam: "NQ", side: "long"}).then(r => { TAB = "cockpit"; setHash("cockpit"); return r; }), "Test-Signal gesendet");
   const pr = $("#pr"); if (pr) pr.onclick = () => confirmBtn(pr, "Alle Paper-Trades löschen?", () => act(() => api("/api/paper/reset", {}), "Paper-Konto zurückgesetzt").then(() => render(true)));
   const cpPhone = $("#cpPhone"); if (cpPhone) cpPhone.onclick = () => copyText(phoneUrl, "Adresse");

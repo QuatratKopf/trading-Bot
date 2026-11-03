@@ -1,6 +1,6 @@
 {
-  "version": "2.18.5",
-  "file": "releases/FVG-Trader-2.18.5.cmd",
-  "sha256": "2ac00842ba4d790c60ad92252b30643889b7c425556cea1d77cf7fa139fa50b2",
-  "notes": "Webhook-Adresse nach Update/Neustart zuverlässig wieder erreichbar (altes ngrok wird beendet)"
+  "version": "2.18.6",
+  "file": "releases/FVG-Trader-2.18.6.cmd",
+  "sha256": "14520062d1f8e0d54fa449303a2a1fe2db5ab33fd5b9631b0ac5c1a3afcec8b1",
+  "notes": "Webhook über Internet testen; altes ngrok wird nach Update beendet"
 }

@@ -288,6 +288,8 @@ def webhook(h, token):
     except ValueError:
         engine.db.log(f"Webhook ohne gültiges JSON empfangen: {raw[:80]!r}", "error")
         return h._send(400, {"error": "Kein gültiges JSON"})
+    if isinstance(payload, dict) and payload.get("type") == "ping":
+        return h._send(200, {"ok": True, "pong": True})   # Selbsttest der Internet-Verbindung, zählt nicht als TradingView
     try:
         res = engine.handle_webhook(payload)
     except ValueError as e:
@@ -1299,6 +1301,28 @@ def disc_import(h):
     b.clear()
     res = engine.import_ohlc(fam, text)   # ohne die Engine zu sperren: Signale laufen währenddessen weiter
     h._send(200, res)
+
+
+@route("POST", r"/api/hook/selftest")
+def hook_selftest(h):
+    """Schickt eine Test-Nachricht über das Internet (ngrok) an die eigene Webhook-Adresse – genau wie TradingView."""
+    url = hook_url()
+    if not url:
+        raise ValueError("Noch keine Webhook-Adresse – die Internet-Verbindung steht noch nicht")
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(url, data=b'{"type":"ping"}', method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "FVG-Trader-Selbsttest"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            ok = json.loads(r.read() or b"{}").get("pong")
+    except urllib.error.HTTPError as e:
+        raise ValueError(f"Über das Internet nicht erreichbar (HTTP {e.code}). "
+                         + ("ngrok-Kontingent aufgebraucht oder Adresse belegt." if e.code in (402, 429, 502, 503, 504) else ""))
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"Über das Internet nicht erreichbar: {e}")
+    if not ok:
+        raise ValueError("Unter der Adresse antwortet nicht diese App – Webhook-Adresse in TradingView prüfen")
+    h._send(200, {"ok": True, "ms": round((time.time() - t0) * 1000), "url": url})
 
 
 def main():
