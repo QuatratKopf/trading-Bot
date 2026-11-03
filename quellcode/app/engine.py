@@ -377,6 +377,7 @@ class Engine:
             with open(self.learn_path, encoding="utf-8") as f:
                 self.learning = json.load(f)
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
+        self.old_script = None
         self.data_dir = data_dir
         self.outbox = []              # wartende Discord-Nachrichten (sendet der Server)
         self.discord_state = {"last": None, "error": ""}
@@ -636,6 +637,19 @@ class Engine:
                 self.db.add_bar(fam, bar["time"], bar["open"], bar["high"], bar["low"], bar["close"])
             except Exception as e:  # noqa: BLE001
                 self.db.log(f"Kerze nicht gespeichert: {e}", "warn")
+        self.old_script = None if "bars" in p else time.time()   # altes Script schickt jede Kerze einzeln
+        # Gebündelte Kerzen (TradingView schickt ohne offenen Trade mehrere Kerzen in einer Nachricht, spart Anfragen)
+        extra = []
+        for r in (p.get("bars") or [])[:12] if isinstance(p.get("bars"), list) else []:
+            if isinstance(r, list) and len(r) >= 5:
+                vals = [self._num(x) for x in r[:5]]
+                if None not in vals and vals[0] != bar["time"]:
+                    extra.append(vals)
+        for t_, o_, h_, l_, c_ in sorted(extra):
+            try:
+                self.db.add_bar(fam, t_, o_, h_, l_, c_)
+            except Exception:  # noqa: BLE001
+                pass
         subs = []
         for r in (p.get("m1") or [])[:240] if isinstance(p.get("m1"), list) else []:
             if isinstance(r, list) and len(r) >= 5:
@@ -652,9 +666,12 @@ class Engine:
             for t_, o_, h_, l_, c_ in subs:
                 self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"], "len": 60000})
         else:
-            bar["len"] = self.chart_tf.get(fam) or 300000
+            tf_ = self.chart_tf.get(fam) or 300000
+            for t_, o_, h_, l_, c_ in sorted(extra):
+                self._process_bar(fam, {"time": t_, "open": o_, "high": h_, "low": l_, "close": c_, "ts": bar["ts"], "len": tf_})
+            bar["len"] = tf_
             self._process_bar(fam, bar)
-        return {"ok": True, "type": "bar", "m1": len(subs)}
+        return {"ok": True, "type": "bar", "m1": len(subs), "bars": len(extra) + 1}
 
     def _on_tick(self, p):
         """Live-Kurs aus TradingView (alle ~20 s, solange die Strategie im Trade ist)."""
@@ -3052,6 +3069,7 @@ class Engine:
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
                 "news_pause": self.news_block(),
+                "old_script": self.old_script,
                 "summary": self.summary(),
                 "timeline": self.timeline(),
                 "health": self.health(),

@@ -31,7 +31,7 @@ SERVICE = "--dienst" in sys.argv   # läuft als Dienst (Windows-Aufgabenplanung,
 _svc_cache = {"t": 0, "v": False}
 
 
-REMOTE = {"month": "", "n": 0, "dirty": 0}
+REMOTE = {"month": "", "n": 0, "dirty": 0, "kinds": {}}
 
 
 def _remote_file():
@@ -50,16 +50,36 @@ def count_remote(h):
         except (OSError, ValueError):
             pass
     if REMOTE["month"] != m:
-        REMOTE.update(month=m, n=0)
+        REMOTE.update(month=m, n=0, kinds={})
     REMOTE["n"] += 1
+    h._remote = True
+    if not h.path.startswith("/webhook/"):
+        _remote_kind("app")
     REMOTE["dirty"] += 1
     if REMOTE["dirty"] >= 20:
         REMOTE["dirty"] = 0
         try:
             with open(_remote_file(), "w", encoding="utf-8") as f:
-                json.dump({"month": REMOTE["month"], "n": REMOTE["n"]}, f)
+                json.dump({"month": REMOTE["month"], "n": REMOTE["n"], "kinds": REMOTE.get("kinds") or {}}, f)
         except OSError:
             pass
+
+
+def _remote_kind(kind):
+    k = REMOTE.setdefault("kinds", {})
+    k[kind] = k.get(kind, 0) + 1
+
+
+def remote_view(limit):
+    """Verbrauch diesen Monat, aufgeteilt nach Art, und Hochrechnung bis Monatsende."""
+    import calendar
+    now = time.localtime()
+    n = REMOTE["n"] if REMOTE["month"] == time.strftime("%Y-%m") else 0
+    days = calendar.monthrange(now.tm_year, now.tm_mon)[1]
+    elapsed = max(0.25, now.tm_mday - 1 + now.tm_hour / 24 + now.tm_min / 1440)
+    kinds = (REMOTE.get("kinds") or {}) if REMOTE["month"] == time.strftime("%Y-%m") else {}
+    return {"month": REMOTE["month"], "n": n, "limit": limit, "kinds": kinds,
+            "projection": round(n / elapsed * days) if now.tm_mday > 1 or now.tm_hour >= 6 else None, "days": days}
 
 
 def service_state():
@@ -274,6 +294,8 @@ def webhook(h, token):
         engine.db.log(f"Webhook abgelehnt: {e}", "error")
         return h._send(400, {"error": str(e)})
     engine.alert_issue = None
+    if getattr(h, "_remote", False):
+        _remote_kind({"bar": "kerzen", "tick": "live"}.get(str(payload.get("type")), "signale"))
     # Kommt hier etwas an, nutzt der TradingView-Alert die aktuelle Adresse: Erinnerung automatisch abhaken
     cur = hook_url()
     if cur and engine.cfg.get("hook_confirmed") != cur:
@@ -364,8 +386,7 @@ def state(h):
                 REMOTE.update(json.load(f))
         except (OSError, ValueError):
             REMOTE["month"] = time.strftime("%Y-%m")
-    s["remote"] = {"month": REMOTE["month"], "n": REMOTE["n"] if REMOTE["month"] == time.strftime("%Y-%m") else 0,
-                   "limit": 20000 if (s.get("tunnel") or {}).get("provider") == "ngrok" else None}
+    s["remote"] = remote_view(20000 if (s.get("tunnel") or {}).get("provider") == "ngrok" else None)
     s["version"] = APP_VERSION
     s["launcher"] = LAUNCHER
     s["update"] = UPDATE.copy()
@@ -1135,8 +1156,11 @@ def server_health(s):
     if rm.get("limit"):
         used = rm["n"] / rm["limit"] * 100
         day = int(time.strftime("%d"))
-        items.append({"key": "quota", "label": "ngrok-Kontingent", "status": "ok" if used < 75 else "warn" if used < 95 else "bad",
-                      "text": f"{rm['n']:,} von {rm['limit']:,} Anfragen diesen Monat ({used:.0f} %, Tag {day})".replace(",", ".")})
+        pj = rm.get("projection")
+        st = "ok" if used < 75 and (not pj or pj < rm["limit"] * 0.9) else "warn" if used < 95 else "bad"
+        items.append({"key": "quota", "label": "ngrok-Kontingent", "status": st,
+                      "text": f"{rm['n']:,} von {rm['limit']:,} Anfragen ({used:.0f} %, Tag {day})".replace(",", ".")
+                      + (f" · Hochrechnung {pj:,} bis Monatsende".replace(",", ".") if pj else "")})
     if NEWS.get("error"):
         items.append({"key": "news", "label": "News-Kalender", "status": "warn", "text": NEWS["error"]})
     elif NEWS.get("fetched"):

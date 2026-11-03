@@ -2,6 +2,7 @@
 // Multi-Strategie Futures-Bot für NQ & ES (auch MNQ / MES)
 // Strategien: FVG, inverse FVG, Silver Bullet (FVG 10–11 NY), Opening Range Breakout, Liquidity Sweep (Vortag), VWAP-Reclaim
 // Verbindung zur FVG-Trader-App: Alert mit „Orderausführungen und alert()-Aufrufe“, Webhook = App-URL
+// Script-Version 2.11 (spart ngrok-Anfragen: Kerzen gebündelt, Live-Kurs sparsam)
 // Chart: NQ1! oder ES1!, Timeframe 5m (empfohlen) oder 1m/3m
 // Auto-Trading: Alert auf diese Strategie, Nachricht = {{strategy.order.alert_message}}, Webhook-URL deines Brokers/Connectors
 //@version=6
@@ -75,8 +76,11 @@ showDash    = input.bool(true,  "Dashboard anzeigen",                     group 
 dashPosStr  = input.string("Oben rechts", "Dashboard-Position", options = ["Oben rechts", "Oben links", "Unten rechts", "Unten links"], group = grpVis)
 whSymbol    = input.string("",  "Webhook-Symbol (leer = Chart-Symbol)",   group = grpVis)
 sendBars    = input.bool(true,  "Kerzen-Daten an die App senden (Paper-Trading & Lernmodul)", group = grpVis)
-sendTicks   = input.bool(true,  "Live-Kurs an die App, solange ein Trade offen ist", group = grpVis)
-tickSec     = input.int(20,     "Live-Kurs alle … Sekunden (TradingView erlaubt max. 15 Alarme in 3 Min)", minval = 15, maxval = 120, group = grpVis)
+barBundle   = input.int(3,      "Ohne offenen Trade Kerzen bündeln (1 = jede Kerze einzeln)", minval = 1, maxval = 6, group = grpVis,
+     tooltip = "Spart ngrok-Anfragen: Ohne offenen Trade gehen z. B. 3 Kerzen zusammen in einer Nachricht (alle 15 Min statt alle 5 Min). Im Trade wird jede Kerze sofort geschickt.")
+tickMode    = input.string("Sparsam", "Live-Kurs im Trade", options = ["Aus", "Sparsam", "Normal"], group = grpVis,
+     tooltip = "Sparsam: höchstens alle 60 s und nur, wenn sich der Kurs spürbar bewegt hat oder Stop/Ziel nahe ist. Normal: alle … Sekunden (unten). Stop und Ziel prüft die App unabhängig davon minutengenau.")
+tickSec     = input.int(20,     "Live-Kurs „Normal“ alle … Sekunden (TradingView erlaubt max. 15 Alarme in 3 Min)", minval = 15, maxval = 120, group = grpVis)
 
 // ───────────────────────── Farben ─────────────────────────
 cBull  = #26a69a
@@ -391,6 +395,10 @@ bgcolor(inSess and newsBlock ? color.new(cIBear, 88) : na, title = "News-Sperre"
 // der Live-Chart zeigt sie). Zusätzlich gehen die 1-Minuten-Kerzen innerhalb der Chart-Kerze mit.
 ltf1 = timeframe.in_seconds() >= 60 ? "1" : timeframe.period   // nie höher als der Chart, sonst Laufzeitfehler
 [m1t, m1o, m1h, m1l, m1c] = request.security_lower_tf(syminfo.tickerid, ltf1, [time, open, high, low, close])
+// Ohne offenen Trade werden mehrere Kerzen gesammelt und zusammen geschickt (spart Anfragen über ngrok).
+var string barBuf = ""
+var string m1Buf  = ""
+var int    nBuf   = 0
 if sendBars and barstate.isrealtime and barstate.isconfirmed
     string m1s = ""
     int m1n = math.min(array.size(m1t), 120)
@@ -399,16 +407,37 @@ if sendBars and barstate.isrealtime and barstate.isconfirmed
             m1s += (i > 0 ? "," : "") + "[" + str.tostring(array.get(m1t, i)) + "," + str.tostring(array.get(m1o, i), format.mintick) + "," +
                  str.tostring(array.get(m1h, i), format.mintick) + "," + str.tostring(array.get(m1l, i), format.mintick) + "," +
                  str.tostring(array.get(m1c, i), format.mintick) + "]"
-    alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
-         ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
-         ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
-         ',"m1":[' + m1s + ']}', alert.freq_once_per_bar_close)
+    // vor der Marktpause (17:00 NY) und im Trade immer sofort senden
+    int  bundleN = timeframe.in_seconds() <= 900 ? barBundle : 1   // große Kerzen nicht bündeln (Nachricht würde zu lang)
+    bool flush = strategy.position_size != 0 or nBuf + 1 >= bundleN or hour(time_close, "America/New_York") == 17 or
+         dayofweek(time_close, "America/New_York") == dayofweek.friday and hour(time_close, "America/New_York") >= 16
+    if flush
+        alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
+             ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
+             ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
+             ',"bars":[' + barBuf + '],"m1":[' + m1Buf + (m1Buf != "" and m1s != "" ? "," : "") + m1s + ']}', alert.freq_once_per_bar_close)
+        barBuf := ""
+        m1Buf := ""
+        nBuf := 0
+    else
+        barBuf += (nBuf > 0 ? "," : "") + "[" + str.tostring(time) + "," + str.tostring(open, format.mintick) + "," + str.tostring(high, format.mintick) + "," +
+             str.tostring(low, format.mintick) + "," + str.tostring(close, format.mintick) + "]"
+        m1Buf += (m1Buf != "" and m1s != "" ? "," : "") + m1s
+        nBuf += 1
 
-// Live-Kurs, solange die Strategie im Trade ist (gedrosselt, damit TradingView den Alarm nicht stoppt)
-varip int lastTick = 0
-if sendTicks and barstate.isrealtime and not barstate.isconfirmed and strategy.position_size != 0 and timenow - lastTick >= tickSec * 1000
-    lastTick := timenow
-    alert('{"type":"tick","ticker":"' + sym + '","price":' + str.tostring(close, format.mintick) + ',"time":' + str.tostring(timenow) + '}', alert.freq_all)
+// Live-Kurs, solange die Strategie im Trade ist. „Sparsam“: nur bei spürbarer Bewegung oder nahe Stop/Ziel.
+varip int   lastTick   = 0
+varip float lastTickPx = na
+if tickMode != "Aus" and barstate.isrealtime and not barstate.isconfirmed and strategy.position_size != 0
+    int   gap   = tickMode == "Normal" ? tickSec * 1000 : 60000
+    float dist  = math.abs(strategy.position_avg_price - tSL)
+    float moved = na(lastTickPx) ? dist : math.abs(close - lastTickPx)
+    bool  near  = (not na(tSL) and math.abs(close - tSL) <= dist * 0.3) or (not na(tTP) and math.abs(close - tTP) <= dist * 0.3)
+    bool  go    = tickMode == "Normal" or moved >= math.max(syminfo.mintick * 8, dist * 0.15) or near
+    if go and timenow - lastTick >= gap
+        lastTick := timenow
+        lastTickPx := close
+        alert('{"type":"tick","ticker":"' + sym + '","price":' + str.tostring(close, format.mintick) + ',"time":' + str.tostring(timenow) + '}', alert.freq_all)
 
 // ───────────────────────── Statistik je Setup ─────────────────────────
 var array<string> stName = array.from("FVG", "iFVG", "Silver Bullet", "ORB", "Sweep", "VWAP")
