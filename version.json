@@ -1,6 +1,6 @@
 {
-  "version": "2.18.2",
-  "file": "releases/FVG-Trader-2.18.2.cmd",
-  "sha256": "82d1bff4d87eb40b9d10db8c111fdbf40f5d5bfe4c2c6bd1ee9c14de1a2bbe74",
-  "notes": "Großer Kursdaten-Import braucht weniger Speicher und blockiert den Handel nicht mehr"
+  "version": "2.18.3",
+  "file": "releases/FVG-Trader-2.18.3.cmd",
+  "sha256": "cb4db6fa4b37dfce1f2860f934ca0b8a93d326fb977cb86d284470039001baac",
+  "notes": "Kursdaten-Import: Fortschritt und Ergebnis bleiben sichtbar, weniger Speicher, Handel läuft währenddessen weiter"
 }

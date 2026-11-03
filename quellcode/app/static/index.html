@@ -2319,7 +2319,7 @@ async function labSessions(force) {
   $("#szRe").onclick = async () => { try { await api("/api/lab/sessions/refresh", {}); toast("Wird im Hintergrund neu berechnet"); setTimeout(() => labSessions(true), 4000); } catch (e) { toast(e.message); } };
 }
 /* ───────── Strategie-Finder ───────── */
-const DF = {data: null, at: 0, err: null, open: null, fam: "NQ"};
+const DF = {data: null, at: 0, err: null, open: null, fam: "NQ", imp: "", impBusy: false};
 function dfCurve(v) {
   if (!v || v.length < 2) return "";
   const W = 160, H = 34, lo = Math.min(0, ...v), hi = Math.max(0, ...v), sp = hi - lo || 1;
@@ -2360,10 +2360,10 @@ async function labFinder(force) {
       ${st.error ? `<p class="err-msg">${esc(st.error)}</p>` : ""}
       <div class="df-d">${data.length ? data.map(([k, v]) => `<span class="chip ${v.days >= 20 ? "good" : v.days >= 5 ? "warn" : "mute"}">${esc(k)}: ${v.days} Handelstage</span>`).join("") : '<span class="hint">Noch nicht gesucht.</span>'}
         ${d.last_run ? `<span class="hint">Letzte Suche ${dtm(d.last_run)} · sucht jeden Abend nach der Tagesauswertung neu</span>` : ""}</div>
-      <details class="df-imp"><summary class="hint" style="cursor:pointer">Mehr Kursdaten = bessere Suche: Kursdaten importieren (TradingView, Databento, NinjaTrader)</summary>
+      <details class="df-imp" ${DF.impBusy || DF.imp ? "open" : ""}><summary class="hint" style="cursor:pointer">Mehr Kursdaten = bessere Suche: Kursdaten importieren (TradingView, Databento, NinjaTrader)</summary>
         <p class="hint" style="line-height:1.6">Die App sammelt Kerzen selbst, aber das dauert. Schneller: In TradingView den Chart (NQ1! oder ES1!) auf <b>1 Minute</b> (oder 5 Minuten) stellen, weit nach links scrollen, damit viel Verlauf geladen ist, dann oben im Menü des Charts <b>„Chart-Daten exportieren“</b> wählen (je nach TradingView-Abo verfügbar) und die CSV-Datei hier einlesen. <b>Viele Jahre auf einmal:</b> bei Databento (Startguthaben für neue Konten) Datensatz „CME Globex MDP 3.0“, Schema „OHLCV-1m“, Symbol <span class="mono">NQ.c.0</span> bzw. <span class="mono">ES.c.0</span> (fortlaufend), Format CSV – oder in NinjaTrader über „Historische Daten → Export“ (1 Minute). Doppelte Kerzen werden nur einmal gespeichert.</p>
         <div class="inline" style="gap:8px;flex-wrap:wrap"><select id="dfFam"><option value="NQ" ${DF.fam === "NQ" ? "selected" : ""}>NQ / MNQ</option><option value="ES" ${DF.fam === "ES" ? "selected" : ""}>ES / MES</option></select>
-          <label class="btn">CSV-Datei wählen<input type="file" id="dfFile" accept=".csv,text/csv" hidden></label><span class="hint" id="dfMsg"></span></div></details>
+          <label class="btn ${DF.impBusy ? "disabled" : ""}">${DF.impBusy ? "Liest ein …" : "CSV-Datei wählen"}<input type="file" id="dfFile" accept=".csv,text/csv" hidden ${DF.impBusy ? "disabled" : ""}></label><span class="hint" id="dfMsg" style="max-width:60ch">${esc(DF.imp)}</span></div></details>
     </section>
     ${d.bundle > 1 && act.length ? `<div class="banner">Neue Strategien handeln nur mit frischen Kerzen. In TradingView in den Einstellungen der Strategie „Kerzen bündeln“ auf <b>1</b> stellen, sonst fallen die meisten Signale weg.</div>` : ""}
     ${act.length || bereit.length ? `<section class="section"><h2>Handelt mit</h2><div class="df-list">${[...act, ...bereit].map(it => card(it, it.status === "bereit"
@@ -2378,9 +2378,12 @@ async function labFinder(force) {
   $("#dfRun").onclick = async () => { try { await api("/api/disc/run", {}); toast("Suche läuft im Hintergrund"); setTimeout(() => labFinder(true), 800); } catch (e) { toast(e.message); } };
   $("#dfFam").onchange = e => { DF.fam = e.target.value; };
   $("#dfFile").onchange = async e => {
-    const f = e.target.files[0]; if (!f) return; const msg = $("#dfMsg"); msg.textContent = "Lese ein …";
-    try { const r = await api("/api/disc/import", {fam: DF.fam, csv: await f.text()}); msg.textContent = `${r.bars.toLocaleString("de-DE")} ${r.kind} (${r.days} Handelstage) importiert. Jetzt „Jetzt suchen“ klicken.`; }
-    catch (err) { msg.textContent = err.message; }
+    const f = e.target.files[0]; if (!f) return;
+    DF.impBusy = true; DF.imp = `Lese ${f.name} ein (${Math.round(f.size / 1e6)} MB) – bei großen Dateien 1–2 Minuten, bitte warten …`; labFinder();
+    try { const r = await api("/api/disc/import", {fam: DF.fam, csv: await f.text()});
+      DF.imp = `✓ ${r.bars.toLocaleString("de-DE")} ${r.kind} (${r.days} Handelstage, ${new Date(r.from).toLocaleDateString("de-DE")} – ${new Date(r.to).toLocaleDateString("de-DE")}) importiert. Jetzt „Jetzt suchen“ klicken.`; }
+    catch (err) { DF.imp = "Fehler: " + err.message; }
+    DF.impBusy = false; labFinder(true);
   };
   if (st.busy) setTimeout(() => { if (TAB === "learn" && LTAB === "finder") labFinder(true); }, 2500);
 }
