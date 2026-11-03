@@ -1,6 +1,6 @@
 {
-  "version": "2.18.8",
-  "file": "releases/FVG-Trader-2.18.8.cmd",
-  "sha256": "39aebdbd70149e54e8db68584bc6d8afbae8abafdacf0f6f39804426f14a13c4",
-  "notes": "Fehler behoben: Hintergrundfehler bei offener Position und anstehenden News"
+  "version": "2.19.0",
+  "file": "releases/FVG-Trader-2.19.0.cmd",
+  "sha256": "49a14982ab84d0799bbe71e2ed014ea3dae956a8bd26ac8d33e5aaeea0ea81b0",
+  "notes": "Nachverfolgung früher Ausstiege: hätte er Ziel oder Stop erreicht? Der Bot lernt daraus und schaltet Ausstiege ab, die nachweislich kosten"
 }

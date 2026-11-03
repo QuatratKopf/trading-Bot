@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS positions (
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
     status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
-    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL, journal TEXT, shots TEXT
+    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL, journal TEXT, shots TEXT, ghost_status TEXT, ghost_sl REAL, ghost_tp REAL, ghost_exit REAL, ghost_r REAL, ghost_how TEXT, exit_cat TEXT
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,

@@ -708,6 +708,10 @@ class Engine:
         return {"ok": True, "type": "tick"}
 
     def _process_bar(self, fam, bar):
+        try:
+            self._ghost_bar(fam, bar)
+        except Exception as e:  # noqa: BLE001  Nachverfolgung darf den Handel nie stören
+            self.db.log(f"Nachverfolgung fehlgeschlagen: {e}", "warn")
         for sh in self.db.open_shadows():
             if sh["fam"] != fam or not self._bar_after(sh, bar):
                 continue
@@ -1176,8 +1180,11 @@ class Engine:
         d = 1 if pos["side"] == "long" else -1
         comm = self._comm(pos["root"]) * pos["qty"] * 2 if pos["broker"] == "paper" else 0.0
         pnl = (exit_price - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"] - comm
+        # Nachverfolgung: Bei frühem Ausstieg (oder nachgezogenem Stop) weiter beobachten, was ohne ihn passiert wäre
+        cat, gsl, gtp = self._exit_cat(pos, reason)
         self.db.update_position(pos["id"], status="geschlossen", closed=time.time(), exit=round_tick(exit_price, tick),
-                                pnl=round(pnl, 2), close_reason=reason)
+                                pnl=round(pnl, 2), close_reason=reason, exit_cat=cat,
+                                ghost_status="offen" if cat else None, ghost_sl=gsl, ghost_tp=gtp)
         self.db.log(f"{pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen ({reason}) · {_fmt(pnl, '+,.0f')} $",
                     "info" if pnl >= 0 else "warn")
         if pos["broker"] != "eigen":
@@ -1185,6 +1192,110 @@ class Engine:
             self.notify("trades", f"{'✅' if pnl > 0 else '❌'} {pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen · {pos['setup']}" + (" (Test)" if pos.get("is_test") else ""),
                         f"{reason} · {_fmt(pos['entry'], '.2f')} → {_fmt(exit_price, '.2f')} · **{_fmt(pnl, '+,.0f')} $**" + (f" ({_fmt(r_, '+.2f')} R)" if r_ is not None else "")
                         + f"\nHeute: {_fmt(self.today_pnl(), '+,.0f')} $", "good" if pnl > 0 else "bad")
+
+    @staticmethod
+    def _exit_cat(pos, reason):
+        """Art des Ausstiegs → (Kategorie, Stop, Ziel für die Nachverfolgung) oder (None, …), wenn es nichts zu verfolgen gibt."""
+        if pos["broker"] == "eigen" or not pos.get("initial_sl"):
+            return None, None, None
+        r = reason or ""
+        tick = INSTR[pos["root"]]["tick"]
+        if r.startswith("Ziel"):
+            return None, None, None
+        if r.startswith("Stop-Loss"):
+            if abs(pos["sl"] - pos["initial_sl"]) > tick / 2:   # Stop war nachgezogen (BE/Trailing): Was hätte der alte Stop gebracht?
+                return "Stop nachgezogen", pos["initial_sl"], pos["tp"]
+            return None, None, None
+        for key, cat in (("Smart-Ausstieg", "Smart-Ausstieg"), ("Exit-Signal", "TradingView-Exit"), ("News", "News"),
+                         ("Sessionende", "Sessionende"), ("Tages-Stopp", "Tages-Stopp"), ("Manuell", "Manuell")):
+            if key in r:
+                return cat, pos["sl"], pos["tp"]
+        return "Sonstiges", pos["sl"], pos["tp"]
+
+    def _ghost_bar(self, fam, bar):
+        """Frühzeitig geschlossene Trades weiter verfolgen: Ziel, Stop oder Sessionende?"""
+        if not bar.get("time"):
+            return
+        for p in self.db.rows("SELECT * FROM positions WHERE ghost_status='offen'"):
+            if family(p["root"]) != fam or bar["time"] < (p["closed"] or 0) * 1000 - 1000:
+                continue
+            d = 1 if p["side"] == "long" else -1
+            how, px = None, None
+            if p["ghost_sl"] is not None and ((bar["low"] <= p["ghost_sl"]) if d > 0 else (bar["high"] >= p["ghost_sl"])):
+                how, px = "Stop", p["ghost_sl"]
+            elif p["ghost_tp"] is not None and ((bar["high"] >= p["ghost_tp"]) if d > 0 else (bar["low"] <= p["ghost_tp"])):
+                how, px = "Ziel", p["ghost_tp"]
+            elif ny_time(bar["time"] / 1000) >= self._session_end(p) or bar["time"] / 1000 - p["closed"] > 24 * 3600:
+                how, px = "Sessionende", bar["open"]
+            if not how:
+                continue
+            r0 = abs(p["entry"] - p["initial_sl"]) or 1e-9
+            gr = (px - p["entry"]) * d / r0
+            ar = (p["exit"] - p["entry"]) * d / r0
+            self.db.update_position(p["id"], ghost_status="fertig", ghost_exit=px, ghost_r=round(gr, 3), ghost_how=how)
+            if not p["is_test"]:
+                diff = ar - gr
+                verdict = "gerettet" if diff > 0.05 else "verpasst" if diff < -0.05 else "kein Unterschied"
+                self.db.log(f"Nachverfolgung {p['side'].upper()} {p['root']} ({p['exit_cat']}): ohne frühen Ausstieg {how} bei "
+                            f"{_fmt(gr, '+.2f')} R statt {_fmt(ar, '+.2f')} R – {verdict} {_fmt(abs(diff), '.2f')} R")
+                self.notify("trades", f"🔍 Nachverfolgung · {p['setup']} ({p['exit_cat']})",
+                            f"Ohne frühen Ausstieg: {how} bei **{_fmt(gr, '+.2f')} R** · tatsächlich {_fmt(ar, '+.2f')} R → "
+                            f"**{verdict}{'' if verdict == 'kein Unterschied' else ' ' + _fmt(abs(diff), '.2f') + ' R'}**",
+                            "good" if diff > 0.05 else "bad" if diff < -0.05 else "info")
+
+    def exit_review(self):
+        """Lohnen sich die frühen Ausstiege? Je Art und Strategie: tatsächlich gegen „hätte ich gehalten“."""
+        rows = [p for p in self.db.rows("SELECT * FROM positions WHERE ghost_status IS NOT NULL ORDER BY closed")
+                if p["broker"] == self.broker.name and not p["is_test"] and p.get("initial_sl")]
+        groups, open_n = {}, 0
+        for p in rows:
+            if p["ghost_status"] != "fertig":
+                open_n += 1
+                continue
+            d = 1 if p["side"] == "long" else -1
+            r0 = abs(p["entry"] - p["initial_sl"]) or 1e-9
+            ar = (p["exit"] - p["entry"]) * d / r0
+            for key in (p["exit_cat"], p["exit_cat"] + "|" + (p["setup"] or "")):
+                groups.setdefault(key, []).append((ar, p["ghost_r"], p["ghost_how"], p["closed"]))
+        out = {}
+        for key, lst in groups.items():
+            diffs = [a - g for a, g, _, _ in lst]
+            k = int(len(diffs) * 0.6)
+            out[key] = {"n": len(lst), "actual": round(_mean([a for a, *_ in lst]), 3), "held": round(_mean([g for _, g, *_ in lst]), 3),
+                        "diff": round(_mean(diffs), 3), "d1": round(_mean(diffs[:k]), 3) if k else None,
+                        "d2": round(_mean(diffs[k:]), 3) if diffs[k:] else None, "sum": round(sum(diffs), 2),
+                        "target": sum(1 for *_, how, _ in lst if how == "Ziel"), "stop": sum(1 for *_, how, _ in lst if how == "Stop")}
+        recent = []
+        for p in reversed(rows[-30:]):
+            d = 1 if p["side"] == "long" else -1
+            r0 = abs(p["entry"] - p["initial_sl"]) or 1e-9
+            recent.append({"id": p["id"], "closed": p["closed"], "setup": p["setup"], "side": p["side"], "cat": p["exit_cat"],
+                           "actual": round((p["exit"] - p["entry"]) * d / r0, 2), "held": p["ghost_r"], "how": p["ghost_how"],
+                           "status": p["ghost_status"]})
+        return {"groups": out, "open": open_n, "recent": recent, "follow_tv": bool(self.cfg["follow_tv_exits"]),
+                "auto": self.learning.get("exit_auto") or []}
+
+    def _exit_learn(self, er):
+        """Aus den Nachverfolgungen lernen: Ausstiege, die nachweislich Geld kosten, selbst abschalten."""
+        done, rv = [], self.exit_review()["groups"]
+        g = rv.get("TradingView-Exit")
+        if g and self.cfg["follow_tv_exits"] and g["n"] >= 15 and g["diff"] <= -0.1 and (g["d1"] or 0) < 0 and (g["d2"] or 0) < 0:
+            self.cfg["follow_tv_exits"] = False
+            self._write_cfg(self.cfg)
+            done.append(f"TradingView-Exits werden nicht mehr befolgt: Gehalten wären es im Schnitt {_fmt(-g['diff'], '.2f')} R mehr gewesen "
+                        f"({g['n']} Trades). Stop und Ziel bleiben aktiv.")
+        for key, g in rv.items():
+            if "|" not in key:
+                continue
+            cat, setup = key.split("|", 1)
+            if cat not in ("Smart-Ausstieg", "Stop nachgezogen") or setup not in er:
+                continue
+            if g["n"] >= 12 and g["diff"] <= -0.1 and (g["d1"] or 0) < 0 and (g["d2"] or 0) < 0:
+                old = er.pop(setup)
+                self.learning.setdefault("exit_blocked", {})[setup] = {"var": old, "until": time.time() + 30 * 86400}
+                done.append(f"{setup}: Ausstieg „{old}“ zurück auf das Signal-Ziel – in echten Trades hätte Halten im Schnitt "
+                            f"{_fmt(-g['diff'], '.2f')} R mehr gebracht ({g['n']} Trades)")
+        return done
 
     def _close(self, pos, price, reason):
         tick = INSTR[pos["root"]]["tick"]
@@ -1416,7 +1527,7 @@ class Engine:
                                 "winrate": round(sum(1 for r in rs if r > 0) / n * 100, 1), "sum_r": round(sum(rs), 2)}
             self.learning = {"last_run": time.time(), "last_day": str(ny_date()), "setups": setups, "insights": insights[:15],
                              "rejected_rules": self.learning.get("rejected_rules") or [], "auto_log": self.learning.get("auto_log") or [],
-                             "daystop_day": self.learning.get("daystop_day")}
+                             "daystop_day": self.learning.get("daystop_day"), "exit_blocked": self.learning.get("exit_blocked") or {}}
             with open(self.learn_path, "w", encoding="utf-8") as f:
                 json.dump(self.learning, f, indent=2, ensure_ascii=False)
             return self.learning
@@ -1429,16 +1540,22 @@ class Engine:
             done = []
             # 1) Ausstiege: empfohlene Variante übernehmen (oder zurück aufs Signal-Ziel, wenn das wieder besser ist)
             er = dict(self.cfg.get("exit_rules") or {})
+            blocked = self.learning.get("exit_blocked") or {}
             for row in self.variant_view()["setups"]:
                 rec = row["rec"]
                 if not rec or rec == row["applied"]:
                     continue
+                b_ = blocked.get(row["setup"]) or {}
+                if b_.get("var") == rec and b_.get("until", 0) > time.time():
+                    continue   # in echten Trades gerade erst als schlechter erkannt: 30 Tage nicht wieder übernehmen
                 if rec == "Signal-Ziel":
                     er.pop(row["setup"], None)
                 else:
                     er[row["setup"]] = rec
                 c = row["cols"][rec]
                 done.append(f"{row['setup']}: Ausstieg {row['applied']} → {rec} (Ø {_fmt(c['avg'], '+.2f')} R aus {c['n']} Signalen)")
+            # 1b) Echte Trades: frühe Ausstiege, die nachweislich kosten, zurücknehmen
+            done += self._exit_learn(er)
             # 2) Regeln: bewährte übernehmen, schlecht laufende Auto-Regeln wieder entfernen
             rf = self.rules_find()
             rejected = set(self.learning.get("rejected_rules") or [])

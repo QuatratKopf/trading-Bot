@@ -1325,6 +1325,12 @@ def hook_selftest(h):
     h._send(200, {"ok": True, "ms": round((time.time() - t0) * 1000), "url": url})
 
 
+@route("GET", r"/api/exits")
+def exits(h):
+    with engine.lock:
+        h._send(200, engine.exit_review())
+
+
 def main():
     global SRV
     srv = None

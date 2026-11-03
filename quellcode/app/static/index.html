@@ -667,6 +667,8 @@ table.cmp td,table.cmp th{white-space:normal}
 .df-d{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .df-imp{margin-top:10px}
 .df-imp select{background:var(--sunk);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.gh{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.5;padding:7px 10px;margin-top:6px;border-radius:8px;background:var(--sunk)}
+.gh .dot{margin-top:6px;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -990,6 +992,26 @@ function jrBind(root) {
     <div class="inline" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-close>Schließen</button></div>`); $("#mdl [data-close]").onclick = c; });
 }
 
+/* ───────── Nachverfolgung früher Ausstiege ───────── */
+function ghostLine(t) {
+  if (!t.ghost_status || !t.initial_sl) return "";
+  const d = t.side === "long" ? 1 : -1, r0 = Math.abs(t.entry - t.initial_sl) || 1e-9, ar = (t.exit - t.entry) * d / r0;
+  if (t.ghost_status !== "fertig") return `<div class="gh"><span class="dot"></span><span>${esc(t.exit_cat)} · wird weiter verfolgt: Was wäre ohne den frühen Ausstieg passiert?</span></div>`;
+  const diff = ar - t.ghost_r, good = diff > 0.05, bad = diff < -0.05;
+  return `<div class="gh ${good ? "g" : bad ? "b" : ""}"><span class="dot ${good ? "ok" : bad ? "bad" : ""}"></span><span><b>${esc(t.exit_cat)}:</b> gehalten hätte er ${t.ghost_how === "Ziel" ? "das <b>Ziel</b> erreicht" : t.ghost_how === "Stop" ? "den <b>Stop</b> erreicht" : "bis Sessionende"} bei <b class="mono ${cls(t.ghost_r)}">${t.ghost_r > 0 ? "+" : ""}${num2(t.ghost_r)} R</b> statt ${ar > 0 ? "+" : ""}${num2(ar)} R → <b>${good ? "gerettet" : bad ? "verpasst" : "kein Unterschied"}${good || bad ? " " + num2(Math.abs(diff)) + " R" : ""}</b></span></div>`;
+}
+const EX = {data: null, at: 0};
+async function exitPanel() {
+  const el = $("#exPanel"); if (!el) return;
+  if (!EX.data || Date.now() - EX.at > 60000) { try { EX.data = await api("/api/exits"); EX.at = Date.now(); } catch (e) { return; } }
+  const d = EX.data, G = Object.entries(d.groups).filter(([k]) => !k.includes("|")).sort((a, b) => b[1].n - a[1].n);
+  el.innerHTML = `<div class="section-h"><h2>Frühe Ausstiege: gut oder schlecht?</h2><p class="hint">Jeder Trade, der nicht über Stop oder Ziel endet (oder mit nachgezogenem Stop), wird weiter verfolgt${d.open ? ` · ${d.open} laufen gerade` : ""}</p></div>
+    ${G.length ? `<table><thead><tr><th class="t">Ausstieg</th><th>Trades</th><th>Ø tatsächlich</th><th>Ø gehalten</th><th>Unterschied</th><th class="t">Gehalten wäre …</th><th class="t">Fazit</th></tr></thead><tbody>${G.map(([k, g]) =>
+      `<tr><td class="t">${esc(k)}</td><td>${g.n}</td><td class="${cls(g.actual)}">${num2(g.actual)} R</td><td class="${cls(g.held)}">${num2(g.held)} R</td><td class="${cls(g.diff)}"><b>${g.diff > 0 ? "+" : ""}${num2(g.diff)} R</b></td>
+        <td class="t hint">${g.target}× Ziel · ${g.stop}× Stop · ${g.n - g.target - g.stop}× Sessionende</td><td class="t">${g.n < 10 ? '<span class="chip mute">sammelt</span>' : g.diff > 0.05 ? '<span class="chip good">hilft</span>' : g.diff < -0.05 ? '<span class="chip bad">kostet</span>' : '<span class="chip mute">neutral</span>'}</td></tr>`).join("")}</tbody></table>
+      <p class="hint" style="margin:8px 0 0">Positiv = der frühe Ausstieg hat Geld gespart. Kosten Smart-Ausstieg/Smart-BE oder TradingView-Exits über viele Trades nachweislich Geld (in beiden Zeit-Hälften), schaltet der Bot sie selbst ab. ${d.follow_tv ? "" : "<b>TradingView-Exits werden zurzeit nicht befolgt.</b>"}</p>`
+      : '<p class="hint">Noch keine frühen Ausstiege verfolgt. Sobald ein Trade über ein Exit-Signal, Smart-Ausstieg, News, Sessionende oder von Hand endet, verfolgt die App weiter, ob er Ziel oder Stop erreicht hätte.</p>'}`;
+}
 /* ───────── Wochenbericht ───────── */
 const WK = {off: 0, data: null, at: 0, err: null};
 async function weekView(force) {
@@ -1856,6 +1878,7 @@ function statsOverview() {
       ["Profit-Faktor", num2(st.pf), st.pf >= 1 ? "pos" : st.pf != null ? "neg" : ""], ["Ø R pro Trade", num2(st.avg_r), cls(st.avg_r)],
       ["Max. Drawdown", usd(st.max_dd), st.max_dd < 0 ? "neg" : ""], ["Ø Gewinn", usd(st.avg_win), "pos"], ["Ø Verlust", usd(st.avg_loss), "neg"],
     ].map(([l, v, c]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span></div>`).join("")}</section>
+    <section class="panel scroll" id="exPanel"></section>
     <section class="panel"><div class="section-h"><h2>Equity des Bots</h2><p class="hint">Kumulierter Gewinn je abgeschlossenem Trade (${esc(S.broker.label)}, ohne Test-Trades)</p></div><div id="eq"></div></section>
     <div class="grid2">
       <section class="section"><h2>Nach Strategie</h2><div class="panel">${st.n ? `<div class="hbars">
@@ -1867,6 +1890,7 @@ function statsOverview() {
         </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
     </div>`;
   $("#eq").innerHTML = equitySvg(st.curve);
+  exitPanel();
   const pr = () => { $("#perfS").innerHTML = perfCard(); bindPerf($("#perfS"), pr); };
   pr();
 }
@@ -2040,6 +2064,7 @@ function drawDay() {
             <b>${t.qty}× ${esc(t.root)}</b><span class="chip ${t.source === "eigen" ? "warn" : ""}">${t.source === "eigen" ? "Eigen" : "Bot"}</span>${t.is_test ? '<span class="chip mute">Test</span>' : ""}
             <span class="tr-p mono ${cls(t.pnl)}">${sUsd(t.pnl)}</span></div>
           ${tradeDetail(t)}
+          ${ghostLine(t)}
           ${t.is_test ? "" : journalBox(t)}
           <div class="tr-b"><span class="tr-n">${esc(t.source === "eigen" ? (t.note || "") : `${t.setup} · ${t.close_reason}`)}</span>
             ${t.source === "eigen" || t.is_test ? `<button class="lnk owndel" data-id="${t.id}" data-key="del-${t.id}" data-orig="Löschen">${armed("del-" + t.id) ? "Sicher?" : "Löschen"}</button>` : ""}</div>
