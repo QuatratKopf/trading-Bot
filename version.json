@@ -1,6 +1,6 @@
 {
-  "version": "2.18.3",
-  "file": "releases/FVG-Trader-2.18.3.cmd",
-  "sha256": "cb4db6fa4b37dfce1f2860f934ca0b8a93d326fb977cb86d284470039001baac",
-  "notes": "Kursdaten-Import: Fortschritt und Ergebnis bleiben sichtbar, weniger Speicher, Handel läuft währenddessen weiter"
+  "version": "2.18.4",
+  "file": "releases/FVG-Trader-2.18.4.cmd",
+  "sha256": "5c3e5df29558e20df2cb21f8f565a27ff2bfa9a43ac1d47ba19ae924bf190806",
+  "notes": "Getrennte Gebühren für Mini und Micro – realistischere Kosten im Paper-Trading und im Strategie-Finder"
 }

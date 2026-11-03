@@ -2719,7 +2719,8 @@ function settings() {
     ${field("lp", "Pause unter Ø R", L.pause_below_r, {attrs: {step: 0.05}})}
     <span class="lbl">Paper-Trading</span>
     ${field("psl", "Slippage (Ticks)", c.paper.slippage_ticks, {attrs: {min: 0, step: 1}})}
-    ${field("pc", "Gebühr pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.05}})}
+    ${field("pc", "Gebühr Mini (NQ/ES) pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.01}, help: "Alles zusammen: Kommission, Börse, Clearing, NFA. Bei Prop-Firmen (z. B. Apex über Tradovate) steht der Wert in deren Hilfe-Center."})}
+    ${field("pcm", "Gebühr Micro (MNQ/MES) pro Kontrakt & Seite ($)", c.paper.commission_micro ?? 0.75, {attrs: {min: 0, step: 0.01}, help: "Gilt auch für den Strategie-Finder und die Session-Ziele"})}
     <span class="lbl">Tradovate</span>
     ${field("tacc", "Kontoname", t.account, {type: "text", help: "Leer = erstes Konto. Bei mehreren Konten (z. B. Topstep) den Namen eintragen."})}
     ${field("cnq", "Kontrakt NQ / MNQ", c.contracts.NQ, {type: "text", attrs: {placeholder: "automatisch"}})}
@@ -2759,7 +2760,7 @@ function settings() {
       broker: v("bk"), public_url: v("pu").trim(),
       tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
-      paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc")},
+      paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       own_sync: {tradovate: v("osync")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
       discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,

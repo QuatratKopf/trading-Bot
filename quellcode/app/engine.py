@@ -113,7 +113,7 @@ DEFAULT_CONFIG = {
         "daily_loss": 1000.0, "consistency_pct": 0.0, "min_days": 0, "source": "alle",
         "guard": True, "guard_buffer": 250.0,
     },
-    "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25},
+    "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25, "commission_micro": 0.75},
     "tradovate": {"env": "demo", "username": "", "password": "", "cid": "", "secret": "",
                   "app_id": "", "account": "", "device_id": ""},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
@@ -1174,7 +1174,7 @@ class Engine:
         if pos["broker"] == "paper" and slip:
             exit_price = self.broker.close(pos, exit_price, tick) if self.broker.name == "paper" else exit_price
         d = 1 if pos["side"] == "long" else -1
-        comm = float(self.cfg["paper"]["commission"]) * pos["qty"] * 2 if pos["broker"] == "paper" else 0.0
+        comm = self._comm(pos["root"]) * pos["qty"] * 2 if pos["broker"] == "paper" else 0.0
         pnl = (exit_price - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"] - comm
         self.db.update_position(pos["id"], status="geschlossen", closed=time.time(), exit=round_tick(exit_price, tick),
                                 pnl=round(pnl, 2), close_reason=reason)
@@ -1737,7 +1737,7 @@ class Engine:
 
     def live_backtest(self):
         """Alle abgeschlossenen Strategie-Signale (Schatten-Trades) als Trade-Liste in $ für 1 Micro-Kontrakt."""
-        com = float(self.cfg["paper"]["commission"]) * 2
+        com = self._comm("MNQ") * 2
         out = []
         for x in self.db.rows("SELECT setup, side, fam, entry, exit, opened, bar_time FROM shadow "
                               "WHERE status='geschlossen' AND exit IS NOT NULL ORDER BY opened"):
@@ -2507,12 +2507,19 @@ class Engine:
         return res
 
     # ───────── Session-Ziele: realistische Abstände je Session ─────────
+    def _comm(self, root):
+        """Gebühr pro Kontrakt und Seite: Micros (MNQ/MES) kosten deutlich weniger als Minis."""
+        p = self.cfg["paper"]
+        if root in ("MNQ", "MES"):
+            return float(p.get("commission_micro", 0.75) if p.get("commission_micro") is not None else 0.75)
+        return float(p["commission"])
+
     def _cost_r(self, fam, entry, stop_pts):
         """Gebühr + Slippage in R. Bei engerem Stop handelt der Bot mehr Kontrakte, dadurch wiegen Kosten schwerer."""
         sz = self._size(fam, entry, entry - stop_pts)
         root = sz[0] if not isinstance(sz, str) else INSTR[fam]["micro"]
         pv, tick = INSTR[root]["pv"], INSTR[root]["tick"]
-        per = 2 * float(self.cfg["paper"]["commission"]) + float(self.cfg["paper"]["slippage_ticks"]) * tick * pv
+        per = 2 * self._comm(root) + float(self.cfg["paper"]["slippage_ticks"]) * tick * pv
         return per / (stop_pts * pv)
 
     def session_fit(self):
