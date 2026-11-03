@@ -1,6 +1,6 @@
 {
-  "version": "2.18.6",
-  "file": "releases/FVG-Trader-2.18.6.cmd",
-  "sha256": "14520062d1f8e0d54fa449303a2a1fe2db5ab33fd5b9631b0ac5c1a3afcec8b1",
-  "notes": "Webhook über Internet testen; altes ngrok wird nach Update beendet"
+  "version": "2.18.7",
+  "file": "releases/FVG-Trader-2.18.7.cmd",
+  "sha256": "8c2d7ea13947d29a146c9d4682496533d130f6807bfcc632cc060b5f49fdef3e",
+  "notes": "Verbindungsanzeige passt zu gebündelten Kerzen (alle 15 Min)"
 }

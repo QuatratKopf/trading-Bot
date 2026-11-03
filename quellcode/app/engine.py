@@ -3216,7 +3216,7 @@ class Engine:
         else:
             age = now - self.last_msg
             txt = f"Letzte Nachricht vor {_ago(age)}"
-            st = "ok" if age < tf * 2 + 120 else ("off" if not mo else "warn" if age < 1800 else "bad")
+            st = "ok" if age < tf * 3 + 300 else ("off" if not mo else "warn" if age < 2400 else "bad")   # Kerzen kommen ggf. gebündelt (alle 15 Min)
             if not mo and st != "ok":
                 txt += " · Markt geschlossen"
             items.append(("tv", "TradingView", st, txt))

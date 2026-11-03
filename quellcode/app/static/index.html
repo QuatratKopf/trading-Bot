@@ -853,7 +853,7 @@ function confirmBtn(btn, question, fn) {
 
 function header() {
   const c = S.config, age = S.tv.last_msg ? (Date.now() / 1000 - S.tv.last_msg) : null;
-  const tvState = age == null ? ["bad", "TradingView: noch kein Signal"] : age < 900 ? ["ok", "TradingView verbunden · " + tm(S.tv.last_msg)] : ["warn", "TradingView: letzte Nachricht " + dtm(S.tv.last_msg)];
+  const tvState = age == null ? ["bad", "TradingView: noch kein Signal"] : age < 1260 ? ["ok", "TradingView verbunden · " + tm(S.tv.last_msg)] : ["warn", "TradingView: letzte Nachricht " + dtm(S.tv.last_msg)];
   $("#pTv").innerHTML = `<span class="dot ${tvState[0]}"></span>${tvState[1]}`;
   $("#pDot").className = "dot " + tvState[0]; $("#pDot").title = tvState[1];
   $("#pVer").textContent = "Version " + S.version;
