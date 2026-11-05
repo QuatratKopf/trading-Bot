@@ -1,6 +1,6 @@
 {
-  "version": "2.21.1",
-  "file": "releases/FVG-Trader-2.21.1.cmd",
-  "sha256": "ad7fcce794ea61b0fa593916461d1d0e1dbc631f1cde889621fd14ee843e3ae0",
-  "notes": "Chart zeigt im Trade die laufende Kerze und den aktuellen Kurs"
+  "version": "2.21.2",
+  "file": "releases/FVG-Trader-2.21.2.cmd",
+  "sha256": "ab2ab3e77a2949e7b8351ef9199f40e895b66c73f09fbf0b78b35c01d737d1ee",
+  "notes": "Stabiler bei vielen Kursdaten: keine Hänger mehr durch große Abfragen, Strategie-Suche später nach dem Start"
 }

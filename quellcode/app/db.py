@@ -52,8 +52,13 @@ class DB:
     def __init__(self, path):
         self.lock = threading.RLock()
         self.on_log = None
-        self.con = sqlite3.connect(path, check_same_thread=False)
+        self.path = path
+        self.con = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self.con.row_factory = sqlite3.Row
+        try:   # WAL: Lesen und Schreiben blockieren sich nicht gegenseitig
+            self.con.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.DatabaseError:
+            pass
         with self.lock:
             self.con.executescript(SCHEMA)
             self._migrate()
@@ -76,6 +81,15 @@ class DB:
             cur = self.con.execute(sql, args)
             self.con.commit()
             return cur
+
+    def read(self, sql, args=()):
+        """Große Lese-Abfragen (Kerzen) über eine eigene Verbindung als einfache Tupel –
+        sperrt nichts, damit Webhooks und die Oberfläche währenddessen weiterlaufen."""
+        con = sqlite3.connect(self.path, timeout=30)
+        try:
+            return con.execute(sql, args).fetchall()
+        finally:
+            con.close()
 
     def rows(self, sql, args=()):
         with self.lock:

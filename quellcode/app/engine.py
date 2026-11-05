@@ -411,9 +411,9 @@ class Engine:
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
         threading.Thread(target=self._loop, daemon=True).start()
-        _t = threading.Timer(8, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
+        _t = threading.Timer(180, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
         if time.time() - (self.disc.get("last_run") or 0) > 20 * 3600:
-            _t = threading.Timer(90, self.disc_async); _t.daemon = True; _t.start()
+            _t = threading.Timer(1200, self.disc_async); _t.daemon = True; _t.start()   # erst 20 Min nach dem Start (schwere Rechnung)
 
     # ───────── Konfiguration ─────────
     def _load_cfg(self):
@@ -2771,10 +2771,8 @@ class Engine:
         _, b = self._trading_day_bounds(d)
         tf = int(tf_min) * 60000
         ctx_a = a - 3 * 86400   # Vorlauf für Vortag, Struktur und Zonen
-        m1 = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in
-              self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
-        ch = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in
-              self.db.rows("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
+        m1 = [list(x) for x in self.db.read("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
+        ch = [list(x) for x in self.db.read("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
         src = self._tf_of(ch) or 300000
         note = None
         if m1 and (tf < src or len(m1) * 60000 >= len(ch) * src * 0.8):
@@ -3079,28 +3077,28 @@ class Engine:
         """Kerzen einer Zeiteinheit: aus den 1-Minuten-Kerzen gebaut, ergänzt um die Chart-Kerzen."""
         tf_ms = tf_min * 60000
         if limit:
-            rows = self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t DESC LIMIT ?",
+            rows = self.db.read("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t DESC LIMIT ?",
                                 (fam, since_ms, limit * tf_min + tf_min))[::-1]
         else:
-            rows = self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+            rows = self.db.read("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
         if tf_min == 1:
-            bars = [[r["t"], r["o"], r["h"], r["l"], r["c"]] for r in rows]
+            bars = rows
         else:
             # nur vollständige Blöcke (sonst ist die letzte Kerze noch nicht fertig)
             agg = {}
-            for r in rows:
-                b = r["t"] - r["t"] % tf_ms
+            for t_, o_, h_, l_, c_ in rows:
+                b = t_ - t_ % tf_ms
                 x = agg.get(b)
                 if x is None:
-                    agg[b] = [b, r["o"], r["h"], r["l"], r["c"], 1, r["t"]]
+                    agg[b] = [b, o_, h_, l_, c_, 1, t_]
                 else:
-                    x[2], x[3], x[4], x[5], x[6] = max(x[2], r["h"]), min(x[3], r["l"]), r["c"], x[5] + 1, r["t"]
+                    x[2], x[3], x[4], x[5], x[6] = max(x[2], h_), min(x[3], l_), c_, x[5] + 1, t_
             merged = {b: x[:5] for b, x in agg.items() if x[6] >= b + tf_ms - 60000}
             if not limit:
-                chart = self.db.rows("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
-                if chart and (self._tf_of([[x["t"]] for x in chart[:200]]) or 0) == tf_ms:
+                chart = self.db.read("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? ORDER BY t", (fam, since_ms))
+                if chart and (self._tf_of([[x[0]] for x in chart[:200]]) or 0) == tf_ms:
                     for x in chart:
-                        merged.setdefault(x["t"], [x["t"], x["o"], x["h"], x["l"], x["c"]])
+                        merged.setdefault(x[0], list(x))
             bars = [merged[k] for k in sorted(merged)]
             if limit:
                 bars = bars[-limit:]
@@ -3152,7 +3150,7 @@ class Engine:
             plan = [(fam, tf) for fam in fams for tf in (1, 5)]
             combos = sum(len(v["N"]) * len(v["K"]) for v in DC_DETECTORS.values())
             self.disc_state["total"] = len(plan) * combos
-            since = (time.time() - 730 * 86400) * 1000   # höchstens 2 Jahre (Rechenzeit)
+            since = (time.time() - 400 * 86400) * 1000   # gut 1 Jahr: genug Trades, aber Rechenzeit und Speicher im Rahmen
             for fam, tf in plan:
                 series = self._disc_series(fam, tf, since_ms=since)
                 t = series[0]
