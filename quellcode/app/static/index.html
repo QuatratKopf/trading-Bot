@@ -739,6 +739,22 @@ th{font-size:10px;letter-spacing:.12em;text-transform:uppercase}
 .cv-raw pre{font-size:10.5px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto;margin:6px 0 0}
 @media (max-width:820px){ .nav{overflow-x:auto;grid-template-columns:repeat(7,minmax(52px,1fr))} }
 @media (max-width:980px){ .cv-main{grid-template-columns:1fr} .cv-side{max-height:none} .cv-hint{display:none} .cv-wrap{height:60vh} }
+.ck-more{margin-top:18px}
+.ck-more>summary{cursor:pointer;color:var(--muted);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;padding:10px 0;border-top:1px solid var(--line);list-style:none}
+.ck-more>summary::before{content:"▸ ";color:var(--accent)} .ck-more[open]>summary::before{content:"▾ "}
+.ln-tabs{align-items:center;flex-wrap:wrap}
+.ln-det{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 4px 0 14px;padding-left:14px;border-left:1px solid var(--line)}
+.ln-tabs button.sm{font-size:12px;padding:6px 9px}
+.lo-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.lo-st{display:flex;gap:10px;align-items:center}
+.lo-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:14px}
+.lo-c{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:12px 14px}
+.lo-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.lo-h h3{margin:0;font:700 10.5px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.lnk{background:none;border:0;color:var(--muted);font:11.5px var(--f-mono);padding:0} .lnk:hover{color:var(--accent)}
+.lo-l{display:flex;flex-direction:column;gap:6px}
+.lo-r{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12.5px} .lo-r>span:first-child{margin-right:auto}
+.lo-log{display:flex;flex-direction:column;gap:6px;font-size:12.5px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -989,7 +1005,6 @@ function todayCard() {
     <div class="td-chips">
       <span class="chip ${st[0]}"><span class="dot ${st[0] === "good" ? "ok" : st[0] === "mute" ? "" : st[0]}"></span>${st[1]}</span>
       ${nn ? `<span class="chip" title="${esc(nn.title)}">Nächste News ${tm(nn.ts / 1000)} · ${esc(nn.title.length > 28 ? nn.title.slice(0, 27) + "…" : nn.title)}</span>` : ""}
-      ${ch ? `<span class="chip ${ch.can_lose <= ch.cfg.guard_buffer ? "warn" : ""}">Fremdkapital: noch ${mUsd(Math.max(0, ch.can_lose))} Spielraum · ${ch.to_target <= 0 ? "Ziel erreicht" : mUsd(ch.to_target) + " bis Ziel"}</span>` : ""}
       ${blocked.length ? `<span class="chip mute">Nicht genommen: ${blocked.map(([k, v]) => `${esc(k)} ${v}`).join(" · ")}</span>` : ""}
     </div>
     <div class="hc">
@@ -1467,6 +1482,38 @@ function cvInspector() {
     <details class="cv-raw"><summary class="hint">Rohdaten</summary><pre class="mono">${esc(JSON.stringify(o, null, 1))}</pre></details>`;
 }
 
+/* ───────── Lernmodul: Übersicht (das Wichtigste auf einen Blick) ───────── */
+const LO = {disc: null, at: 0};
+async function learnOverview() {
+  const body = $("#lnBody");
+  if (!LO.disc || Date.now() - LO.at > 60000) { try { LO.disc = await api("/api/disc"); LO.at = Date.now(); } catch (e) {} }
+  if (TAB !== "learn" || LTAB !== "uebersicht") return;
+  const L = S.learning, c = S.config, sn = {asia: "Asien", london: "London", ny_am: "NY AM", ny_lunch: "NY Mittag", ny_pm: "NY PM", aus: "Sonst"};
+  const stChip = s => ({"aktiv": "good", "halbe Größe": "warn", "pausiert": "bad", "aus": "bad", "lernt": "mute"}[s] || "mute");
+  const strat = L.setups.filter(s => s.total || s.manual !== "auto" || s.effective !== "lernt");
+  const er = Object.entries(c.exit_rules || {}), sc = Object.entries(c.session_scale || {}), rules = (c.rule_filters || []).filter(r => r.active !== false);
+  const items = (LO.disc && LO.disc.items) || [], dAct = items.filter(i => i.status === "aktiv"), dProbe = items.filter(i => i.status === "probe" || i.status === "bereit");
+  const card = (title, tab, inner) => `<div class="lo-c"><div class="lo-h"><h3>${title}</h3><button class="lnk" data-go="${tab}">Details →</button></div>${inner}</div>`;
+  const none = t => `<p class="hint" style="margin:0">${t}</p>`;
+  body.innerHTML = `
+    <section class="panel lo-top"><div><h2>Was der Bot gelernt hat</h2><p class="hint" style="margin:4px 0 0">Nur das, was gerade anders läuft als ohne Lernen. Alles Weitere steht unter „Details“.</p></div>
+      <div class="lo-st"><span class="chip ${L.params.auto_adopt === false ? "mute" : "good"}">Selbst umsetzen: ${L.params.auto_adopt === false ? "aus" : "an"}</span><span class="hint">Letzte Auswertung ${L.last_run ? dtm(L.last_run) : "–"}</span></div></section>
+    <div class="lo-g">
+      ${card("Strategien", "strategien", strat.length ? (() => { const dev = strat.filter(s => s.effective !== "aktiv" || Object.values(s.sessions || {}).some(x => x.status === "pausiert" || x.status === "halbe Größe")); const ok = strat.length - dev.length;
+        return (dev.length ? "" : `<p class="hint" style="margin:0 0 6px">Alle ${strat.length} Strategien laufen normal.</p>`) + `<div class="lo-l">${dev.map(s => { const bad = Object.entries(s.sessions || {}).filter(([, x]) => x.status === "pausiert" || x.status === "halbe Größe");
+        return `<div class="lo-r"><span>${esc(s.setup)}</span>${s.effective !== "aktiv" ? `<span class="chip ${stChip(s.effective)}">${esc(s.effective)}</span>` : ""}${bad.map(([k, x]) => `<span class="chip ${stChip(x.status)}" title="${x.n} Trades · Ø ${num2(x.avg_r)} R">${sn[k] || k} ${x.status === "pausiert" ? "⏸ pausiert" : "½ Größe"}</span>`).join("")}</div>`; }).join("")}</div>` + (dev.length && ok ? `<p class="hint" style="margin:6px 0 0">${ok} weitere laufen normal.</p>` : ""); })() : none("Noch keine Daten – kommen mit den ersten Signalen."))}
+      ${card("Ausstiege", "varianten", (er.length ? `<div class="lo-l">${er.map(([k, v]) => `<div class="lo-r"><span>${esc(k)}</span><span class="chip good">${esc(v)}</span></div>`).join("")}</div>` : none("Überall das Ziel aus dem Signal."))
+        + (c.follow_tv_exits ? "" : `<p class="hint" style="margin:6px 0 0">TradingView-Exits werden nicht befolgt (haben Geld gekostet).</p>`))}
+      ${card("Session-Ziele", "sessionziele", sc.length ? `<div class="lo-l">${sc.map(([k, v]) => { const [a, b] = k.includes("|") ? k.split("|") : [null, k];
+        return `<div class="lo-r"><span>${a ? esc(a) + " · " : ""}${sn[b] || esc(b)}</span><span class="chip">Ziel ${Math.round(v.f * 100)} % · Stop ${Math.round(v.g * 100)} %</span></div>`; }).join("")}</div>` : none("Stop und Ziel wie im Signal."))}
+      ${card("Regeln", "regeln", rules.length ? `<div class="lo-l">${rules.map(r => `<div class="lo-r"><span>${esc(r.setup)}</span><span class="chip ${r.action === "avoid" ? "bad" : "good"}">${r.action === "avoid" ? "meiden" : "nur"}: ${esc(r.label)}</span></div>`).join("")}</div>` : none("Keine Filter aktiv."))}
+      ${card("Neue Strategien", "finder", dAct.length || dProbe.length ? `<div class="lo-l">${dAct.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip good">handelt mit</span></div>`).join("")}${dProbe.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip">Probelauf ${i.fwd ? i.fwd.n : 0}/20</span></div>`).join("")}</div>` : none("Keine im Probelauf."))}
+      ${card("Frühe Ausstiege", "ausstiege", `<p class="hint" style="margin:0">Ob Smart-Ausstieg, TradingView-Exit, News- oder Sessionende-Ausstiege Geld sparen oder kosten.</p>`)}
+    </div>
+    <section class="section"><h2>Zuletzt selbst geändert</h2><div class="panel">${(L.auto_log || []).length ? `<div class="lo-log">${L.auto_log.slice(0, 8).map(i => `<div><span class="mono hint">${new Date(i.t * 1000).toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"})}</span> ${esc(i.text)}</div>`).join("")}</div>` : none("Noch nichts. Jeden Abend nach Börsenschluss prüft der Bot, was sich bewährt hat.")}</div></section>
+    ${L.insights.length ? `<details class="ck-more"><summary>Erkenntnisse (${L.insights.length})</summary><div class="panel" style="margin-top:8px"><div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.insights.map(i => `<span class="chip wrapc ${i.kind === "bad" ? "bad" : i.kind === "good" ? "good" : "warn"}">${esc(i.text)}</span>`).join("")}</div></div></details>` : ""}`;
+  body.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { const t = document.querySelector(`[data-lt="${b.dataset.go}"]`); if (t) t.click(); });
+}
 /* ───────── Wochenbericht ───────── */
 const WK = {off: 0, data: null, at: 0, err: null};
 async function weekView(force) {
@@ -2089,7 +2136,8 @@ function posLive(p) {
   $("#pcMe-" + p.id).style.left = e + "%"; $("#pcMn-" + p.id).style.left = n + "%";
   const le = $("#pcLe-" + p.id); if (le) le.style.left = Math.max(12, Math.min(88, e)) + "%";
   const sm = $("#pcSm-" + p.id), x = p.smart;
-  if (sm) sm.innerHTML = !x ? `<span class="hint">Bot-Einschätzung: noch zu wenig ähnliche Trades für eine Einschätzung</span>`
+  if (sm) sm.hidden = !x;
+  if (sm && x) sm.innerHTML = !x ? ""
     : `<span class="dot ${x.exit ? "warn" : "ok"}"></span><span><b>Bot-Einschätzung:</b> ${x.exit ? "lohnt sich eher nicht mehr" : x.be ? "Stop auf Einstieg (Break-even) wäre besser" : x.hold >= x.now ? "Halten lohnt sich" : "kein klarer Unterschied, bleibt drin"} – ähnliche Trades brachten von hier aus im Schnitt <b class="mono ${cls(x.hold)}">${x.hold > 0 ? "+" : ""}${num2(x.hold)} R</b> (jetzt ${x.now > 0 ? "+" : ""}${num2(x.now)} R${x.be_val != null ? ` · mit Stop auf Einstieg ${x.be_val > 0 ? "+" : ""}${num2(x.be_val)} R` : ""} · ${x.n} Vergleiche · ${x.p_win} % liefen weiter ins Plus)${x.exit ? (/Smart-(BE \+ )?Ausstieg/.test(p.mgmt || "") ? " · <b>steigt zum Kerzenschluss aus</b>" : " · nur Hinweis, Smart-Ausstieg ist für diese Strategie (noch) nicht übernommen")
       : x.be ? (/Smart-BE/.test(p.mgmt || "") ? " · <b>zieht den Stop zum Kerzenschluss auf Einstieg</b>" : " · nur Hinweis, Smart-BE ist für diese Strategie (noch) nicht übernommen") : ""}</span>`;
 }
@@ -2121,15 +2169,17 @@ function cockpit(full) {
   if (full || !$("#ck")) m.innerHTML = `<div id="ck" style="display:contents">
     <div id="setup"></div>
     <section class="panel td" id="todayK"></section>
+    <section class="section" id="posSec" hidden><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
+    <section class="section" id="sugSec"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <section id="chCard" hidden></section>
-    <section class="panel perf" id="perf"></section>
-    <section class="section"><div class="section-h"><h2>Offene Positionen</h2><p class="hint">Jede Position hat einen Stop-Loss beim Broker.</p></div><div id="posBox"></div></section>
-    <div class="grid2 ck-2"><section class="section" id="lvSec"></section><section class="section" id="newsSec"></section></div>
-    <section class="section"><div class="section-h"><h2>Vorschläge</h2><p class="hint" id="sugHint"></p></div><div id="sugs"></div></section>
     <div class="grid2">
-      <section class="section"><div class="section-h"><h2>Heute: was der Bot entschieden hat</h2><button class="btn ghost-danger" id="delTests" data-key="deltests" hidden style="padding:4px 10px;font-size:12px">Test-Daten löschen</button></div><div class="panel scroll" id="sigBox"></div></section>
-      <section class="section"><h2>Aktivität</h2><div class="panel feed" id="feed"></div></section>
-    </div></div>`;
+      <section class="section"><div class="section-h"><h2>Heute: Entscheidungen des Bots</h2><button class="btn ghost-danger" id="delTests" data-key="deltests" hidden style="padding:4px 10px;font-size:12px">Test-Daten löschen</button></div><div class="panel scroll" id="sigBox"></div></section>
+      <section class="section" id="newsSec"></section>
+    </div>
+    <section class="panel perf" id="perf"></section>
+    <details class="ck-more" id="ckMore"><summary>Mehr anzeigen: Key Levels &amp; Tagesverlauf · Protokoll</summary>
+      <div class="grid2 ck-2"><section class="section" id="lvSec"></section><section class="section"><h2>Protokoll</h2><div class="panel feed" id="feed"></div></section></div>
+    </details></div>`;
   setupPanel();
   newsPanel();
   levelsPanel();
@@ -2138,6 +2188,8 @@ function cockpit(full) {
   if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
   const tdKey = JSON.stringify([S.summary, S.health, S.balance, S.news_next, S.challenge && [S.challenge.can_lose, S.challenge.to_target], S.config.paused, S.config.auto_mode, S.session_open, S.news_pause, HC_OPEN]);
   if (tdKey !== cockpit._tdKey || full) { cockpit._tdKey = tdKey; $("#todayK").innerHTML = todayCard(); $("#hcT").onclick = () => { HC_OPEN = !HC_OPEN; cockpit._tdKey = ""; cockpit(false); }; }
+  $("#posSec").hidden = !S.positions.length;
+  $("#sugSec").hidden = S.config.auto_mode && !S.pending.length;   // im Auto-Modus gibt es nichts anzunehmen
   $("#sugHint").textContent = S.config.auto_mode ? "Auto-Modus ist an: Signale werden ohne Rückfrage ausgeführt." : `Verfallen nach ${S.config.suggestion_timeout_sec} s ohne Antwort.`;
 
   // Vorschläge nur neu aufbauen, wenn sich die Menge ändert (Eingaben bleiben erhalten)
@@ -2333,7 +2385,6 @@ function statsOverview() {
       ["Profit-Faktor", num2(st.pf), st.pf >= 1 ? "pos" : st.pf != null ? "neg" : ""], ["Ø R pro Trade", num2(st.avg_r), cls(st.avg_r)],
       ["Max. Drawdown", usd(st.max_dd), st.max_dd < 0 ? "neg" : ""], ["Ø Gewinn", usd(st.avg_win), "pos"], ["Ø Verlust", usd(st.avg_loss), "neg"],
     ].map(([l, v, c]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${c}">${v}</span></div>`).join("")}</section>
-    <section class="panel scroll" id="exPanel"></section>
     <section class="panel"><div class="section-h"><h2>Equity des Bots</h2><p class="hint">Kumulierter Gewinn je abgeschlossenem Trade (${esc(S.broker.label)}, ohne Test-Trades)</p></div><div id="eq"></div></section>
     <div class="grid2">
       <section class="section"><h2>Nach Strategie</h2><div class="panel">${st.n ? `<div class="hbars">
@@ -2345,7 +2396,6 @@ function statsOverview() {
         </tbody></table>` : '<p class="hint">Noch keine abgeschlossenen Trades.</p>'}</div></section>
     </div>`;
   $("#eq").innerHTML = equitySvg(st.curve);
-  exitPanel();
   const pr = () => { $("#perfS").innerHTML = perfCard(); bindPerf($("#perfS"), pr); };
   pr();
 }
@@ -2634,15 +2684,15 @@ async function importDialog(file) {
 }
 
 /* ───────── Lernmodul ───────── */
-let LTAB = "strategien";
-try { LTAB = localStorage.getItem("fvg-ltab") || "strategien"; } catch (e) {}
+let LTAB = "uebersicht";
+try { LTAB = localStorage.getItem("fvg-ltab2") || "uebersicht"; } catch (e) {}
 function learn() {
   if (!$("#lnWrap")) {
     $("#main").innerHTML = `<div id="lnWrap" style="display:contents">
-      <div class="subtabs" role="tablist">${[["strategien", "Strategien"], ["varianten", "Varianten-Labor"], ["sessionziele", "Session-Ziele"], ["finder", "Strategie-Finder"], ["regeln", "Regel-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
-        `<button type="button" role="tab" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
+      <div class="subtabs ln-tabs" role="tablist"><button type="button" role="tab" data-lt="uebersicht" aria-selected="${LTAB === "uebersicht"}">Übersicht</button><span class="ln-det">Details</span>${[["strategien", "Strategien"], ["varianten", "Ausstiege"], ["ausstiege", "Frühe Ausstiege"], ["sessionziele", "Session-Ziele"], ["regeln", "Regeln"], ["finder", "Strategie-Finder"], ["backtest", "Backtest"]].map(([k, l]) =>
+        `<button type="button" role="tab" class="sm" data-lt="${k}" aria-selected="${LTAB === k}">${l}</button>`).join("")}</div>
       <div id="lnBody" style="display:contents"></div></div>`;
-    document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab", LTAB); } catch (e) {}
+    document.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { LTAB = b.dataset.lt; try { localStorage.setItem("fvg-ltab2", LTAB); } catch (e) {}
       document.querySelectorAll("[data-lt]").forEach(x => x.setAttribute("aria-selected", x === b)); $("#lnBody").innerHTML = ""; learn(); });
   }
   if (LTAB === "varianten") return labVariants();
@@ -2650,17 +2700,19 @@ function learn() {
   if (LTAB === "sessionziele") return labSessions();
   if (LTAB === "finder") return labFinder();
   if (LTAB === "backtest") return backtestView();
+  if (LTAB === "ausstiege") { if (!$("#exPanel")) $("#lnBody").innerHTML = '<section class="panel scroll" id="exPanel"></section>'; return exitPanel(); }
+  if (LTAB === "uebersicht") return learnOverview();
   learnStrategies();
 }
 function learnStrategies() {
   const L = S.learning, p = L.params;
   const stChip = s => ({"aktiv": "good", "halbe Größe": "warn", "pausiert": "bad", "aus": "bad", "lernt": "mute"}[s] || "mute");
   $("#lnBody").innerHTML = `
-    <section class="panel"><div class="section-h"><div><h2>So lernt der Bot</h2>
-      <p class="hint" style="max-width:75ch;margin-top:4px">Jedes Signal wird im Hintergrund als Schatten-Trade simuliert, auch abgelehnte und blockierte. Nach jeder Session wertet der Bot die letzten ${p.window} Schatten-Trades je Strategie aus.
+    <section class="panel"><div class="section-h"><div><h2>Strategien je Session</h2>
+      <details><summary class="hint" style="cursor:pointer;margin-top:4px">Wie bewertet wird</summary><p class="hint" style="max-width:75ch;margin-top:4px">Jedes Signal wird im Hintergrund als Schatten-Trade simuliert, auch abgelehnte und blockierte. Nach jeder Session wertet der Bot die letzten ${p.window} Schatten-Trades je Strategie aus.
       Unter ${num2(p.half_below_r)} R im Schnitt gibt es halbe Größe, unter ${num2(p.pause_below_r)} R eine Pause. Erst ab ${p.min_trades} Trades greift die Bewertung.
       Pausierte Strategien laufen im Schatten weiter und werden automatisch wieder freigegeben, wenn sie sich erholen. Das Risiko wird nie automatisch über deine Einstellung erhöht.
-      <b>Zusätzlich je Session:</b> Läuft eine Strategie z. B. in Asien schlecht, in New York aber gut, wird sie nur in Asien gebremst (Spalte „Je Session“: ✓ aktiv, ½ halbe Größe, ⏸ pausiert, … lernt noch).</p></div>
+      <b>Zusätzlich je Session:</b> Läuft eine Strategie z. B. in Asien schlecht, in New York aber gut, wird sie nur in Asien gebremst (Spalte „Je Session“: ✓ aktiv, ½ halbe Größe, ⏸ pausiert, … lernt noch).</p></details></div>
       <div style="display:flex;gap:10px;align-items:center"><span class="hint">Letzte Auswertung: ${L.last_run ? dtm(L.last_run) : "noch keine"}</span><button class="btn primary" id="runL">Jetzt auswerten</button></div></div></section>
     <section class="section"><h2>Strategien</h2><div class="panel scroll">${L.setups.length ? `<table><thead><tr><th class="t">Strategie</th><th class="t">Status</th><th>Ausgewertet</th><th>Gesamt</th><th>Treffer</th><th>Ø R</th><th>Σ R</th><th>Laufend</th><th class="t">Je Session</th><th class="t">Steuerung</th></tr></thead><tbody>
       ${L.setups.map(s => `<tr><td class="t"><span class="chip">${esc(s.setup)}</span></td>

@@ -1,6 +1,6 @@
 {
-  "version": "2.20.0",
-  "file": "releases/FVG-Trader-2.20.0.cmd",
-  "sha256": "12f6fa9f33021ad63db51628f3d7168639a2c46dee2a453ff753740838b39ff5",
-  "notes": "Neues Design (schwarz/Gold/Monospace) und neuer Reiter Chart mit Trades, Signalen, Liquidität, Sweeps, Struktur, BOS/MSS, Orderblöcken, FVGs und Sessions"
+  "version": "2.21.0",
+  "file": "releases/FVG-Trader-2.21.0.cmd",
+  "sha256": "15ef2d023a0c634a5980b85a9598de64ab6fa8dd4536b89d3c0109cbc158c2a7",
+  "notes": "Aufgeräumt: Cockpit ohne Doppeltes, Lernmodul mit kurzer Übersicht und Details dahinter"
 }
