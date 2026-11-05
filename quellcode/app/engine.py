@@ -2723,6 +2723,316 @@ class Engine:
         sc = self.cfg.get("session_scale") or {}
         return sc.get(f"{setup}|{sess}") or sc.get(sess)
 
+    # ───────── Chart: Kerzen + alles, was der Bot sieht (Struktur, Liquidität, Zonen, Trades, Signale) ─────────
+    def _trading_day_bounds(self, day):
+        """Handelstag = 18:00 New York am Vortag bis 17:00 New York."""
+        prev = day - dt.timedelta(days=1)
+        a = self._ny_epoch(dt.datetime(prev.year, prev.month, prev.day, 18, 0))
+        b = self._ny_epoch(dt.datetime(day.year, day.month, day.day, 17, 0))
+        return a, b
+
+    def chart_days(self, fam):
+        """Handelstage mit Kerzen (für die Tagesauswahl)."""
+        rows = self.db.rows("SELECT MIN(t) a, MAX(t) b FROM bars WHERE fam=?", (fam,))
+        r1 = self.db.rows("SELECT MIN(t) a, MAX(t) b FROM bars1 WHERE fam=?", (fam,))
+        lo = min(x for x in (rows[0]["a"], r1[0]["a"]) if x) if (rows[0]["a"] or r1[0]["a"]) else None
+        hi = max(x for x in (rows[0]["b"], r1[0]["b"]) if x) if (rows[0]["b"] or r1[0]["b"]) else None
+        if not hi:
+            return None, None
+        def tday(ms):
+            t = ny_time(ms / 1000)
+            d = t.date() + dt.timedelta(days=1 if t.hour >= 18 else 0)
+            while d.weekday() >= 5:
+                d += dt.timedelta(days=1)
+            return d
+        return tday(lo), tday(hi)
+
+    def chart_view(self, fam=None, day=None, tf_min=5):
+        fams = sorted(set(self.db.bar_fams()) | {r["fam"] for r in self.db.rows("SELECT DISTINCT fam FROM bars1")})
+        fam = fam if fam in fams else (fams[0] if fams else None)
+        if not fam:
+            return {"fams": [], "fam": None, "candles": []}
+        first, last = self.chart_days(fam)
+        d = dt.date.fromisoformat(day) if day else last
+        if d.weekday() >= 5:
+            d -= dt.timedelta(days=d.weekday() - 4)
+        span = {30: 3, 60: 5, 240: 20}.get(int(tf_min), 1)   # große Zeiteinheiten zeigen mehrere Tage
+        d0 = d
+        for _ in range(span - 1):
+            d0 -= dt.timedelta(days=1)
+            while d0.weekday() >= 5:
+                d0 -= dt.timedelta(days=1)
+        a, _ = self._trading_day_bounds(d0)
+        _, b = self._trading_day_bounds(d)
+        tf = int(tf_min) * 60000
+        ctx_a = a - 3 * 86400   # Vorlauf für Vortag, Struktur und Zonen
+        m1 = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in
+              self.db.rows("SELECT t, o, h, l, c FROM bars1 WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
+        ch = [[x["t"], x["o"], x["h"], x["l"], x["c"]] for x in
+              self.db.rows("SELECT t, o, h, l, c FROM bars WHERE fam=? AND t>=? AND t<? ORDER BY t", (fam, ctx_a * 1000, b * 1000))]
+        src = self._tf_of(ch) or 300000
+        note = None
+        if m1 and (tf < src or len(m1) * 60000 >= len(ch) * src * 0.8):
+            allb = self._agg(m1, tf)
+            # Lücken in den 1-Minuten-Kerzen mit Chart-Kerzen füllen
+            if ch and tf >= src:
+                have = {x[0] for x in allb}
+                allb = sorted(allb + [x for x in self._agg(ch, tf) if x[0] not in have])
+        elif ch:
+            if tf < src:
+                note = f"Für {tf_min} Minuten fehlen 1-Minuten-Kerzen in diesem Zeitraum – angezeigt wird {round(src / 60000)} Min."
+                tf = src
+            allb = self._agg(ch, tf) if tf > src else ch
+        else:
+            allb = []
+        # nur fertige Kerzen bis „jetzt“
+        allb = [x for x in allb if x[0] < b * 1000]
+        k0 = next((i for i, x in enumerate(allb) if x[0] >= a * 1000), len(allb))
+        candles = allb[k0:]
+        tick = INSTR[fam]["tick"]
+        L = self._chart_layers(fam, allb, k0, tf, tick, a, b)
+        L["trades"], L["seen"] = self._chart_trades(fam, a, b, tf)
+        L["sessions"] = self._chart_sessions(a, b)
+        counts = {k: len(v) for k, v in L.items()}
+        return {"fams": fams, "fam": fam, "day": str(d), "first": str(first) if first else None, "last": str(last) if last else None,
+                "tf": tf // 60000, "candles": candles, "layers": L, "counts": counts, "note": note, "tick": tick,
+                "from": a * 1000, "to": b * 1000, "live": d == last and time.time() < b + 600}
+
+    def _chart_sessions(self, a, b):
+        out = []
+        day = ny_time(a).date()
+        end = ny_time(b).date()
+        while day <= end:
+            for k, (name, s, e) in TRADING_SESSIONS.items():
+                hs, ms = map(int, s.split(":"))
+                he, me = map(int, e.split(":"))
+                t0 = dt.datetime(day.year, day.month, day.day, hs, ms)
+                t1 = dt.datetime(day.year, day.month, day.day, he, me) + (dt.timedelta(days=1) if e <= s else dt.timedelta())
+                x0, x1 = self._ny_epoch(t0), self._ny_epoch(t1)
+                if x1 > a and x0 < b and t0.weekday() < 5 or (k == "asia" and t0.weekday() == 6 and x1 > a and x0 < b):
+                    out.append({"id": f"s-{k}-{day}", "key": k, "name": name, "t0": max(x0, a) * 1000, "t1": min(x1, b) * 1000,
+                                "open_t": x0 * 1000})
+            day += dt.timedelta(days=1)
+        return out
+
+    def _chart_layers(self, fam, bars, k0, tf, tick, a, b):
+        """Struktur, Liquidität, Sweeps, Orderblöcke und FVGs – so wie der Bot den Markt liest."""
+        n = len(bars)
+        out = {"structure": [], "zigzag": [], "breaks": [], "pools": [], "sweeps": [], "ob": [], "fvg": []}
+        if n < 10:
+            return out
+        t = [x[0] for x in bars]
+        o = [x[1] for x in bars]
+        h = [x[2] for x in bars]
+        l = [x[3] for x in bars]
+        c = [x[4] for x in bars]
+        atr = dc_prepare(o, h, l, c)["atr"]
+        start_ms = a * 1000
+        end_t = t[-1] + tf
+        K = 3 if tf <= 300000 else 2
+        # 1) Swings (Pivot links/rechts K Kerzen) → HH/HL/LH/LL und Zickzack
+        piv = []
+        for i in range(K, n - K):
+            if h[i] == max(h[i - K:i + K + 1]) and h[i] > max(h[i - K:i]):
+                piv.append([i, "H", h[i]])
+            if l[i] == min(l[i - K:i + K + 1]) and l[i] < min(l[i - K:i]):
+                piv.append([i, "L", l[i]])
+        zz = []
+        for p in piv:   # aufeinanderfolgende gleiche Art → nur das Extrem behalten
+            if zz and zz[-1][1] == p[1]:
+                if (p[1] == "H" and p[2] >= zz[-1][2]) or (p[1] == "L" and p[2] <= zz[-1][2]):
+                    zz[-1] = p
+            else:
+                zz.append(p)
+        lastH = lastL = None
+        for i, kind, price in zz:
+            if kind == "H":
+                lab = "HH" if lastH is None or price > lastH else "LH"
+                lastH = price
+            else:
+                lab = "HL" if lastL is None or price > lastL else "LL"
+                lastL = price
+            if t[i] >= start_ms:
+                out["structure"].append({"id": f"sw{t[i]}{kind}", "t": t[i], "p": price, "kind": kind, "label": lab})
+        out["zigzag"] = [{"t": t[i], "p": p} for i, _, p in zz if t[i] >= start_ms - 6 * tf]
+        # 2) Struktur-Brüche (BOS = mit dem Trend, MSS = Richtungswechsel) und Orderblöcke
+        trend = 0
+        hs = [(i, p) for i, k, p in zz if k == "H"]
+        ls = [(i, p) for i, k, p in zz if k == "L"]
+        used_h, used_l = set(), set()
+        for j in range(n):
+            ch_ = [x for x in hs if x[0] + K < j and x[0] not in used_h]
+            cl_ = [x for x in ls if x[0] + K < j and x[0] not in used_l]
+            if ch_:
+                i, p = ch_[-1]
+                if c[j] > p:
+                    used_h.update(x[0] for x in ch_)
+                    kind = "BOS" if trend >= 0 else "MSS"
+                    trend = 1
+                    if t[j] >= start_ms:
+                        out["breaks"].append({"id": f"br{t[j]}u", "t0": t[i], "t": t[j], "p": p, "dir": 1, "kind": kind})
+                    # Orderblock: letzte rote Kerze vor dem Anstieg
+                    for q in range(j - 1, max(i - 1, j - 15), -1):
+                        if c[q] < o[q]:
+                            out["ob"].append(self._zone_life({"id": f"ob{t[q]}u", "t0": t[q], "top": h[q], "bot": l[q], "dir": 1,
+                                                              "from_break": kind}, t, h, l, c, q + 1, end_t, tf, "ob"))
+                            break
+            if cl_:
+                i, p = cl_[-1]
+                if c[j] < p:
+                    used_l.update(x[0] for x in cl_)
+                    kind = "BOS" if trend <= 0 else "MSS"
+                    trend = -1
+                    if t[j] >= start_ms:
+                        out["breaks"].append({"id": f"br{t[j]}d", "t0": t[i], "t": t[j], "p": p, "dir": -1, "kind": kind})
+                    for q in range(j - 1, max(i - 1, j - 15), -1):
+                        if c[q] > o[q]:
+                            out["ob"].append(self._zone_life({"id": f"ob{t[q]}d", "t0": t[q], "top": h[q], "bot": l[q], "dir": -1,
+                                                              "from_break": kind}, t, h, l, c, q + 1, end_t, tf, "ob"))
+                            break
+        out["ob"] = [z for z in out["ob"] if z["t1"] >= start_ms]
+        # 3) FVGs (3-Kerzen-Lücken ab ¼ der normalen Kerzen-Spanne)
+        for i in range(2, n):
+            if not atr[i]:
+                continue
+            if l[i] > h[i - 2] and l[i] - h[i - 2] >= 0.25 * atr[i]:
+                out["fvg"].append(self._zone_life({"id": f"fvg{t[i - 1]}u", "t0": t[i - 1], "top": l[i], "bot": h[i - 2], "dir": 1},
+                                                  t, h, l, c, i + 1, end_t, tf, "fvg"))
+            elif h[i] < l[i - 2] and l[i - 2] - h[i] >= 0.25 * atr[i]:
+                out["fvg"].append(self._zone_life({"id": f"fvg{t[i - 1]}d", "t0": t[i - 1], "top": l[i - 2], "bot": h[i], "dir": -1},
+                                                  t, h, l, c, i + 1, end_t, tf, "fvg"))
+        out["fvg"] = [z for z in out["fvg"] if z["t1"] >= start_ms][-150:]
+        # 4) Liquidität: Vortag, Asien, London, Mitternachts-Eröffnung, gleiche Hochs/Tiefs
+        def rng(t0, t1):
+            idx = [i for i in range(n) if t0 <= t[i] < t1]
+            return (max(h[i] for i in idx), min(l[i] for i in idx)) if idx else (None, None)
+        day = ny_time(b).date()
+        days = sorted({ny_time(x / 1000).date() + dt.timedelta(days=1 if ny_time(x / 1000).hour >= 18 else 0) for x in t if x >= start_ms})
+        for dd in days:
+            da, db_ = self._trading_day_bounds(dd)
+            prev = dd - dt.timedelta(days=1)
+            while prev.weekday() >= 5:
+                prev -= dt.timedelta(days=1)
+            pa, pb = self._trading_day_bounds(prev)
+            lv = []
+            ph, pl = rng(pa * 1000, pb * 1000)
+            lv += [("PDH", ph, 1), ("PDL", pl, -1)]
+            pd_ = dd - dt.timedelta(days=1)
+            ah, al = rng(self._ny_epoch(dt.datetime(pd_.year, pd_.month, pd_.day, 20)) * 1000, self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 0)) * 1000)
+            lv += [("Asien-Hoch", ah, 1), ("Asien-Tief", al, -1)]
+            lh, ll = rng(self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 2)) * 1000, self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 5)) * 1000)
+            lv += [("London-Hoch", lh, 1), ("London-Tief", ll, -1)]
+            for name, price, side in lv:
+                if price is None:
+                    continue
+                if name.startswith("Asien"):
+                    t0 = self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 0)) * 1000
+                elif name.startswith("London"):
+                    t0 = self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 5)) * 1000
+                else:
+                    t0 = da * 1000
+                if t0 >= db_ * 1000:
+                    continue
+                out["pools"].append(self._pool_life({"id": f"pl{name}{dd}", "name": name, "p": price, "side": side, "t0": t0,
+                                                     "kind": "BSL" if side > 0 else "SSL"}, t, h, l, c, o, db_ * 1000, out["sweeps"]))
+            mo = self._ny_epoch(dt.datetime(dd.year, dd.month, dd.day, 0)) * 1000
+            k = next((i for i in range(n) if t[i] >= mo), None)
+            if k is not None and t[k] < db_ * 1000:
+                out["pools"].append({"id": f"mo{dd}", "name": "Mitternachts-Eröffnung", "p": o[k], "side": 0, "t0": t[k],
+                                     "t1": min(db_ * 1000, end_t), "kind": "Eröffnung", "swept": None})
+        # gleiche Hochs/Tiefs (EQH/EQL): zwei Swings innerhalb von 0,1 × Kerzen-Spanne
+        for kind, lst, side in (("EQH", hs, 1), ("EQL", ls, -1)):
+            for (i1, p1), (i2, p2) in zip(lst, lst[1:]):
+                if t[i2] < start_ms or not atr[i2]:
+                    continue
+                if abs(p1 - p2) <= max(2 * tick, 0.1 * atr[i2]):
+                    p = max(p1, p2) if side > 0 else min(p1, p2)
+                    out["pools"].append(self._pool_life({"id": f"eq{t[i2]}{kind}", "name": kind, "p": p, "side": side, "t0": t[i1],
+                                                         "kind": kind}, t, h, l, c, o, end_t, out["sweeps"], start=i2 + 1))
+        return out
+
+    @staticmethod
+    def _zone_life(z, t, h, l, c, start, end_t, tf, kind):
+        """Wie lange eine Zone gilt: berührt (mitigiert), durchbrochen (ungültig / bei FVG: invertiert) oder noch offen."""
+        z["t1"], z["state"], z["touched"] = end_t, "offen", None
+        for j in range(start, len(t)):
+            if z["dir"] > 0:
+                if z["touched"] is None and l[j] <= z["top"]:
+                    z["touched"] = t[j]
+                if c[j] < z["bot"]:
+                    z["t1"], z["state"] = t[j] + tf, ("invertiert" if kind == "fvg" else "ungültig")
+                    break
+            else:
+                if z["touched"] is None and h[j] >= z["bot"]:
+                    z["touched"] = t[j]
+                if c[j] > z["top"]:
+                    z["t1"], z["state"] = t[j] + tf, ("invertiert" if kind == "fvg" else "ungültig")
+                    break
+            if kind == "fvg" and z["touched"] is not None and ((z["dir"] > 0 and l[j] <= z["bot"]) or (z["dir"] < 0 and h[j] >= z["top"])):
+                z["t1"], z["state"] = t[j] + tf, "gefüllt"
+                break
+            if t[j] - z["t0"] > 2 * 86400000:
+                z["t1"], z["state"] = t[j], "abgelaufen"
+                break
+        if z["state"] == "offen" and z["touched"]:
+            z["state"] = "berührt"
+        return z
+
+    @staticmethod
+    def _pool_life(pl, t, h, l, c, o, end, sweeps, start=0):
+        """Liquiditäts-Level bis zum Sweep (Docht drüber, Schluss zurück) oder Durchbruch."""
+        pl["t1"], pl["swept"] = end, None
+        for j in range(start, len(t)):
+            if t[j] < pl["t0"]:
+                continue
+            if t[j] >= end:
+                break
+            if pl["side"] > 0 and h[j] > pl["p"]:
+                pl["t1"] = t[j]
+                if c[j] < pl["p"]:
+                    pl["swept"] = t[j]
+                    sweeps.append({"id": f"sw{t[j]}{pl['id']}", "t": t[j], "p": h[j], "level": pl["p"], "name": pl["name"], "dir": -1})
+                else:
+                    pl["broken"] = t[j]
+                break
+            if pl["side"] < 0 and l[j] < pl["p"]:
+                pl["t1"] = t[j]
+                if c[j] > pl["p"]:
+                    pl["swept"] = t[j]
+                    sweeps.append({"id": f"sw{t[j]}{pl['id']}", "t": t[j], "p": l[j], "level": pl["p"], "name": pl["name"], "dir": 1})
+                else:
+                    pl["broken"] = t[j]
+                break
+        return pl
+
+    def _chart_trades(self, fam, a, b, tf):
+        trades, seen = [], []
+        for p in self.db.rows("SELECT * FROM positions WHERE (opened < ? AND (closed IS NULL OR closed >= ?))", (b, a)):
+            if family(p["root"]) != fam or p["broker"] not in (self.broker.name, "eigen") or not p.get("entry"):
+                continue
+            if p["broker"] == "eigen" and (not p["opened"] or p["opened"] == p["closed"]):
+                continue
+            t0 = p["opened"] * 1000
+            if p.get("bar_time") and abs(p["bar_time"] / 1000 - p["opened"]) < 86400:
+                t0 = p["bar_time"] + (self.chart_tf.get(fam) or 300000)
+            t1 = (p["closed"] or time.time()) * 1000
+            r_ = self._r_of(p) if p["status"] == "geschlossen" else None
+            trades.append({"id": p["id"], "t0": t0, "t1": t1, "side": p["side"], "setup": p["setup"], "qty": p["qty"], "root": p["root"],
+                           "entry": p["entry"], "exit": p["exit"], "sl0": p.get("initial_sl") or p["sl"], "sl": p["sl"], "tp": p["tp"],
+                           "pnl": p["pnl"], "r": round(r_, 2) if r_ is not None else None, "reason": p["close_reason"],
+                           "status": p["status"], "broker": p["broker"], "test": bool(p["is_test"]), "mgmt": p.get("mgmt"),
+                           "ghost": {"how": p.get("ghost_how"), "r": p.get("ghost_r"), "status": p.get("ghost_status")} if p.get("ghost_status") else None})
+        sh = {x["signal_id"]: x for x in self.db.rows("SELECT signal_id, status, r, exit, closed FROM shadow WHERE opened>=? AND opened<?", (a - 3600, b))}
+        for s in self.db.rows("SELECT * FROM signals WHERE ts>=? AND ts<? ORDER BY ts", (a, b)):
+            if family(s["root"] or fam) != fam or s["status"] == "ausgeführt":
+                continue
+            x = sh.get(s["id"])
+            seen.append({"id": s["id"], "t": (s.get("bar_time") + (self.chart_tf.get(fam) or 300000)) if s.get("bar_time") and abs(s["bar_time"] / 1000 - s["ts"]) < 86400 else s["ts"] * 1000,
+                         "side": s["side"], "setup": s["setup"], "entry": s["entry"], "sl": s["sl"], "tp": s["tp"], "status": s["status"],
+                         "reason": s["reason"], "test": bool(s["is_test"]),
+                         "shadow": {"status": x["status"], "r": x["r"], "exit": x["exit"], "t1": x["closed"] * 1000 if x["closed"] else None} if x else None})
+        return trades, seen
+
     # ───────── Strategie-Finder: neue Einstiege selbst suchen ─────────
     def _disc_path(self):
         return os.path.join(self.data_dir, "strategien.json")

@@ -55,7 +55,7 @@ input[type=number]{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 @media (max-width:820px){
   .bar{flex-wrap:wrap;gap:10px 12px}
   .brand{font-size:16px;margin-right:auto}
-  .nav{order:3;width:100%;display:grid;grid-template-columns:repeat(6,1fr);margin:0}
+  .nav{order:3;width:100%;display:grid;grid-template-columns:repeat(7,1fr);margin:0}
   .nav button{flex-direction:column;gap:3px;padding:6px 0;font-size:10.5px}
   .nav button span,.nav button[aria-current=true] span{display:none}
   .nav button em{display:inline;font-style:normal;white-space:nowrap}
@@ -669,6 +669,76 @@ table.cmp td,table.cmp th{white-space:normal}
 .df-imp select{background:var(--sunk);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
 .gh{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.5;padding:7px 10px;margin-top:6px;border-radius:8px;background:var(--sunk)}
 .gh .dot{margin-top:6px;flex-shrink:0}
+
+/* ═════════ Stil „Data Farm“: schwarz, Gold, Monospace ═════════ */
+:root{
+  --bg:#0b0b0a; --surface:#121211; --raise:#171715; --sunk:#0e0e0d; --line:#232320; --line2:#2e2d29; --fg:#e9e4d8; --muted:#8c877b;
+  --accent:#e3b341; --accent-fg:#141310; --pos:#3fbf7f; --neg:#e5534b; --warn:#e8913a; --fill:rgba(227,179,65,.12);
+  --pos-bg:rgba(63,191,127,.09); --neg-bg:rgba(229,83,75,.09); --warn-bg:rgba(232,145,58,.12);
+  --f-display:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+  --f-body:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+  --f-mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+}
+body{background:var(--bg);font-size:13px;letter-spacing:-.005em}
+.top{background:rgba(11,11,10,.94);border-bottom:1px solid var(--line)}
+.brand{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--fg)}
+.brand i{width:14px;height:14px;border-radius:2px;background:var(--accent);box-shadow:0 0 12px rgba(227,179,65,.45)}
+.nav{background:transparent;gap:4px;padding:0}
+.nav button{font:600 11.5px var(--f-body);letter-spacing:.1em;text-transform:uppercase;padding:6px 11px;border-radius:4px;color:var(--muted)}
+.nav button svg{display:none}
+.nav button[aria-current=true]{background:rgba(227,179,65,.12);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(227,179,65,.35)}
+.nav button:hover{color:var(--fg)}
+@media (max-width:1060px){ .nav button svg{display:block} .nav button span{display:none} }
+@media (max-width:820px){ .nav button{font-size:9.5px;letter-spacing:.04em} }
+h2,.section h2,.section-h h2{font-family:var(--f-display);font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg)}
+.panel,.kpi,.df-c,.drw,.pc,.set-sec{border-radius:4px!important}
+.panel{background:var(--surface);border-color:var(--line)}
+.kpi .l,.td-l,.df-s small,.mc-big .td-l{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.kpi .v,.td-pl b,.mc-big b{font-weight:600;letter-spacing:-.02em}
+.btn{border-radius:3px;font-size:12px;letter-spacing:.02em}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.chip{border-radius:3px;font-size:11px;letter-spacing:.02em}
+.chip.good{color:var(--pos)} .chip.warn{color:var(--accent);background:rgba(227,179,65,.1)}
+.pill{border-radius:3px;font-size:11px}
+input,select{border-radius:3px;background:var(--sunk)}
+.tgl[aria-checked=true]{background:var(--accent)}
+.switch{border-radius:4px}
+th{font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.hint{color:var(--muted)}
+.content.wide{max-width:none}
+/* Chart */
+.cv{padding-top:12px}
+.cv-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:8px 0 12px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.cv-f{display:flex;align-items:center;gap:6px}
+.cv-f>span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.cv-f select,.cv-f input{padding:4px 8px;font:12px var(--f-mono)}
+.cv-f .ibtn{width:26px;height:26px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);border-radius:3px;font-size:15px;line-height:1}
+.cv-tf{display:flex;gap:2px}
+.cv-tf button{border:0;background:transparent;color:var(--muted);font:600 12px var(--f-mono);padding:4px 8px;border-radius:3px}
+.cv-tf button[aria-pressed=true]{background:rgba(227,179,65,.14);color:var(--accent)}
+.cv-info{font-size:12px;color:var(--muted)} .cv-info b{color:var(--fg)} .cv-info b.acc,.cv-info .live{color:var(--accent)}
+.cv-hint{margin-left:auto;font-size:11px;color:var(--muted)}
+.cv-main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+.cv-wrap{position:relative;height:calc(100vh - 210px);min-height:440px;border:1px solid var(--line);background:var(--bg);border-radius:3px;overflow:hidden}
+.cv-wrap canvas{display:block;cursor:crosshair;touch-action:none;outline:none}
+.cv-ohlc{position:absolute;left:10px;top:8px;font-size:11.5px;color:var(--muted);pointer-events:none;background:rgba(11,11,10,.7);padding:2px 6px;border-radius:2px}
+.cv-ohlc b{color:var(--fg);margin-right:6px} .cv-ohlc span{color:var(--fg)}
+.cv-msg{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--line);padding:12px 16px;border-radius:3px;color:var(--muted);max-width:70%;text-align:center}
+.cv-side{display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 210px);overflow:auto}
+.cv-sec{background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:10px 12px}
+.cv-sec h3{margin:0 0 8px;font:700 10.5px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.cv-lay{display:flex;flex-direction:column;gap:2px}
+.cv-li{display:grid;grid-template-columns:16px 8px 1fr auto;gap:8px;align-items:center;font-size:12px;padding:3px 0;cursor:pointer}
+.cv-li input{accent-color:var(--accent);margin:0}
+.cv-li i{width:8px;height:8px;border-radius:50%}
+.cv-li b{font-size:11px;color:var(--muted);font-weight:500}
+.cv-lb{display:flex;gap:6px;margin-top:8px} .cv-lb .btn{padding:3px 8px;font-size:11px}
+.cv-ik{font-weight:700;color:var(--accent);margin-bottom:8px;font-size:12.5px}
+.cv-kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:12px}
+.cv-kv dt{color:var(--muted)} .cv-kv dd{margin:0;text-align:right;word-break:break-word}
+.cv-raw pre{font-size:10.5px;white-space:pre-wrap;color:var(--muted);max-height:220px;overflow:auto;margin:6px 0 0}
+@media (max-width:820px){ .nav{overflow-x:auto;grid-template-columns:repeat(7,minmax(52px,1fr))} }
+@media (max-width:980px){ .cv-main{grid-template-columns:1fr} .cv-side{max-height:none} .cv-hint{display:none} .cv-wrap{height:60vh} }
 </style>
 </head>
 <body>
@@ -814,6 +884,7 @@ async function showLogin() {
 /* ───────── Gerüst ───────── */
 const NAV = [
   ["cockpit", "Cockpit", '<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4.5-4.5"/><circle cx="12" cy="15" r="1.2"/>'],
+  ["chart", "Chart", '<path d="M4 19h16"/><path d="M7 15V9M7 9V7M12 13V6M12 6V4M17 16v-5M17 11V9"/><rect x="5.5" y="9" width="3" height="5" rx=".5"/><rect x="10.5" y="6" width="3" height="6" rx=".5"/><rect x="15.5" y="11" width="3" height="4" rx=".5"/>'],
   ["calendar", "Kalender", '<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4"/>'],
   ["stats", "Statistik", '<path d="M5 19v-7M12 19V5M19 19v-10"/>'],
   ["challenge", "Fremdkapital", '<path d="M3 8.5 12 4l9 4.5"/><path d="M5 10v7M9.5 10v7M14.5 10v7M19 10v7M3.5 20h17"/>'],
@@ -1012,6 +1083,390 @@ async function exitPanel() {
       <p class="hint" style="margin:8px 0 0">Positiv = der frühe Ausstieg hat Geld gespart. Kosten Smart-Ausstieg/Smart-BE oder TradingView-Exits über viele Trades nachweislich Geld (in beiden Zeit-Hälften), schaltet der Bot sie selbst ab. ${d.follow_tv ? "" : "<b>TradingView-Exits werden zurzeit nicht befolgt.</b>"}</p>`
       : '<p class="hint">Noch keine frühen Ausstiege verfolgt. Sobald ein Trade über ein Exit-Signal, Smart-Ausstieg, News, Sessionende oder von Hand endet, verfolgt die App weiter, ob er Ziel oder Stop erreicht hätte.</p>'}`;
 }
+/* ───────── Chart: Kerzen mit allem, was der Bot sieht ───────── */
+const CV_LAYERS = [
+  ["trades", "★ Trades (genommen)", "#e3b341"],
+  ["seen", "Setups gesehen (nicht genommen)", "#8a857a"],
+  ["pools", "Liquidität (PDH/PDL, Asien, London, EQH/EQL)", "#4f8cff"],
+  ["sweeps", "Liquiditäts-Sweeps", "#ff8a3d"],
+  ["structure", "Struktur HH / HL / LH / LL", "#d9d2c3"],
+  ["zigzag", "Zickzack", "#e3b341"],
+  ["breaks", "Struktur-Brüche BOS / MSS", "#2dd4bf"],
+  ["ob", "Orderblöcke", "#a78bfa"],
+  ["fvg", "FVGs / Inversionen", "#38bdf8"],
+  ["sessions", "Sessions & Eröffnungen", "#6b7280"],
+];
+const CV = {fam: "auto", day: "last", tf: 5, data: null, v: null, sel: null, hover: null, err: null, busy: false, timer: null,
+  layers: (() => { try { return JSON.parse(localStorage.getItem("cvLayers")) || null; } catch (e) { return null; } })()
+    || {trades: true, seen: true, pools: true, sweeps: true, structure: true, zigzag: true, breaks: true, ob: false, fvg: false, sessions: true}};
+const cvSaveLayers = () => { try { localStorage.setItem("cvLayers", JSON.stringify(CV.layers)); } catch (e) {} };
+
+function chartPage() {
+  const d = CV.data;
+  $("#main").innerHTML = `
+  <section class="cv">
+    <div class="cv-bar">
+      <label class="cv-f"><span>Inst</span><select id="cvFam">${(d ? d.fams : ["NQ"]).map(f => `<option ${d && d.fam === f ? "selected" : ""}>${f}</option>`).join("")}</select></label>
+      <div class="cv-f"><span>Tag</span><button class="ibtn" id="cvPrev" aria-label="Vortag">‹</button><input type="date" id="cvDay" value="${d ? d.day : ""}" ${d && d.first ? `min="${d.first}" max="${d.last}"` : ""}><button class="ibtn" id="cvNext" aria-label="Nächster Tag">›</button></div>
+      <div class="cv-f"><span>TF</span><div class="cv-tf">${[1, 2, 3, 5, 15, 30, 60, 240].map(t => `<button type="button" data-tf="${t}" aria-pressed="${CV.tf === t}">${t < 60 ? t + "m" : t / 60 + "h"}</button>`).join("")}</div></div>
+      <span class="cv-info mono" id="cvInfo"></span>
+      <span class="cv-hint">Mausrad Zoom · Ziehen verschieben · Preisachse ziehen = Höhe · ←/→ Tage · Doppelklick zurück · Klick = Details</span>
+    </div>
+    <div class="cv-main">
+      <div class="cv-wrap" id="cvWrap"><canvas id="cvC" tabindex="0" aria-label="Kerzen-Chart"></canvas><div class="cv-ohlc mono" id="cvO"></div><div class="cv-msg" id="cvMsg" hidden></div></div>
+      <aside class="cv-side">
+        <div class="cv-sec"><h3>Inspector</h3><div id="cvI" class="cv-insp"><p class="hint">Etwas im Chart anklicken: Trade, Signal, Zone, Level, Sweep oder Struktur – hier stehen dann alle Details.</p></div></div>
+        <div class="cv-sec"><h3>Ebenen</h3><div class="cv-lay" id="cvL"></div></div>
+        <div class="cv-sec"><h3>Legende</h3><p class="hint" style="margin:0;line-height:1.6">Grün/Rot hinter einem Trade = Ziel- und Stop-Bereich. ○ = Signal gesehen, nicht genommen (Farbe: hätte gewonnen/verloren). × = Sweep. Gestrichelt = Liquidität, endet beim Sweep. BOS = Bruch mit dem Trend, MSS = Richtungswechsel.</p></div>
+      </aside>
+    </div>
+  </section>`;
+  cvLayersPanel();
+  cvBind();
+  if (!CV.data || CV.err) cvLoad(true); else { cvResize(); cvDraw(); }
+}
+
+function cvLayersPanel() {
+  const c = (CV.data && CV.data.counts) || {};
+  $("#cvL").innerHTML = CV_LAYERS.map(([k, l, col]) => `<label class="cv-li"><input type="checkbox" data-ly="${k}" ${CV.layers[k] ? "checked" : ""}><i style="background:${col}"></i><span>${l}</span><b class="mono">${c[k] ?? ""}</b></label>`).join("")
+    + `<div class="cv-lb"><button class="btn" id="cvAll">alles</button><button class="btn" id="cvClean">aufgeräumt</button></div>`;
+  $("#cvL").querySelectorAll("[data-ly]").forEach(x => x.onchange = () => { CV.layers[x.dataset.ly] = x.checked; cvSaveLayers(); cvDraw(); });
+  $("#cvAll").onclick = () => { CV_LAYERS.forEach(([k]) => CV.layers[k] = true); cvSaveLayers(); cvLayersPanel(); cvDraw(); };
+  $("#cvClean").onclick = () => { CV.layers = {trades: true, seen: true, pools: true, sweeps: true, structure: false, zigzag: true, breaks: true, ob: false, fvg: false, sessions: true}; cvSaveLayers(); cvLayersPanel(); cvDraw(); };
+}
+
+async function cvLoad(reset) {
+  if (CV.busy) return;
+  CV.busy = true;
+  const keepRight = CV.v && CV.data && CV.v.i1 >= CV.data.candles.length - 0.5;
+  try {
+    const d = await api(`/api/chartview/${CV.fam}/${CV.day}/${CV.tf}`);
+    const same = CV.data && CV.data.day === d.day && CV.data.tf === d.tf && CV.data.fam === d.fam;
+    CV.data = d; CV.err = null;
+    if (CV.day === "last") CV.day = d.day;
+    if (!same || reset || !CV.v) cvResetView();
+    else if (keepRight) { const w = CV.v.i1 - CV.v.i0; CV.v.i1 = d.candles.length + 2; CV.v.i0 = CV.v.i1 - w; }
+  } catch (e) { CV.err = e.message; }
+  CV.busy = false;
+  if (TAB !== "chart" || !$("#cvC")) return;
+  const d = CV.data;
+  if (d) {
+    $("#cvDay").value = d.day; if (d.first) { $("#cvDay").min = d.first; $("#cvDay").max = d.last; }
+    $("#cvFam").innerHTML = d.fams.map(f => `<option ${d.fam === f ? "selected" : ""}>${f}</option>`).join("");
+    const ev = Object.entries(d.counts).filter(([k]) => !["zigzag", "sessions"].includes(k)).reduce((a, [, v]) => a + v, 0);
+    $("#cvInfo").innerHTML = `<b>${d.candles.length}</b> ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}-Kerzen · <b>${ev}</b> Ereignisse · <b class="${d.counts.trades ? "acc" : ""}">${d.counts.trades}</b> Trades${d.live ? ' · <span class="live">● live</span>' : ""}`;
+    document.querySelectorAll("[data-tf]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.tf === d.tf));
+  }
+  const msg = $("#cvMsg");
+  msg.hidden = !(CV.err || (d && (!d.candles.length || d.note)));
+  msg.textContent = CV.err || (d && !d.candles.length ? "Für diesen Tag sind keine Kerzen gespeichert." : d && d.note ? d.note : "");
+  cvLayersPanel();
+  cvResize(); cvDraw();
+  clearTimeout(CV.timer);
+  if (d && d.live) CV.timer = setTimeout(() => { if (TAB === "chart" && !document.hidden) cvLoad(false); }, ["localhost", "127.0.0.1"].includes(location.hostname) ? 20000 : 60000);
+}
+
+function cvResetView() {
+  const n = CV.data ? CV.data.candles.length : 0;
+  const narrow = innerWidth < 700;
+  const show = Math.min(n, narrow ? 70 : CV.data && CV.data.tf === 1 ? 300 : CV.data && CV.data.tf >= 60 ? 160 : n);
+  CV.v = {i1: n + 2, i0: n + 2 - Math.max(20, show + 2), y: null};
+}
+
+function cvBind() {
+  $("#cvFam").onchange = e => { CV.fam = e.target.value; CV.day = "last"; CV.sel = null; cvLoad(true); };
+  $("#cvDay").onchange = e => { if (e.target.value) { CV.day = e.target.value; CV.sel = null; cvLoad(true); } };
+  $("#cvPrev").onclick = () => cvShiftDay(-1);
+  $("#cvNext").onclick = () => cvShiftDay(1);
+  document.querySelectorAll("[data-tf]").forEach(b => b.onclick = () => { CV.tf = +b.dataset.tf; CV.sel = null; cvLoad(true); });
+  const cv = $("#cvC");
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  let drag = null;
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (!CV.v || !CV.g) return;
+    const [x] = pos(e);
+    const f = Math.pow(1.0015, e.deltaY);   // gleichmäßig, auch bei Touchpads
+    const at = CV.v.i0 + Math.min(x, CV.g.pw) / CV.g.pw * (CV.v.i1 - CV.v.i0);
+    let w = (CV.v.i1 - CV.v.i0) * f;
+    const n = CV.data.candles.length;
+    w = Math.max(12, Math.min(Math.max(40, n * 1.5), w));
+    const k = (at - CV.v.i0) / (CV.v.i1 - CV.v.i0);
+    CV.v.i0 = at - k * w; CV.v.i1 = CV.v.i0 + w;
+    cvClamp(); cvDraw();
+  }, {passive: false});
+  cv.addEventListener("pointerdown", e => {
+    if (!CV.v || !CV.g) return;
+    const [x, y] = pos(e);
+    cv.setPointerCapture(e.pointerId);
+    drag = {x, y, i0: CV.v.i0, i1: CV.v.i1, axis: x > CV.g.pw, moved: false, yr: CV.g.yr.slice()};
+  });
+  cv.addEventListener("pointermove", e => {
+    const [x, y] = pos(e);
+    if (drag && CV.g) {
+      const dx = x - drag.x, dy = y - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (drag.axis) {   // Preisachse ziehen = Höhe skalieren
+        const mid = (drag.yr[0] + drag.yr[1]) / 2, half = (drag.yr[1] - drag.yr[0]) / 2 * Math.exp(dy / 150);
+        CV.v.y = [mid - half, mid + half];
+      } else {
+        const per = (drag.i1 - drag.i0) / CV.g.pw;
+        CV.v.i0 = drag.i0 - dx * per; CV.v.i1 = drag.i1 - dx * per;
+        if (CV.v.y) { const ppx = (drag.yr[1] - drag.yr[0]) / CV.g.ph; CV.v.y = [drag.yr[0] + dy * ppx, drag.yr[1] + dy * ppx]; }
+        cvClamp();
+      }
+      CV.hover = null; cvDraw(); return;
+    }
+    CV.hover = [x, y]; cvDraw();
+  });
+  cv.addEventListener("pointerup", e => {
+    const [x, y] = pos(e);
+    if (drag && !drag.moved && !drag.axis) cvPick(x, y);
+    drag = null;
+  });
+  cv.addEventListener("pointerleave", () => { CV.hover = null; cvDraw(); });
+  cv.addEventListener("dblclick", () => { cvResetView(); cvDraw(); });
+  cv.addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft") { e.preventDefault(); cvShiftDay(-1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); cvShiftDay(1); }
+    else if (e.key === "0") { cvResetView(); cvDraw(); }
+  });
+  if (!CV.ro) { CV.ro = new ResizeObserver(() => { if (TAB === "chart" && $("#cvC")) { cvResize(); cvDraw(); } }); }
+  CV.ro.disconnect(); CV.ro.observe($("#cvWrap"));
+}
+
+function cvShiftDay(dir) {
+  if (!CV.data) return;
+  const d = new Date(CV.data.day + "T12:00:00Z");
+  do { d.setUTCDate(d.getUTCDate() + dir); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  const k = d.toISOString().slice(0, 10);
+  if ((CV.data.first && k < CV.data.first) || (CV.data.last && k > CV.data.last)) return toast(dir < 0 ? "Älter sind keine Kerzen gespeichert" : "Das ist der neueste Tag");
+  CV.day = k; CV.sel = null; cvLoad(true);
+}
+
+function cvClamp() {
+  const n = CV.data.candles.length, w = CV.v.i1 - CV.v.i0;
+  if (CV.v.i1 < Math.min(n, 8)) { CV.v.i1 = Math.min(n, 8); CV.v.i0 = CV.v.i1 - w; }
+  if (CV.v.i0 > n - 8) { CV.v.i0 = n - 8; CV.v.i1 = CV.v.i0 + w; }
+}
+
+function cvResize() {
+  const cv = $("#cvC"), wrap = $("#cvWrap"); if (!cv || !wrap) return;
+  const r = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  cv.style.width = r.width + "px"; cv.style.height = r.height + "px";
+}
+
+/* Zeit (ms) → Kerzen-Index (mit Bruchteil), damit Zonen und Trades genau zwischen Kerzen liegen */
+function cvIdx(ms) {
+  const c = CV.data.candles, tf = CV.data.tf * 60000;
+  if (!c.length) return 0;
+  if (ms <= c[0][0]) return (ms - c[0][0]) / tf;
+  let lo = 0, hi = c.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (c[m][0] <= ms) lo = m; else hi = m - 1; }
+  return lo + Math.min(1, (ms - c[lo][0]) / tf);
+}
+
+function cvColors() {
+  const s = getComputedStyle(document.documentElement), g = k => s.getPropertyValue(k).trim();
+  return {bg: g("--bg"), line: g("--line"), fg: g("--fg"), muted: g("--muted"), acc: g("--accent"), pos: g("--pos"), neg: g("--neg"), mono: g("--f-mono")};
+}
+
+function cvDraw() {
+  const cv = $("#cvC"); if (!cv || !CV.data || !CV.v) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.width / dpr, H = cv.height / dpr;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const C = cvColors(), d = CV.data, cs = d.candles, L = d.layers, tf = d.tf * 60000;
+  const AX = 72, TX = 22, pw = W - AX, ph = H - TX;
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  ctx.font = `11px ${C.mono}`;
+  if (!cs.length) return;
+  const i0 = CV.v.i0, i1 = CV.v.i1, bw = pw / (i1 - i0);
+  const X = i => (i - i0) * bw;           // linke Kante von Kerze i
+  const XT = ms => X(cvIdx(ms));
+  // Preisbereich: automatisch aus den sichtbaren Kerzen, oder von Hand (Preisachse gezogen)
+  let lo = Infinity, hi = -Infinity;
+  for (let i = Math.max(0, Math.floor(i0)); i < Math.min(cs.length, Math.ceil(i1)); i++) { lo = Math.min(lo, cs[i][3]); hi = Math.max(hi, cs[i][2]); }
+  if (!isFinite(lo)) { lo = cs[cs.length - 1][3]; hi = cs[cs.length - 1][2]; }
+  const pad = (hi - lo) * 0.08 || 5;
+  let yr = CV.v.y || [lo - pad, hi + pad];
+  const Y = p => ph - (p - yr[0]) / (yr[1] - yr[0]) * ph;
+  CV.g = {pw, ph, yr, X, XT, Y, bw, W, H};
+  const tick = d.tick || 0.25, pfmt = p => (Math.round(p / tick) * tick).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
+  // Raster
+  const step = cvNice((yr[1] - yr[0]) / 8);
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+  for (let p = Math.ceil(yr[0] / step) * step; p < yr[1]; p += step) { const y = Math.round(Y(p)) + .5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke(); }
+  const vis = (a, b) => b >= i0 - 1 && a <= i1 + 1;
+  const on = k => CV.layers[k];
+  const sel = CV.sel && CV.sel.o;
+  const hl = o => sel && o === sel;
+  // Sessions
+  if (on("sessions")) for (const s of L.sessions) {
+    const a = XT(s.t0), b = XT(s.t1); if (b < 0 || a > pw) continue;
+    ctx.fillStyle = {asia: "rgba(99,102,241,.06)", london: "rgba(56,189,248,.05)", ny_am: "rgba(227,179,65,.06)", ny_lunch: "rgba(160,160,160,.035)", ny_pm: "rgba(45,212,191,.05)"}[s.key] || "rgba(255,255,255,.03)";
+    ctx.fillRect(a, 0, b - a, ph);
+    ctx.strokeStyle = hl(s) ? C.acc : "rgba(160,160,160,.25)"; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(Math.round(a) + .5, 0); ctx.lineTo(Math.round(a) + .5, ph); ctx.stroke(); ctx.setLineDash([]);
+    const sn = {asia: "Asien", london: "London", ny_am: "NY AM", ny_lunch: "NY Mittag", ny_pm: "NY PM"}[s.key] || s.name;
+    if (b - a > ctx.measureText(sn).width + 10) { ctx.fillStyle = C.muted; ctx.fillText(sn, a + 4, 13); }
+  }
+  // Zonen: Orderblöcke, FVGs
+  const zone = (z, col, label) => {
+    const a = XT(z.t0), b = XT(z.t1); if (b < 0 || a > pw) return;
+    const y1 = Y(z.top), y2 = Y(z.bot), done = ["ungültig", "gefüllt", "abgelaufen", "invertiert"].includes(z.state);
+    ctx.fillStyle = col.replace("A", done ? ".06" : ".15"); ctx.fillRect(a, y1, b - a, y2 - y1);
+    ctx.strokeStyle = hl(z) ? C.acc : col.replace("A", done ? ".25" : ".55"); ctx.lineWidth = hl(z) ? 2 : 1; ctx.strokeRect(a + .5, y1 + .5, b - a, y2 - y1); ctx.lineWidth = 1;
+    if (b - a > 40 && y2 - y1 > 9) { ctx.fillStyle = col.replace("A", ".9"); ctx.fillText(label, a + 4, y1 + 11); }
+  };
+  if (on("fvg")) for (const z of L.fvg) zone(z, z.dir > 0 ? "rgba(56,189,248,A)" : "rgba(244,114,182,A)", (z.dir > 0 ? "FVG ↑" : "FVG ↓") + (z.state === "invertiert" ? " inv." : ""));
+  if (on("ob")) for (const z of L.ob) zone(z, "rgba(167,139,250,A)", (z.dir > 0 ? "OB ↑" : "OB ↓") + (z.state === "ungültig" ? " ✕" : ""));
+  // Liquidität
+  if (on("pools")) for (const p of L.pools) {
+    const a = Math.max(0, XT(p.t0)), b = Math.min(pw, XT(p.t1)); if (b < 0 || a > pw) continue;
+    const y = Math.round(Y(p.p)) + .5;
+    ctx.strokeStyle = hl(p) ? C.acc : p.side === 0 ? "rgba(217,210,195,.55)" : "rgba(79,140,255,.8)"; ctx.lineWidth = hl(p) ? 2 : 1;
+    ctx.setLineDash(p.side === 0 ? [1, 3] : [5, 4]); ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+    ctx.fillStyle = p.side === 0 ? C.muted : "#7aa7ff"; const txt = (p.side === 0 ? "Mitternacht" : p.name) + (p.swept ? " ✓" : "");
+    if (b - a > ctx.measureText(txt).width + 8) ctx.fillText(txt, b - ctx.measureText(txt).width - 4, y - 4);
+  }
+  // Trades (genommen): Ziel- und Stop-Bereich
+  if (on("trades")) for (const t of L.trades) {
+    const a = XT(t.t0), b = Math.max(a + 3, XT(t.t1)); if (b < 0 || a > pw) continue;
+    const ye = Y(t.entry);
+    if (t.tp) { const yt = Y(t.tp); ctx.fillStyle = "rgba(63,191,127,.16)"; ctx.fillRect(a, Math.min(ye, yt), b - a, Math.abs(yt - ye)); }
+    if (t.sl0) { const ys = Y(t.sl0); ctx.fillStyle = "rgba(229,83,75,.16)"; ctx.fillRect(a, Math.min(ye, ys), b - a, Math.abs(ys - ye)); }
+    ctx.strokeStyle = hl(t) ? C.acc : "rgba(227,179,65,.9)"; ctx.lineWidth = hl(t) ? 2 : 1.2;
+    ctx.beginPath(); ctx.moveTo(a, ye); ctx.lineTo(b, ye); ctx.stroke();
+    if (t.sl !== t.sl0 && t.sl) { ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(229,83,75,.8)"; const y = Y(t.sl); ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.lineWidth = 1;
+    if (t.exit != null && t.status === "geschlossen") { const yx = Y(t.exit); ctx.fillStyle = t.pnl > 0 ? C.pos : C.neg; ctx.beginPath(); ctx.arc(b, yx, 4, 0, 7); ctx.fill(); }
+    const up = t.side === "long";
+    ctx.fillStyle = C.acc; ctx.beginPath(); ctx.moveTo(a, ye); ctx.lineTo(a - 6, ye + (up ? 9 : -9)); ctx.lineTo(a + 6, ye + (up ? 9 : -9)); ctx.closePath(); ctx.fill();
+    const lab = `★ ${up ? "LONG" : "SHORT"} ${t.setup || ""}${t.r != null ? " " + (t.r > 0 ? "+" : "") + num2(t.r) + "R" : t.status === "offen" ? " · läuft" : ""}`;
+    ctx.fillStyle = C.acc; ctx.fillText(lab, a + 4, up ? Math.max(12, Y(t.tp || t.entry) - 4) : Math.min(ph - 4, Y(t.tp || t.entry) + 13));
+  }
+  // Kerzen
+  const cw = Math.max(1, Math.min(14, bw * 0.68));
+  for (let i = Math.max(0, Math.floor(i0) - 1); i < Math.min(cs.length, Math.ceil(i1) + 1); i++) {
+    const [, o, h, l, c] = cs[i], x = X(i) + bw / 2, up = c >= o;
+    ctx.strokeStyle = ctx.fillStyle = up ? C.pos : C.neg;
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, Y(h)); ctx.lineTo(Math.round(x) + .5, Y(l)); ctx.stroke();
+    const yo = Y(o), yc = Y(c); ctx.fillRect(Math.round(x - cw / 2), Math.min(yo, yc), Math.max(1, Math.round(cw)), Math.max(1, Math.abs(yc - yo)));
+  }
+  // Zickzack + Struktur
+  if (on("zigzag") && L.zigzag.length > 1) {
+    ctx.strokeStyle = "rgba(227,179,65,.7)"; ctx.lineWidth = 1.2; ctx.beginPath();
+    L.zigzag.forEach((p, k) => { const x = XT(p.t) + bw / 2, y = Y(p.p); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.lineWidth = 1;
+  }
+  if (on("structure")) for (const s of L.structure) {
+    const x = XT(s.t) + bw / 2; if (x < -20 || x > pw + 20) continue;
+    ctx.fillStyle = hl(s) ? C.acc : s.label === "HH" || s.label === "HL" ? "#7fd9a8" : "#f2918a";
+    ctx.textAlign = "center"; ctx.fillText(s.label, x, s.kind === "H" ? Y(s.p) - 6 : Y(s.p) + 14); ctx.textAlign = "left";
+  }
+  if (on("breaks")) for (const b of L.breaks) {
+    const a = XT(b.t0) + bw / 2, e = XT(b.t) + bw / 2; if (e < 0 || a > pw) continue;
+    const y = Math.round(Y(b.p)) + .5, col = b.kind === "MSS" ? "#f59e0b" : "#2dd4bf";
+    ctx.strokeStyle = hl(b) ? C.acc : col; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(e, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.textAlign = "center"; ctx.fillText(b.kind, (a + e) / 2, b.dir > 0 ? y - 4 : y + 12); ctx.textAlign = "left";
+  }
+  if (on("sweeps")) for (const s of L.sweeps) {
+    const x = XT(s.t) + bw / 2, y = Y(s.p) + (s.dir > 0 ? 8 : -8); if (x < -10 || x > pw + 10) continue;
+    ctx.strokeStyle = hl(s) ? C.acc : "#ff8a3d"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4); ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4); ctx.stroke(); ctx.lineWidth = 1;
+  }
+  if (on("seen")) for (const s of L.seen) {
+    const x = XT(s.t), y = Y(s.entry); if (x < -10 || x > pw + 10) continue;
+    const r = s.shadow && s.shadow.r != null ? s.shadow.r : null;
+    ctx.strokeStyle = hl(s) ? C.acc : r == null ? C.muted : r > 0 ? C.pos : C.neg; ctx.lineWidth = hl(s) ? 2.5 : 1.6;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.stroke(); ctx.lineWidth = 1;
+    ctx.fillStyle = C.muted; ctx.fillText(s.side === "long" ? "↑" : "↓", x + 7, y + 4);
+  }
+  ctx.restore();
+  // Achsen
+  ctx.fillStyle = C.bg; ctx.fillRect(pw, 0, AX, H); ctx.fillRect(0, ph, W, TX);
+  ctx.strokeStyle = C.line; ctx.beginPath(); ctx.moveTo(pw + .5, 0); ctx.lineTo(pw + .5, ph); ctx.moveTo(0, ph + .5); ctx.lineTo(W, ph + .5); ctx.stroke();
+  ctx.fillStyle = C.muted;
+  for (let p = Math.ceil(yr[0] / step) * step; p < yr[1]; p += step) ctx.fillText(pfmt(p), pw + 6, Y(p) + 4);
+  // Zeitachse: Abstand nach Zoom
+  const minPx = 70, every = [1, 2, 3, 5, 6, 10, 12, 15, 20, 30, 60, 120, 240].find(k => k * bw >= minPx) || 480;
+  const fmt = ms => new Date(ms).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"});
+  let lastLab = -1e9;
+  for (let i = Math.max(0, Math.ceil(i0)); i < Math.min(cs.length, i1); i++) {
+    const m = new Date(cs[i][0]); const mins = m.getHours() * 60 + m.getMinutes();
+    const per = every * d.tf;
+    if (per >= 1440 ? (i % every) : (mins % Math.min(per, 1440)) !== 0) continue;
+    const x = X(i) + bw / 2; if (x - lastLab < minPx) continue; lastLab = x;
+    const txt = per >= 360 || mins === 0 ? new Date(cs[i][0]).toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"}) + (mins ? " " + fmt(cs[i][0]) : "") : fmt(cs[i][0]);
+    ctx.textAlign = "center"; ctx.fillText(txt, x, ph + 15); ctx.textAlign = "left";
+  }
+  // letzter Kurs
+  const lc = cs[cs.length - 1][4], yl = Y(lc);
+  if (yl > 0 && yl < ph) { ctx.fillStyle = C.acc; ctx.fillRect(pw, yl - 8, AX, 16); ctx.fillStyle = "#111"; ctx.fillText(pfmt(lc), pw + 6, yl + 4); ctx.strokeStyle = "rgba(227,179,65,.5)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(0, Math.round(yl) + .5); ctx.lineTo(pw, Math.round(yl) + .5); ctx.stroke(); ctx.setLineDash([]); }
+  // Fadenkreuz + OHLC
+  let k = cs.length - 1;
+  if (CV.hover && CV.hover[0] < pw && CV.hover[1] < ph) {
+    const [hx, hy] = CV.hover;
+    k = Math.max(0, Math.min(cs.length - 1, Math.floor(i0 + hx / bw)));
+    ctx.strokeStyle = "rgba(217,210,195,.35)"; ctx.setLineDash([3, 3]); ctx.beginPath();
+    ctx.moveTo(Math.round(hx) + .5, 0); ctx.lineTo(Math.round(hx) + .5, ph); ctx.moveTo(0, Math.round(hy) + .5); ctx.lineTo(pw, Math.round(hy) + .5); ctx.stroke(); ctx.setLineDash([]);
+    const p = yr[0] + (ph - hy) / ph * (yr[1] - yr[0]);
+    ctx.fillStyle = "#2a2a2a"; ctx.fillRect(pw, hy - 8, AX, 16); ctx.fillStyle = C.fg; ctx.fillText(pfmt(p), pw + 6, hy + 4);
+    const tl = new Date(cs[k][0]).toLocaleString("de-DE", {weekday: "short", hour: "2-digit", minute: "2-digit"});
+    ctx.fillStyle = "#2a2a2a"; const tw = ctx.measureText(tl).width + 12; ctx.fillRect(hx - tw / 2, ph + 2, tw, 18); ctx.fillStyle = C.fg; ctx.textAlign = "center"; ctx.fillText(tl, hx, ph + 15); ctx.textAlign = "left";
+  }
+  const [t, o, h, l, c] = cs[k];
+  $("#cvO").innerHTML = `<b>${esc(d.fam)} ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}</b> ${new Date(t).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}
+    &nbsp; O <span>${pfmt(o)}</span> H <span>${pfmt(h)}</span> L <span>${pfmt(l)}</span> C <span class="${c >= o ? "pos" : "neg"}">${pfmt(c)}</span>`;
+}
+
+function cvNice(x) {
+  const e = Math.pow(10, Math.floor(Math.log10(x))), f = x / e;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e;
+}
+
+/* Anklicken: das oberste Objekt unter dem Mauszeiger finden */
+function cvPick(x, y) {
+  const g = CV.g, L = CV.data.layers, on = k => CV.layers[k], bw = g.bw;
+  const hits = [];
+  const near = (px, py, r = 8) => Math.hypot(px - x, py - y) <= r;
+  const inRect = (a, b, y1, y2) => x >= Math.min(a, b) && x <= Math.max(a, b) && y >= Math.min(y1, y2) - 2 && y <= Math.max(y1, y2) + 2;
+  if (on("seen")) L.seen.forEach(s => near(g.XT(s.t), g.Y(s.entry)) && hits.push(["Setup gesehen (nicht genommen)", s, 1]));
+  if (on("sweeps")) L.sweeps.forEach(s => near(g.XT(s.t) + bw / 2, g.Y(s.p) + (s.dir > 0 ? 8 : -8)) && hits.push(["Liquiditäts-Sweep", s, 2]));
+  if (on("trades")) L.trades.forEach(t => inRect(g.XT(t.t0), Math.max(g.XT(t.t0) + 3, g.XT(t.t1)), g.Y(t.tp || t.entry), g.Y(t.sl0 || t.entry)) && hits.push(["★ Trade", t, 5]));
+  if (on("structure")) L.structure.forEach(s => near(g.XT(s.t) + bw / 2, s.kind === "H" ? g.Y(s.p) - 10 : g.Y(s.p) + 10, 10) && hits.push(["Struktur " + s.label, s, 3]));
+  if (on("breaks")) L.breaks.forEach(b => x >= g.XT(b.t0) && x <= g.XT(b.t) + bw && Math.abs(g.Y(b.p) - y) <= 5 && hits.push([b.kind === "MSS" ? "Struktur-Bruch MSS (Richtungswechsel)" : "Struktur-Bruch BOS", b, 4]));
+  if (on("pools")) L.pools.forEach(p => x >= g.XT(p.t0) && x <= g.XT(p.t1) && Math.abs(g.Y(p.p) - y) <= 5 && hits.push(["Liquidität " + p.name, p, 6]));
+  if (on("ob")) L.ob.forEach(z => inRect(g.XT(z.t0), g.XT(z.t1), g.Y(z.top), g.Y(z.bot)) && hits.push(["Orderblock", z, 7]));
+  if (on("fvg")) L.fvg.forEach(z => inRect(g.XT(z.t0), g.XT(z.t1), g.Y(z.top), g.Y(z.bot)) && hits.push(["FVG", z, 8]));
+  if (on("sessions")) L.sessions.forEach(s => x >= g.XT(s.t0) && x <= g.XT(s.t1) && y < 18 && hits.push(["Session " + s.name, s, 9]));
+  hits.sort((a, b) => a[2] - b[2]);
+  CV.sel = hits.length ? {kind: hits[0][0], o: hits[0][1], more: hits.length - 1} : null;
+  cvInspector(); cvDraw();
+}
+
+function cvInspector() {
+  const el = $("#cvI"); if (!el) return;
+  if (!CV.sel) { el.innerHTML = '<p class="hint">Nichts getroffen. Etwas im Chart anklicken: Trade, Signal, Zone, Level, Sweep oder Struktur.</p>'; return; }
+  const o = CV.sel.o, P = v => v == null ? "–" : px(v), T = v => v ? new Date(v).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "–";
+  const R = v => v == null ? "–" : (v > 0 ? "+" : "") + num2(v) + " R";
+  let rows = [];
+  if (CV.sel.kind.startsWith("★")) rows = [["Richtung", o.side === "long" ? "LONG" : "SHORT"], ["Strategie", o.setup], ["Menge", `${o.qty}× ${o.root}`], ["Einstieg", P(o.entry) + " · " + T(o.t0)],
+    ["Stop", P(o.sl0) + (o.sl !== o.sl0 ? ` → ${P(o.sl)}` : "")], ["Ziel", P(o.tp)], ["Ausstieg", o.exit != null ? P(o.exit) + " · " + T(o.t1) : "läuft"],
+    ["Grund", o.reason || "–"], ["Ergebnis", o.pnl != null ? sUsd(o.pnl) + " · " + R(o.r) : "–"], ["Verwaltung", o.mgmt || "Signal-Ziel"],
+    ...(o.ghost ? [["Ohne frühen Ausstieg", o.ghost.status === "fertig" ? `${o.ghost.how} bei ${R(o.ghost.r)}` : "wird noch verfolgt"]] : []), ["Konto", o.broker + (o.test ? " · Test" : "")]];
+  else if (CV.sel.kind.startsWith("Setup")) rows = [["Richtung", o.side === "long" ? "LONG" : "SHORT"], ["Strategie", o.setup], ["Zeit", T(o.t)], ["Einstieg", P(o.entry)], ["Stop / Ziel", `${P(o.sl)} / ${P(o.tp)}`],
+    ["Status", o.status], ["Warum nicht", o.reason || "–"], ["Hätte gebracht", o.shadow ? (o.shadow.r != null ? R(o.shadow.r) : "läuft noch") : "–"]];
+  else if (CV.sel.kind.startsWith("Liquiditäts-Sweep")) rows = [["Level", o.name], ["Level-Preis", P(o.level)], ["Docht bis", P(o.p)], ["Zeit", T(o.t)], ["Richtung danach", o.dir > 0 ? "aufwärts (Tief geholt)" : "abwärts (Hoch geholt)"]];
+  else if (CV.sel.kind.startsWith("Liquidität")) rows = [["Art", o.kind], ["Preis", P(o.p)], ["Ab", T(o.t0)], ["Bis", T(o.t1)], ["Ergebnis", o.swept ? "gesweept " + T(o.swept) : o.broken ? "durchbrochen " + T(o.broken) : "noch offen"]];
+  else if (CV.sel.kind.startsWith("Orderblock") || CV.sel.kind === "FVG") rows = [["Richtung", o.dir > 0 ? "bullisch" : "bärisch"], ["Zone", `${P(o.bot)} – ${P(o.top)}`], ["Entstanden", T(o.t0)], ["Zuerst berührt", T(o.touched)], ["Zustand", o.state], ["Bis", T(o.t1)], ...(o.from_break ? [["nach", o.from_break]] : [])];
+  else if (CV.sel.kind.startsWith("Struktur-Bruch")) rows = [["Art", o.kind === "MSS" ? "MSS – Richtungswechsel" : "BOS – mit dem Trend"], ["Richtung", o.dir > 0 ? "aufwärts" : "abwärts"], ["Level", P(o.p)], ["Swing", T(o.t0)], ["Bruch", T(o.t)]];
+  else if (CV.sel.kind.startsWith("Struktur")) rows = [["Punkt", o.label], ["Preis", P(o.p)], ["Zeit", T(o.t)]];
+  else if (CV.sel.kind.startsWith("Session")) rows = [["Session", o.name], ["Von", T(o.t0)], ["Bis", T(o.t1)]];
+  el.innerHTML = `<div class="cv-ik">${esc(CV.sel.kind)}${CV.sel.more ? ` <span class="hint">+${CV.sel.more} darunter</span>` : ""}</div>
+    <dl class="cv-kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(String(v))}</dd>`).join("")}</dl>
+    <details class="cv-raw"><summary class="hint">Rohdaten</summary><pre class="mono">${esc(JSON.stringify(o, null, 1))}</pre></details>`;
+}
+
 /* ───────── Wochenbericht ───────── */
 const WK = {off: 0, data: null, at: 0, err: null};
 async function weekView(force) {
@@ -2896,10 +3351,12 @@ function render(full) {
   if (!S) return;
   if (full && TAB !== "settings" && $("#main")) { $("#main").oninput = null; $("#main").onchange = null; }
   header();
+  const ct = $(".content"); if (ct) ct.classList.toggle("wide", TAB === "chart");
   document.querySelectorAll("[data-tab]").forEach(x => x.setAttribute("aria-current", x.dataset.tab === TAB));
   document.title = "FVG Trader · " + (NAV.find(n => n[0] === TAB) || NAV[0])[1];
   if (TAB === "cockpit") cockpit(full);
-  else if (full) ({calendar, stats, learn, settings, challenge}[TAB])();
+  else if (full) ({calendar, stats, learn, settings, challenge, chart: chartPage}[TAB])();
+  else if (TAB === "chart") {}
   else if (TAB === "challenge") challenge(false);
   else if (TAB === "settings" && !settingsDirty && !document.activeElement.matches("input,select")) {
     // Status-Anzeigen live nachziehen (Verbindung, Broker, Updates, Abruf), ohne Eingaben zu stören
@@ -2926,7 +3383,7 @@ function notifyNew() {
     new Notification("Neuer Trade-Vorschlag", {body: `${p.side === "long" ? "LONG" : "SHORT"} ${p.qty}× ${p.root} · ${p.setup} · Stop ${px(p.sl)}`});
 }
 async function start() {
-  TAB = ["cockpit", "calendar", "stats", "challenge", "learn", "settings"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "cockpit";
+  TAB = ["cockpit", "chart", "calendar", "stats", "challenge", "learn", "settings"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "cockpit";
   shell();
   if ("Notification" in window && Notification.permission === "default") document.addEventListener("click", () => Notification.requestPermission(), {once: true});
   try { await refresh(true); } catch (e) { return; }

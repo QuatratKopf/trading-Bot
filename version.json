@@ -1,6 +1,6 @@
 {
-  "version": "2.19.0",
-  "file": "releases/FVG-Trader-2.19.0.cmd",
-  "sha256": "49a14982ab84d0799bbe71e2ed014ea3dae956a8bd26ac8d33e5aaeea0ea81b0",
-  "notes": "Nachverfolgung früher Ausstiege: hätte er Ziel oder Stop erreicht? Der Bot lernt daraus und schaltet Ausstiege ab, die nachweislich kosten"
+  "version": "2.20.0",
+  "file": "releases/FVG-Trader-2.20.0.cmd",
+  "sha256": "12f6fa9f33021ad63db51628f3d7168639a2c46dee2a453ff753740838b39ff5",
+  "notes": "Neues Design (schwarz/Gold/Monospace) und neuer Reiter Chart mit Trades, Signalen, Liquidität, Sweeps, Struktur, BOS/MSS, Orderblöcken, FVGs und Sessions"
 }

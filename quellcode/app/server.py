@@ -1331,6 +1331,12 @@ def exits(h):
         h._send(200, engine.exit_review())
 
 
+@route("GET", r"/api/chartview/(NQ|ES|auto)/(\d{4}-\d{2}-\d{2}|last)/(1|2|3|5|15|30|60|240)")
+def chartview(h, fam, day, tf):
+    with engine.lock:
+        h._send(200, engine.chart_view(None if fam == "auto" else fam, None if day == "last" else day, int(tf)))
+
+
 def main():
     global SRV
     srv = None
