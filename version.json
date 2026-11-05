@@ -1,6 +1,6 @@
 {
-  "version": "2.21.0",
-  "file": "releases/FVG-Trader-2.21.0.cmd",
-  "sha256": "15ef2d023a0c634a5980b85a9598de64ab6fa8dd4536b89d3c0109cbc158c2a7",
-  "notes": "Aufgeräumt: Cockpit ohne Doppeltes, Lernmodul mit kurzer Übersicht und Details dahinter"
+  "version": "2.21.1",
+  "file": "releases/FVG-Trader-2.21.1.cmd",
+  "sha256": "ad7fcce794ea61b0fa593916461d1d0e1dbc631f1cde889621fd14ee843e3ae0",
+  "notes": "Chart zeigt im Trade die laufende Kerze und den aktuellen Kurs"
 }

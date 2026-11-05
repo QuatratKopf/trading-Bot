@@ -722,7 +722,7 @@ th{font-size:10px;letter-spacing:.12em;text-transform:uppercase}
 .cv-wrap{position:relative;height:calc(100vh - 210px);min-height:440px;border:1px solid var(--line);background:var(--bg);border-radius:3px;overflow:hidden}
 .cv-wrap canvas{display:block;cursor:crosshair;touch-action:none;outline:none}
 .cv-ohlc{position:absolute;left:10px;top:8px;font-size:11.5px;color:var(--muted);pointer-events:none;background:rgba(11,11,10,.7);padding:2px 6px;border-radius:2px}
-.cv-ohlc b{color:var(--fg);margin-right:6px} .cv-ohlc span{color:var(--fg)}
+.cv-ohlc b{color:var(--fg);margin-right:6px} .cv-ohlc .acc{color:var(--accent)} .cv-ohlc span{color:var(--fg)}
 .cv-msg{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--line);padding:12px 16px;border-radius:3px;color:var(--muted);max-width:70%;text-align:center}
 .cv-side{display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 210px);overflow:auto}
 .cv-sec{background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:10px 12px}
@@ -1156,6 +1156,8 @@ async function cvLoad(reset) {
   const keepRight = CV.v && CV.data && CV.v.i1 >= CV.data.candles.length - 0.5;
   try {
     const d = await api(`/api/chartview/${CV.fam}/${CV.day}/${CV.tf}`);
+    d.real = d.candles.length;
+    d.candles = d.candles.concat(d.forming || []);   // laufende Kerze(n) aus dem Live-Kurs hinten anhängen
     const same = CV.data && CV.data.day === d.day && CV.data.tf === d.tf && CV.data.fam === d.fam;
     CV.data = d; CV.err = null;
     if (CV.day === "last") CV.day = d.day;
@@ -1169,7 +1171,7 @@ async function cvLoad(reset) {
     $("#cvDay").value = d.day; if (d.first) { $("#cvDay").min = d.first; $("#cvDay").max = d.last; }
     $("#cvFam").innerHTML = d.fams.map(f => `<option ${d.fam === f ? "selected" : ""}>${f}</option>`).join("");
     const ev = Object.entries(d.counts).filter(([k]) => !["zigzag", "sessions"].includes(k)).reduce((a, [, v]) => a + v, 0);
-    $("#cvInfo").innerHTML = `<b>${d.candles.length}</b> ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}-Kerzen · <b>${ev}</b> Ereignisse · <b class="${d.counts.trades ? "acc" : ""}">${d.counts.trades}</b> Trades${d.live ? ' · <span class="live">● live</span>' : ""}`;
+    $("#cvInfo").innerHTML = `<b>${d.real}</b> ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}-Kerzen · <b>${ev}</b> Ereignisse · <b class="${d.counts.trades ? "acc" : ""}">${d.counts.trades}</b> Trades${d.live ? ` · <span class="live">● live${d.live_px ? " · Kurs vor " + Math.max(1, Math.round((Date.now() - d.live_px.ts) / 1000)) + " s" : ""}</span>` : ""}`;
     document.querySelectorAll("[data-tf]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.tf === d.tf));
   }
   const msg = $("#cvMsg");
@@ -1178,7 +1180,9 @@ async function cvLoad(reset) {
   cvLayersPanel();
   cvResize(); cvDraw();
   clearTimeout(CV.timer);
-  if (d && d.live) CV.timer = setTimeout(() => { if (TAB === "chart" && !document.hidden) cvLoad(false); }, ["localhost", "127.0.0.1"].includes(location.hostname) ? 20000 : 60000);
+  const inTrade = d && (S.positions || []).some(p => p.root && (p.root === d.fam || p.root === "M" + d.fam));
+  if (d && d.live) CV.timer = setTimeout(() => { if (TAB === "chart" && !document.hidden) cvLoad(false); },
+    ["localhost", "127.0.0.1"].includes(location.hostname) ? (inTrade ? 8000 : 20000) : 60000);
 }
 
 function cvResetView() {
@@ -1364,10 +1368,14 @@ function cvDraw() {
   // Kerzen
   const cw = Math.max(1, Math.min(14, bw * 0.68));
   for (let i = Math.max(0, Math.floor(i0) - 1); i < Math.min(cs.length, Math.ceil(i1) + 1); i++) {
-    const [, o, h, l, c] = cs[i], x = X(i) + bw / 2, up = c >= o;
+    const [, o, h, l, c] = cs[i], x = X(i) + bw / 2, up = c >= o, live = i >= (d.real ?? cs.length);
     ctx.strokeStyle = ctx.fillStyle = up ? C.pos : C.neg;
+    ctx.globalAlpha = live ? 0.6 : 1;
     ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, Y(h)); ctx.lineTo(Math.round(x) + .5, Y(l)); ctx.stroke();
-    const yo = Y(o), yc = Y(c); ctx.fillRect(Math.round(x - cw / 2), Math.min(yo, yc), Math.max(1, Math.round(cw)), Math.max(1, Math.abs(yc - yo)));
+    const yo = Y(o), yc = Y(c);
+    if (live) { ctx.setLineDash([2, 2]); ctx.strokeRect(Math.round(x - cw / 2) + .5, Math.min(yo, yc) + .5, Math.max(1, Math.round(cw)), Math.max(1, Math.abs(yc - yo))); ctx.setLineDash([]); }
+    else ctx.fillRect(Math.round(x - cw / 2), Math.min(yo, yc), Math.max(1, Math.round(cw)), Math.max(1, Math.abs(yc - yo)));
+    ctx.globalAlpha = 1;
   }
   // Zickzack + Struktur
   if (on("zigzag") && L.zigzag.length > 1) {
@@ -1415,7 +1423,7 @@ function cvDraw() {
     ctx.textAlign = "center"; ctx.fillText(txt, x, ph + 15); ctx.textAlign = "left";
   }
   // letzter Kurs
-  const lc = cs[cs.length - 1][4], yl = Y(lc);
+  const lc = d.live_px ? d.live_px.price : cs[cs.length - 1][4], yl = Y(lc);
   if (yl > 0 && yl < ph) { ctx.fillStyle = C.acc; ctx.fillRect(pw, yl - 8, AX, 16); ctx.fillStyle = "#111"; ctx.fillText(pfmt(lc), pw + 6, yl + 4); ctx.strokeStyle = "rgba(227,179,65,.5)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(0, Math.round(yl) + .5); ctx.lineTo(pw, Math.round(yl) + .5); ctx.stroke(); ctx.setLineDash([]); }
   // Fadenkreuz + OHLC
   let k = cs.length - 1;
@@ -1431,7 +1439,7 @@ function cvDraw() {
   }
   const [t, o, h, l, c] = cs[k];
   $("#cvO").innerHTML = `<b>${esc(d.fam)} ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}</b> ${new Date(t).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}
-    &nbsp; O <span>${pfmt(o)}</span> H <span>${pfmt(h)}</span> L <span>${pfmt(l)}</span> C <span class="${c >= o ? "pos" : "neg"}">${pfmt(c)}</span>`;
+    &nbsp; O <span>${pfmt(o)}</span> H <span>${pfmt(h)}</span> L <span>${pfmt(l)}</span> C <span class="${c >= o ? "pos" : "neg"}">${pfmt(c)}</span>${k >= (d.real ?? cs.length) ? ' <span class="acc">läuft (Live-Kurs)</span>' : ""}`;
 }
 
 function cvNice(x) {

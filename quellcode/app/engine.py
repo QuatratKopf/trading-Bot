@@ -383,6 +383,7 @@ class Engine:
                 self.learning = json.load(f)
         self.last_msg = None          # Zeitpunkt der letzten TradingView-Nachricht
         self.old_script = None
+        self.ticks = {}
         self.data_dir = data_dir
         self.outbox = []              # wartende Discord-Nachrichten (sendet der Server)
         self.discord_state = {"last": None, "error": ""}
@@ -694,6 +695,10 @@ class Engine:
         if price is None:
             raise ValueError("Kurs fehlt")
         self.last_tick[fam] = {"price": price, "ts": time.time(), "time": self._num(p.get("time"))}
+        tl = self.ticks.setdefault(fam, [])   # für die laufende Kerze im Chart
+        tl.append((time.time() * 1000, price))
+        while tl and tl[0][0] < (time.time() - 6 * 3600) * 1000:
+            tl.pop(0)
         if self.broker.name == "paper":   # Stop/Ziel sofort prüfen statt erst zum Kerzenschluss
             for pos in self.db.open_positions():
                 if family(pos["root"]) != fam or pos["broker"] != "paper" or time.time() - pos["opened"] < 5:
@@ -2794,8 +2799,26 @@ class Engine:
         L["trades"], L["seen"] = self._chart_trades(fam, a, b, tf)
         L["sessions"] = self._chart_sessions(a, b)
         counts = {k: len(v) for k, v in L.items()}
+        # Laufende Kerze(n) aus dem Live-Kurs (TradingView schickt ihn, solange ein Trade offen ist)
+        forming, live_px = [], None
+        lp, lts = self.last_price(fam)
+        if candles and time.time() < b + 600:
+            start = candles[-1][0] + tf
+            prev_c = candles[-1][4]
+            for ts, px_ in self.ticks.get(fam, []):
+                if ts < start:
+                    continue
+                bkt = ts - ts % tf
+                if forming and forming[-1][0] == bkt:
+                    f = forming[-1]
+                    f[2], f[3], f[4] = max(f[2], px_), min(f[3], px_), px_
+                else:
+                    o_ = forming[-1][4] if forming else prev_c
+                    forming.append([bkt, o_, max(o_, px_), min(o_, px_), px_])
+            if lp is not None and lts and lts * 1000 >= start - tf:
+                live_px = {"price": lp, "ts": lts * 1000}
         return {"fams": fams, "fam": fam, "day": str(d), "first": str(first) if first else None, "last": str(last) if last else None,
-                "tf": tf // 60000, "candles": candles, "layers": L, "counts": counts, "note": note, "tick": tick,
+                "tf": tf // 60000, "candles": candles, "forming": forming, "live_px": live_px, "layers": L, "counts": counts, "note": note, "tick": tick,
                 "from": a * 1000, "to": b * 1000, "live": d == last and time.time() < b + 600}
 
     def _chart_sessions(self, a, b):
