@@ -710,7 +710,7 @@ body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-body);letter-spa
 .top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:saturate(1.4) blur(16px);-webkit-backdrop-filter:saturate(1.4) blur(16px);border-bottom:0}
 .wrap{max-width:1320px}
 .bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding-block:14px}
-.brand{display:flex;align-items:center;gap:10px;font:700 15.5px var(--f-display);letter-spacing:-.02em;text-transform:none;color:var(--fg)}
+.brand{display:flex;align-items:center;gap:10px;white-space:nowrap;font:700 15.5px var(--f-display);letter-spacing:-.02em;text-transform:none;color:var(--fg)}
 .brand i{width:34px;height:34px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#fff;font:800 16px var(--f-display);font-style:normal;box-shadow:0 6px 16px -6px rgba(240,86,43,.7)}
 .brand i::before{content:"F"}
 .nav{position:relative;display:flex;gap:2px;margin:0;padding:5px;background:var(--surface);border-radius:999px;box-shadow:var(--shadow);border:1px solid var(--line)}
@@ -2553,8 +2553,8 @@ function posLive(p) {
   const sm = $("#pcSm-" + p.id), x = p.smart;
   if (sm) sm.hidden = !x;
   if (sm && x) sm.innerHTML = !x ? ""
-    : `<span class="dot ${x.exit ? "warn" : "ok"}"></span><span><b>Bot-Einschätzung:</b> ${x.exit ? "lohnt sich eher nicht mehr" : x.be ? "Stop auf Einstieg (Break-even) wäre besser" : x.hold >= x.now ? "Halten lohnt sich" : "kein klarer Unterschied, bleibt drin"} – ähnliche Trades brachten von hier aus im Schnitt <b class="mono ${cls(x.hold)}">${x.hold > 0 ? "+" : ""}${num2(x.hold)} R</b> (jetzt ${x.now > 0 ? "+" : ""}${num2(x.now)} R${x.be_val != null ? ` · mit Stop auf Einstieg ${x.be_val > 0 ? "+" : ""}${num2(x.be_val)} R` : ""} · ${x.n} Vergleiche · ${x.p_win} % liefen weiter ins Plus)${x.exit ? (/Smart-(BE \+ )?Ausstieg/.test(p.mgmt || "") ? " · <b>steigt zum Kerzenschluss aus</b>" : " · nur Hinweis, Smart-Ausstieg ist für diese Strategie (noch) nicht übernommen")
-      : x.be ? (/Smart-BE/.test(p.mgmt || "") ? " · <b>zieht den Stop zum Kerzenschluss auf Einstieg</b>" : " · nur Hinweis, Smart-BE ist für diese Strategie (noch) nicht übernommen") : ""}</span>`;
+    : `<span class="dot ${x.exit ? "warn" : "ok"}"></span><span><b>Bot-Einschätzung:</b> ${x.exit ? "lohnt sich eher nicht mehr" : x.be ? "Stop auf Einstieg (Break-even) wäre besser" : x.hold >= x.now ? "Halten lohnt sich" : "kein klarer Unterschied, bleibt drin"} – ähnliche Trades brachten von hier aus im Schnitt <b class="mono ${cls(x.hold)}">${x.hold > 0 ? "+" : ""}${num2(x.hold)} R</b> (jetzt ${x.now > 0 ? "+" : ""}${num2(x.now)} R${x.be_val != null ? ` · mit Stop auf Einstieg ${x.be_val > 0 ? "+" : ""}${num2(x.be_val)} R` : ""} · ${x.n} Vergleiche · ${x.p_win} % liefen weiter ins Plus)${x.exit ? (S.config.early_exit === false ? " · nur Hinweis, Smart-Ausstieg ist in den Einstellungen aus" : /Smart-(BE \+ )?Ausstieg/.test(p.mgmt || "") ? " · <b>steigt zum Kerzenschluss aus</b>" : " · nur Hinweis, Smart-Ausstieg ist für diese Strategie (noch) nicht übernommen")
+      : x.be ? (S.config.stop_follow === false ? " · nur Hinweis, Stop nachziehen ist in den Einstellungen aus" : /Smart-BE/.test(p.mgmt || "") ? " · <b>zieht den Stop zum Kerzenschluss auf Einstieg</b>" : " · nur Hinweis, Smart-BE ist für diese Strategie (noch) nicht übernommen") : ""}</span>`;
 }
 function posPreview(p, which) {
   const inp = $(`#${which}-${p.id}`), out = $(`#${which}Prev-${p.id}`); if (!inp || !out) return;
@@ -3536,7 +3536,7 @@ function settings() {
   const sessOn = Object.entries(S.sessions).filter(([k]) => (r.sessions || {})[k]).map(([, x]) => x.name);
   const sizeSum = (sz.mode === "fixed" ? `${sz.fixed_qty} Kontrakt${sz.fixed_qty == 1 ? "" : "e"} pro Trade` : sz.mode === "risk_usd" ? `${usd(sz.risk_usd)} Risiko pro Trade` : `${sz.risk_pct} % Risiko pro Trade`)
     + ` · ${{auto: "Mini oder Micro", mini: "nur Mini", micro: "nur Micro"}[sz.contract_type] || ""} · max. ${sz.max_qty}`;
-  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}`;
+  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
   const accChip = t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
   $("#main").innerHTML = `<div class="settings-wrap">
@@ -3585,6 +3585,10 @@ function settings() {
     <span class="lbl">Tages-Stopp</span>
     ${field("dps", "Tagesziel ($)", r.daily_profit_stop || 0, {attrs: {min: 0, step: 50}, help: "Ist der Tag so weit im Plus, nimmt der Bot heute keine neuen Trades mehr – schützt gute Tage. 0 = aus"})}
     ${field("dsc", "Beim Tages-Stopp offene Positionen schließen", r.daily_stop_close, {check: true, help: "Gilt für Tagesziel und Tagesverlust-Limit (beide zählen offene Positionen mit)"})}
+    <span class="lbl">Frühe Ausstiege</span>
+    ${field("ee", "Smart-Ausstieg: Trades vorzeitig schließen", c.early_exit !== false, {check: true, help: "Aus = jeder Trade läuft bis Stop, Ziel oder Sessionende. Der Bot lernt im Hintergrund trotzdem weiter."})}
+    ${field("sf", "Stop nachziehen (Break-even / Trailing)", c.stop_follow !== false, {check: true, help: "Aus = der Stop bleibt dort, wo er beim Einstieg gesetzt wurde"})}
+    ${field("fx", "Exit-Signalen aus TradingView folgen", c.follow_tv_exits, {check: true})}
     <span class="lbl">News-Pause</span>
     ${field("nwE", "Rund um wichtige News nicht handeln", (c.news || {}).enabled, {check: true, help: "Nutzt den Wirtschaftskalender (Cockpit → Wirtschafts-News). Gilt zusätzlich zum News-Filter im TradingView-Script."})}
     ${field("nwB", "Minuten vorher sperren", (c.news || {}).before_min, {attrs: {min: 0, max: 240, step: 1}})}
@@ -3661,7 +3665,6 @@ function settings() {
     ${field("esmax", "ES Maximum", ss.ES.max, {attrs: {step: 0.25, min: 0.5}})}
     <span class="lbl">Bot-Verhalten</span>
     ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}})}
-    ${field("fx", "Exit-Signalen aus TradingView folgen", c.follow_tv_exits, {check: true})}
     <span class="lbl">Lernmodul</span>
     ${field("lw", "Auswerten über letzte Trades", L.window, {attrs: {min: 5, max: 500, step: 1}})}
     ${field("lm", "Mindest-Trades vor Bewertung", L.min_trades, {attrs: {min: 3, step: 1}})}
@@ -3705,7 +3708,7 @@ function settings() {
         sessions: Object.fromEntries([...document.querySelectorAll("[data-sess]")].map(x => [x.dataset.sess, x.checked]))},
       auto_update: v("au"),
       news: {enabled: v("nwE"), before_min: parseInt(v("nwB")), after_min: parseInt(v("nwA")), impact: v("nwI"), usd_only: v("nwU"), close_before: v("nwC")},
-      suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"),
+      suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"), early_exit: v("ee"), stop_follow: v("sf"),
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},

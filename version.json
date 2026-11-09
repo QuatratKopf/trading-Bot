@@ -1,6 +1,6 @@
 {
-  "version": "3.0.0",
-  "file": "releases/FVG-Trader-3.0.0.cmd",
-  "sha256": "e57aeb9af005b1fc1ae479106ef0a1dd0cb62a156bed6b86ea4f7c846204317e",
-  "notes": "Neues Design: hell und aufgeräumt mit Dunkelmodus, Pill-Navigation, Cockpit mit Konto-Karte, Kacheln und Tagesbalken, weiche Übergänge und Animationen"
+  "version": "3.0.1",
+  "file": "releases/FVG-Trader-3.0.1.cmd",
+  "sha256": "6a2cfd592348b76fa18be5cd41abf96f5acd18d554c0624199ed6b0c8cb35758",
+  "notes": "Neue Einstellung: frühe Ausstiege (Smart-Ausstieg) und Stop-Nachziehen lassen sich unter Risiko & Schutz abschalten"
 }

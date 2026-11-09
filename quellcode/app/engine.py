@@ -70,6 +70,8 @@ DEFAULT_CONFIG = {
     "update_url": DEFAULT_UPDATE_URL,   # Adresse der version.json für Updates      # zuletzt in TradingView eingetragene Webhook-Adresse
     "webhook_token": "",
     "follow_tv_exits": True,
+    "early_exit": True,        # Smart-Ausstieg: offene Trades vorzeitig schließen, wenn sich Halten nicht mehr lohnt
+    "stop_follow": True,       # Stop nachziehen (Break-even / Trailing / Smart-BE) bei echten Trades
     "suggestion_timeout_sec": 120,
     "sizing": {
         "mode": "risk_usd",          # fixed | risk_usd | risk_pct
@@ -759,7 +761,12 @@ class Engine:
                 self.db.update_variant(v["id"], best=best, stop=stop)
         # Break-even/Trailing für Bot-Positionen mit übernommenem Ausstieg (wirkt ab der nächsten Kerze)
         for pos in self.db.open_positions():
-            rule = VARIANTS.get(pos.get("mgmt") or "")
+            rule = dict(VARIANTS.get(pos.get("mgmt") or "") or {})
+            if not self.cfg.get("early_exit", True):
+                rule.pop("smart", None)        # vorzeitiges Schließen abgeschaltet
+            if not self.cfg.get("stop_follow", True):
+                for k in ("be", "trail", "smart_be"):
+                    rule.pop(k, None)          # Stop bleibt, wo er ist
             if not rule or not (rule.get("be") or rule.get("trail") or rule.get("smart") or rule.get("smart_be")) \
                     or family(pos["root"]) != fam or not self._bar_after(pos, bar):
                 continue
