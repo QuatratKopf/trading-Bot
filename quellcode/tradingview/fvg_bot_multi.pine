@@ -2,7 +2,7 @@
 // Multi-Strategie Futures-Bot für NQ & ES (auch MNQ / MES)
 // Strategien: FVG, inverse FVG, Silver Bullet (FVG 10–11 NY), Opening Range Breakout, Liquidity Sweep (Vortag), VWAP-Reclaim
 // Verbindung zur FVG-Trader-App: Alert mit „Orderausführungen und alert()-Aufrufe“, Webhook = App-URL
-// Script-Version 2.11 (spart ngrok-Anfragen: Kerzen gebündelt, Live-Kurs sparsam)
+// Script-Version 2.12 (Signal-Kerze wird sofort gesendet, damit die App ihre Bestätigungen aktuell prüfen kann)
 // Chart: NQ1! oder ES1!, Timeframe 5m (empfohlen) oder 1m/3m
 // Auto-Trading: Alert auf diese Strategie, Nachricht = {{strategy.order.alert_message}}, Webhook-URL deines Brokers/Connectors
 //@version=6
@@ -409,10 +409,11 @@ if sendBars and barstate.isrealtime and barstate.isconfirmed
                  str.tostring(array.get(m1c, i), format.mintick) + "]"
     // vor der Marktpause (17:00 NY) und im Trade immer sofort senden
     int  bundleN = timeframe.in_seconds() <= 900 ? barBundle : 1   // große Kerzen nicht bündeln (Nachricht würde zu lang)
-    bool flush = strategy.position_size != 0 or nBuf + 1 >= bundleN or hour(time_close, "America/New_York") == 17 or
+    // bei einem Signal sofort senden: die App prüft damit ihre Bestätigungen auf der Signal-Kerze
+    bool flush = sigOn or strategy.position_size != 0 or nBuf + 1 >= bundleN or hour(time_close, "America/New_York") == 17 or
          dayofweek(time_close, "America/New_York") == dayofweek.friday and hour(time_close, "America/New_York") >= 16
     if flush
-        alert('{"type":"bar","ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
+        alert('{"type":"bar","sv":212,"ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
              ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
              ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
              ',"bars":[' + barBuf + '],"m1":[' + m1Buf + (m1Buf != "" and m1s != "" ? "," : "") + m1s + ']}', alert.freq_once_per_bar_close)
