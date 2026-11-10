@@ -13,7 +13,8 @@ import uuid
 
 from brokers import BROKERS, BrokerError
 from db import DB
-from discovery import DC_DETECTORS, DC_TPS, dc_describe, dc_detect, dc_evaluate, dc_name_of, dc_prepare, dc_simulate, dc_stats
+from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
+from discovery import dc_describe, dc_detect, dc_evaluate, dc_in_sb, dc_model, dc_name_of, dc_prepare, dc_simulate, dc_stats
 
 # Tickgröße und $ pro Punkt
 INSTR = {
@@ -128,6 +129,9 @@ DEFAULT_CONFIG = {
         "auto_adopt": True,    # Varianten-Labor + Regel-Finder: Ergebnisse selbst übernehmen und wieder verwerfen
     },
     "setup_rules": {},         # Strategie -> auto | an | aus
+    # Bestätigungen: ein Trade braucht mehrere unabhängige Gründe (der Auslöser selbst zählt als einer)
+    "confluence": {"enabled": True, "min": 3, "use": {k: True for k in CF_KEYS}},
+    "learn_epoch": 0,          # Zeitpunkt des letzten Zurücksetzens des Lernstands
     "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
@@ -302,11 +306,16 @@ FEATURES = {
     "side": "Richtung", "hour": "Uhrzeit (NY)", "weekday": "Wochentag", "session": "Session",
     "gap": "Opening-Gap", "london": "London-Range", "ib": "Initial Balance", "asia": "Asien-Range",
     "pd": "Lage zum Vortag", "on": "Lage zum Overnight", "mo": "Midnight Open", "ro": "RTH-Open",
+    "nconf": "Anzahl Bestätigungen", **{"c_" + k: "Bestätigung " + v["name"] for k, v in CF_FACTORS.items()},
 }
 WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 
 def describe_cond(f, v):
+    if f == "nconf":
+        return f"{v} Bestätigung{'' if str(v) == '1' else 'en'}"
+    if f.startswith("c_") and f[2:] in CF_FACTORS:
+        return f"{'mit' if v == 'ja' else 'ohne'} {CF_FACTORS[f[2:]]['name']}"
     if f == "side":
         return "Long" if v == "long" else "Short"
     if f == "hour":
@@ -396,6 +405,7 @@ class Engine:
         self.paths, self.pm_index, self.pm_info, self.sfit = {}, {}, {}, None
         self._pm_busy = False
         self._ratr_cache, self._smart_pos_cache = {}, {}
+        self._conf_cache, self._conf_now, self._late, self.script_v = {}, {}, [], {}
         self.disc, self.disc_state, self._disc_sent, self.last_bundle = None, {"busy": False}, set(), 1
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
@@ -412,6 +422,15 @@ class Engine:
         self._daystop_day = self.learning.get("daystop_day")
         self.broker = BROKERS[self.cfg["broker"]](self.cfg)
         self._connect_broker()
+        if int(self.cfg.get("learn_gen") or 0) < self.LEARN_GEN:   # einmalig nach dem Update auf das Bestätigungs-System
+            try:
+                if self.db.one("SELECT id FROM shadow LIMIT 1") or (self.disc or {}).get("items") or self.learning.get("setups"):
+                    self.reset_learning("Update auf das Bestätigungs-System")
+                else:   # frische Installation: nichts zu vergessen
+                    self.cfg["learn_gen"] = self.LEARN_GEN
+                    self._write_cfg(self.cfg)
+            except Exception as e:  # noqa: BLE001
+                self.db.log(f"Lernstand konnte nicht zurückgesetzt werden: {e}", "error")
         threading.Thread(target=self._loop, daemon=True).start()
         _t = threading.Timer(180, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
         if time.time() - (self.disc.get("last_run") or 0) > 20 * 3600:
@@ -573,6 +592,16 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
+        cf = c.setdefault("confluence", {})
+        cf["enabled"] = bool(cf.get("enabled", True))
+        try:
+            cf["min"] = max(1, min(5, int(float(cf.get("min") or 3))))
+        except (TypeError, ValueError):
+            raise ValueError("Bestätigungen: Mindestzahl als Zahl von 1 bis 5")
+        use = cf.get("use") or {}
+        cf["use"] = {k: bool(use.get(k, True)) for k in CF_KEYS}
+        if cf["enabled"] and cf["min"] > 1 + sum(cf["use"].values()):
+            raise ValueError("Bestätigungen: Es sind weniger Bestätigungen angehakt, als mindestens verlangt werden.")
         ses = c["risk"].get("sessions") or {}
         c["risk"]["sessions"] = {k: bool(ses.get(k)) for k in TRADING_SESSIONS}
         c["risk"]["all_day"] = bool(c["risk"].get("all_day"))
@@ -684,6 +713,8 @@ class Engine:
             bar["len"] = tf_
             self._process_bar(fam, bar)
         self.last_bundle = len(extra) + 1
+        self.script_v[fam] = int(self._num(p.get("sv")) or 0)
+        self._late_run(fam)
         try:
             self._disc_live(fam)
         except Exception as e:  # noqa: BLE001  ein Fehler im Strategie-Finder darf den Handel nie stören
@@ -847,11 +878,40 @@ class Engine:
         return {"ok": True, "closed": n}
 
     # ───────── Einstieg ─────────
+    def _bar_in(self, fam, bt):
+        """Ist die Kerze mit Öffnungszeit bt schon gespeichert (als Chart-Kerze oder vollständig in 1-Minuten-Kerzen)?"""
+        if ((self.db.one("SELECT MAX(t) AS t FROM bars WHERE fam=?", (fam,)) or {}).get("t") or 0) >= bt:
+            return True
+        tf = self.chart_tf.get(fam) or 300000
+        return ((self.db.one("SELECT MAX(t) AS t FROM bars1 WHERE fam=?", (fam,)) or {}).get("t") or 0) >= bt + tf - 60000
+
+    def _late_run(self, fam=None, force=False):
+        """Zurückgestellte Signale auswerten, sobald ihre Signal-Kerze da ist (oder die Wartezeit um ist)."""
+        if not self._late:
+            return
+        keep = []
+        for x in self._late:
+            if self._bar_in(x["fam"], x["bt"]) or time.time() >= x["until"] or force:
+                try:
+                    self._on_entry(dict(x["p"], _late=1))
+                except Exception as e:  # noqa: BLE001
+                    self.db.log(f"Zurückgestelltes Signal konnte nicht verarbeitet werden: {e}", "error")
+            else:
+                keep.append(x)
+        self._late = keep
+
     def _on_entry(self, p, is_test=False):
         action = p["action"].lower()
         side = "long" if action in ("buy", "long") else "short"
         sig_root = self._root(p.get("ticker"))
         fam = family(sig_root)
+        # Die Signal-Kerze kommt oft erst Sekunden nach dem Signal an. Für die Bestätigungen kurz darauf warten.
+        bt_ = self._num(p.get("time"))
+        if (not is_test and not p.get("_late") and not isinstance(p.get("_confs"), dict) and self.cfg["confluence"]["enabled"]
+                and bt_ and abs(bt_ / 1000 - time.time()) < 1800 and len(self._late) < 20):
+            if not self._bar_in(fam, bt_):
+                self._late.append({"p": dict(p), "fam": fam, "bt": bt_, "until": time.time() + 20})
+                return {"ok": True, "status": "wartet", "reason": "wartet kurz auf die Signal-Kerze, dann werden die Bestätigungen geprüft"}
         price = self._num(p.get("price")) or (self.last_bar.get(fam) or {}).get("close")
         sid = uuid.uuid4().hex[:10]
         base = {"id": sid, "ts": time.time(), "ticker": p.get("ticker", ""), "root": fam, "side": side,
@@ -870,6 +930,14 @@ class Engine:
         except Exception as e:  # noqa: BLE001
             ctx = {"side": side}
             self.db.log(f"Marktlage nicht bestimmbar: {e}", "warn")
+        # Bestätigungen: welche unabhängigen Gründe sprechen gerade für diesen Trade?
+        cf = p.get("_confs") if isinstance(p.get("_confs"), dict) else self._conf_eval(fam, side, base["setup"], base["bar_time"] if sig_ts else None)
+        cf_n = len(cf["keys"]) + (1 if cf.get("trigger") else 0)
+        base["confs"] = ",".join((["~" + cf["trigger"]] if cf.get("trigger") else []) + cf["keys"])
+        if cf.get("ok"):
+            ctx["nconf"] = str(min(cf_n, 5))
+            for k_ in CF_KEYS:
+                ctx["c_" + k_] = "ja" if k_ in cf["keys"] else "nein"
         if not is_test:
             now_ny = ny_time(sig_ts)
             shid = uuid.uuid4().hex[:10]
@@ -927,6 +995,16 @@ class Engine:
             ses_p = ((self.learning.get("setups", {}).get(base["setup"]) or {}).get("sessions") or {}).get(sess_now, {}).get("status") == "pausiert"
             guard = (f"Strategie {base['setup']} vom Lernmodul in {SESSION_NAMES.get(sess_now, sess_now)} pausiert (läuft im Schatten weiter)"
                      if ses_p else f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)")
+        cfc = self.cfg["confluence"]
+        flags.append("Bestätigungen: " + (self._conf_text(cf) or "keine") + f" ({cf_n})")
+        if not guard and not is_test and cfc["enabled"] and cf_n < int(cfc["min"]):
+            if not cf.get("ok"):
+                guard = (f"Bestätigungen nicht prüfbar: zu wenig aktuelle Kursdaten für {fam} – "
+                         f"nur {cf_n} von {cfc['min']} Bestätigungen sicher ({self._conf_text(cf) or 'keine'})")
+            else:
+                miss = [CF_FACTORS[k_]["short"] for k_ in CF_KEYS if k_ not in cf["keys"] and cfc["use"].get(k_, True)]
+                guard = (f"Nur {cf_n} von {cfc['min']} Bestätigungen ({self._conf_text(cf) or 'keine'}) – "
+                         f"es fehl{'t' if int(cfc['min']) - cf_n == 1 else 'en'} noch {int(cfc['min']) - cf_n} (möglich: {', '.join(miss)})")
         if not guard and not is_test:
             guard = self.rule_block(base["setup"], ctx)
         guard = guard or self._guards(fam, base.get("risk_usd"))
@@ -948,6 +1026,87 @@ class Engine:
         self.db.add_signal(base)
         self.db.log(f"Vorschlag: {side.upper()} {qty}× {root} @ {price:.2f}, Stop {sl:.2f}")
         return {"ok": True, "status": "offen", "id": sid}
+
+    @staticmethod
+    def _conf_text(cf):
+        return " + ".join(([cf["trigger"]] if cf.get("trigger") else []) + [CF_FACTORS[k]["short"] for k in cf["keys"] if k in CF_FACTORS])
+
+    def _conf_series(self, fam, bar_ms=None):
+        """Kerzen + Bestätigungs-Masken auf der Zeiteinheit des Charts (höchstens 15 Min), bis zur Signal-Kerze."""
+        tf = min(15, max(1, int((self.chart_tf.get(fam) or 300000) // 60000)))
+        now_ms = bar_ms or time.time() * 1000
+        t, o, h, l, c = self._disc_series(fam, tf, since_ms=now_ms - 6 * 86400000)
+        if bar_ms:
+            cut = bisect.bisect_right(t, bar_ms)
+            t, o, h, l, c = t[:cut], o[:cut], h[:cut], l[:cut], c[:cut]
+        if len(t) < 150 or now_ms - t[-1] > max(3 * tf, 20) * 60000:
+            return None
+        key = (fam, tf, t[-1], len(t))
+        if self._conf_cache.get("key") != key:
+            P = dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000))
+            self._conf_cache = {"key": key, "F": cf_compute(o, h, l, c, P, tf)}
+        return self._conf_cache["F"], tf, t[-1]
+
+    def _conf_eval(self, fam, side, setup, bar_ms=None):
+        """Bestätigungen für ein Signal von außen (TradingView). Der Auslöser selbst zählt als eine."""
+        use = self.cfg["confluence"].get("use") or {}
+        name = setup or ""
+        own = "fvg" if re.search(r"FVG|Silver", name, re.I) else "sweep" if re.search(r"Sweep|Turtle|Judas", name, re.I) else None
+        trig = None if own else (re.sub(r"\s+(Long|Short)$", "", name).strip() or "Signal")[:18]
+        out = {"keys": [own] if own else [], "trigger": trig, "ok": False}
+        try:
+            got = self._conf_series(fam, bar_ms)
+            if got:
+                F = got[0]
+                keys = [k for k in cf_keys((F[0] if side == "long" else F[1])[-1]) if use.get(k, True)]
+                if own and own not in keys:
+                    keys.insert(0, own)
+                out.update(keys=keys, ok=True)
+        except Exception as e:  # noqa: BLE001  lieber blocken als mit falschen Bestätigungen handeln
+            self.db.log(f"Bestätigungen nicht bestimmbar: {e}", "warn")
+        return out
+
+    def confluence_now(self):
+        """Für das Cockpit: welche Bestätigungen liegen gerade vor (je Markt und Richtung)?"""
+        out = {}
+        for fam in sorted(self.last_bar):
+            stamp = (self.last_bar[fam] or {}).get("ts")
+            hit = self._conf_now.get(fam)
+            if not hit or hit[0] != stamp:
+                try:
+                    got = self._conf_series(fam)
+                except Exception:  # noqa: BLE001
+                    got = None
+                hit = (stamp, {"tf": got[1], "t": got[2], "long": cf_keys(got[0][0][-1]), "short": cf_keys(got[0][1][-1])} if got else None)
+                self._conf_now[fam] = hit
+            if hit[1]:
+                out[fam] = hit[1]
+        return out
+
+    def confluence_view(self):
+        """Lernen aus den Bestätigungen: Wie liefen Signale mit vielen/wenigen und mit/ohne einzelne Bestätigung?"""
+        by_n, fac = {}, {k: {"mit": [], "ohne": []} for k in CF_KEYS}
+        for x in self.db.rows("SELECT r, ctx FROM shadow WHERE status='geschlossen' AND r IS NOT NULL"):
+            try:
+                c = json.loads(x["ctx"] or "{}")
+            except ValueError:
+                continue
+            if "nconf" not in c:
+                continue
+            by_n.setdefault(str(c["nconf"]), []).append(x["r"])
+            for k in CF_KEYS:
+                if "c_" + k in c:
+                    fac[k]["mit" if c["c_" + k] == "ja" else "ohne"].append(x["r"])
+
+        def summ(rs):
+            return {"n": len(rs), "avg": round(sum(rs) / len(rs), 3) if rs else None,
+                    "wr": round(sum(1 for r in rs if r > 0) / len(rs) * 100, 1) if rs else None}
+        cfc = self.cfg["confluence"]
+        return {"enabled": cfc["enabled"], "min": cfc["min"], "use": cfc["use"],
+                "factors": [{"key": k, "name": v["name"], "short": v["short"], "text": v["text"],
+                             "mit": summ(fac[k]["mit"]), "ohne": summ(fac[k]["ohne"])} for k, v in CF_FACTORS.items()],
+                "by_n": {k: summ(v) for k, v in sorted(by_n.items())}, "now": self.confluence_now(),
+                "since": self.cfg.get("learn_epoch") or 0}
 
     def _safe_stop(self, fam, side, entry, sl, tp):
         """Jede Order bekommt einen Stop: fehlt er, liegt er falsch oder zu weit, wird er korrigiert."""
@@ -1120,7 +1279,7 @@ class Engine:
             "side": sig["side"], "setup": sig["setup"], "qty": sig["qty"], "entry": round_tick(fill, tick),
             "sl": sig["sl"], "tp": sig["tp"], "initial_sl": sig["sl"], "opened": time.time(),
             "status": "offen", "broker_ref": ref, "is_test": sig.get("is_test", 0),
-            "bar_time": sig.get("bar_time"), "mgmt": sig.get("mgmt"), "best": round_tick(fill, tick)})
+            "bar_time": sig.get("bar_time"), "mgmt": sig.get("mgmt"), "best": round_tick(fill, tick), "confs": sig.get("confs")})
         self.db.update_signal(sig["id"], status="ausgeführt", reason="")
         if True:
             pv = INSTR[root]["pv"]
@@ -1257,8 +1416,9 @@ class Engine:
 
     def exit_review(self):
         """Lohnen sich die frühen Ausstiege? Je Art und Strategie: tatsächlich gegen „hätte ich gehalten“."""
+        ep = float(self.cfg.get("learn_epoch") or 0)   # nur Trades seit dem letzten Zurücksetzen des Lernstands
         rows = [p for p in self.db.rows("SELECT * FROM positions WHERE ghost_status IS NOT NULL ORDER BY closed")
-                if p["broker"] == self.broker.name and not p["is_test"] and p.get("initial_sl")]
+                if p["broker"] == self.broker.name and not p["is_test"] and p.get("initial_sl") and (p["opened"] or 0) >= ep]
         groups, open_n = {}, 0
         for p in rows:
             if p["ghost_status"] != "fertig":
@@ -1480,6 +1640,44 @@ class Engine:
                 return ss
         return st
 
+    LEARN_GEN = 2   # Generation des Lernmoduls: 2 = Bestätigungs-System (alles davor Gelernte wird einmalig verworfen)
+
+    def reset_learning(self, why="von Hand"):
+        """Alles Gelernte vergessen: Strategien, Regeln, Ausstiege, Session-Ziele, Finder. Trades und Konto bleiben. Mit Sicherung."""
+        import shutil
+        with self.lock:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            bdir = os.path.join(self.data_dir, "sicherung-lernstand-" + stamp)
+            os.makedirs(bdir, exist_ok=True)
+            for fn in ("learning.json", "strategien.json", "config.json"):
+                src = os.path.join(self.data_dir, fn)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(bdir, fn))
+            n_sh = (self.db.one("SELECT COUNT(*) AS n FROM shadow") or {}).get("n", 0)
+            n_it = len((self.disc or {}).get("items") or {})
+            self.db.archive_learning(stamp)
+            now = time.time()
+            self.learning = {"daystop_day": self.learning.get("daystop_day"), "setups": {}, "insights": [],
+                             "auto_log": [{"t": now, "text": f"Lernstand zurückgesetzt ({why}): alle bisherigen Strategie-Bewertungen, Regeln, "
+                                                             "Ausstiege und gefundenen Strategien vergessen. Ab jetzt zählt nur noch, was neu dazukommt."}]}
+            with open(self.learn_path, "w", encoding="utf-8") as fh:
+                json.dump(self.learning, fh, indent=2, ensure_ascii=False)
+            self.disc = {"items": {}, "last_run": None, "tested": 0, "data": {}}
+            self._disc_save()
+            self._disc_sent = set()
+            self.paths, self.pm_index, self.pm_info, self.sfit = {}, {}, {}, None
+            self._ratr_cache, self._smart_pos_cache, self._conf_cache = {}, {}, {}
+            self.cfg.update(setup_rules={}, exit_rules={}, rule_filters=[], session_scale={}, learn_epoch=now, learn_gen=self.LEARN_GEN)
+            self._write_cfg(self.cfg)
+            self.db.log(f"Lernmodul zurückgesetzt ({why}): {n_sh} Schatten-Trades und {n_it} gefundene Strategien archiviert, "
+                        f"Regeln/Ausstiege/Session-Ziele geleert. Sicherung im Ordner {os.path.basename(bdir)}", "warn")
+            self.notify("learn", "Lernmodul neu gestartet", "Alles bisher Gelernte ist vergessen. Der Bot sucht jetzt neue Strategien "
+                        f"mit mindestens {self.cfg['confluence']['min']} Bestätigungen.", "info")
+        _t = threading.Timer(240, self.disc_async)
+        _t.daemon = True
+        _t.start()
+        return {"ok": True, "backup": os.path.basename(bdir), "shadows": n_sh, "strategies": n_it}
+
     def learn(self):
         """Tägliche Auswertung aller Schatten-Trades je Strategie. Senkt Risiko automatisch, erhöht es nie über normal."""
         with self.lock:
@@ -1654,6 +1852,7 @@ class Engine:
             self._last_loop = now
             self._check_daystop()
             self._check_silence()
+            self._late_run()
             for s in self.db.pending():
                 if s["expires"] and now > s["expires"]:
                     self.db.update_signal(s["id"], status="verfallen", reason="Zeit abgelaufen")
@@ -3134,15 +3333,18 @@ class Engine:
             if k not in sess_cache:
                 sess_cache[k] = session_of(ny_time(ts / 1000))
             return sess_cache[k]
-        return {"P": dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000)), "entry": self._disc_entry_fn(t, tf_min * 60000, chart_ms), "sess_of": sess_of,
+        P = dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000))
+        return {"P": P, "F": cf_compute(o, h, l, c, P, tf_min), "entry": self._disc_entry_fn(t, tf_min * 60000, chart_ms), "sess_of": sess_of,
                 "cost": lambda entry, risk: self._cost_r(fam, entry, risk), "min_stop": float(self.cfg["safe_stop"][fam]["min"]),
                 "tick": INSTR[fam]["tick"], "hold": 60 if tf_min == 1 else 36}
 
     def _disc_trades(self, it, series, ctx):
         t, o, h, l, c = series
         sigs = dc_detect(it["det"], it["n"], it["k"], o, h, l, c, ctx["P"], ctx["tick"])
-        tr = dc_simulate(sigs, o, h, l, c, t, it["tf"] * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"])
-        return dc_evaluate(tr, ctx["sess_of"], DC_TPS.index(it["tp"]), it["d"], it["sess"])
+        tr = dc_simulate(sigs, o, h, l, c, t, it["tf"] * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"],
+                         F=ctx["F"], own=CF_BIT.get(DC_OWN.get(it["det"]), 0))
+        return dc_evaluate(tr, ctx["sess_of"], DC_TPS.index(it["tp"]), it["d"], it["sess"],
+                           need=cf_mask(it.get("req") or ()), hm=ctx["P"].get("hm"))
 
     def disc_run(self):
         """Durchsucht alle gespeicherten Kerzen nach neuen Strategien (läuft im Hintergrund, 1–3 Minuten)."""
@@ -3153,6 +3355,8 @@ class Engine:
             D = self._disc_load()
             items = D.setdefault("items", {})
             found, tested, data = [], 0, {}
+            cfc = self.cfg["confluence"]
+            min_conf, use = (int(cfc["min"]) if cfc["enabled"] else 1), cfc.get("use") or {}
             fams = self.db.bar_fams() or [r["fam"] for r in self.db.rows("SELECT DISTINCT fam FROM bars1")]
             plan = [(fam, tf) for fam in fams for tf in (1, 5)]
             combos = sum(len(v["N"]) * len(v["K"]) for v in DC_DETECTORS.values())
@@ -3170,62 +3374,93 @@ class Engine:
                     continue
                 ctx = self._disc_ctx(fam, tf, series)
                 _, o, h, l, c = series
+                hm = ctx["P"].get("hm")
                 for det, spec in DC_DETECTORS.items():
+                    own = CF_BIT.get(DC_OWN.get(det), 0)
+                    reqs = [(r, cf_mask(r)) for r in cf_reqs(det, min_conf) if all(use.get(x, True) for x in r)] if min_conf > 1 else [((), 0)]
                     for n in spec["N"]:
                         for k in spec["K"]:
                             self.disc_state.update(step=f"{fam} {tf} Min · {spec['name']}", done=self.disc_state["done"] + 1)
                             sigs = dc_detect(det, n, k, o, h, l, c, ctx["P"], ctx["tick"])
-                            trs = dc_simulate(sigs, o, h, l, c, t, tf * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"])
+                            trs = dc_simulate(sigs, o, h, l, c, t, tf * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"],
+                                              F=ctx["F"], own=own)
                             if len(trs) < 40:
                                 continue
-                            for x, tp in enumerate(DC_TPS):
-                                for d in (1, -1):
-                                    for sess in ("alle", "asia", "london", "ny_am", "ny_lunch", "ny_pm"):
-                                        ev = dc_evaluate(trs, ctx["sess_of"], x, d, sess)
-                                        if len(ev) < 40:
+                            for d in (1, -1):
+                                for sess in DC_SESSIONS:
+                                    if sess == "alle":
+                                        base = [tr for tr in trs if tr["d"] == d]
+                                    elif sess == "sb":
+                                        base = [tr for tr in trs if tr["d"] == d and dc_in_sb(hm[tr["e"]])] if hm else []
+                                    else:
+                                        base = [tr for tr in trs if tr["d"] == d and ctx["sess_of"](tr["t"]) == sess]
+                                    if len(base) < 40:
+                                        continue
+                                    for req, need in reqs:
+                                        sub = base if not need else [tr for tr in base if tr["m"] & need == need]
+                                        if len(sub) < 40:
                                             continue
-                                        tested += 1
-                                        rs = [r for _, r in ev]
-                                        st = dc_stats(rs)
-                                        k6 = int(len(rs) * 0.6)
-                                        s1, s2 = dc_stats(rs[:k6]), dc_stats(rs[k6:])
-                                        if st["avg"] >= 0.08 and st["t"] >= 2.0 and s1["avg"] > 0 and s2["avg"] > 0.03 and s2["n"] >= 15:
-                                            weeks = max(1.0, (ev[-1][0] - ev[0][0]) / 86400000 / 7)
-                                            cum, curve = 0.0, []
-                                            step = max(1, len(rs) // 60)
-                                            for idx, r in enumerate(rs):
-                                                cum += r
-                                                if idx % step == 0 or idx == len(rs) - 1:
-                                                    curve.append(round(cum, 2))
-                                            found.append({
-                                                "id": f"{fam}-{det}-{tf}-{n}-{k}-{d}-{sess}-{tp}", "fam": fam, "det": det, "tf": tf, "n": n, "k": k,
-                                                "d": d, "sess": sess, "tp": tp, "name": dc_name_of(det, tf, d, sess),
-                                                "desc": dc_describe(det, n, k, tf, d, tp),
-                                                "stats": {"n": st["n"], "avg": round(st["avg"], 3), "wr": round(st["wr"], 1),
-                                                          "pf": round(st["pf"], 2) if st["pf"] else None, "t": round(st["t"], 2),
-                                                          "avg1": round(s1["avg"], 3), "avg2": round(s2["avg"], 3), "n2": s2["n"],
-                                                          "per_week": round(st["n"] / weeks, 1)},
-                                                "curve": curve})
-            # beste je Muster/Zeiteinheit/Richtung/Session, höchstens 3 je Muster-Art, insgesamt 25
+                                        for x, tp in enumerate(DC_TPS):
+                                            ev = dc_evaluate(sub, None, x, d, "alle")
+                                            if len(ev) < 40:
+                                                continue
+                                            tested += 1
+                                            rs = [r for _, r in ev]
+                                            st = dc_stats(rs)
+                                            if st["n"] < 50 or st["avg"] < 0.08 or st["t"] < 2.5:
+                                                continue
+                                            k6 = int(len(rs) * 0.6)
+                                            s1, s2 = dc_stats(rs[:k6]), dc_stats(rs[k6:])
+                                            if s1["avg"] > 0 and s2["avg"] > 0.03 and s2["n"] >= 20:
+                                                weeks = max(1.0, (ev[-1][0] - ev[0][0]) / 86400000 / 7)
+                                                cum, curve = 0.0, []
+                                                step = max(1, len(rs) // 60)
+                                                for idx, r in enumerate(rs):
+                                                    cum += r
+                                                    if idx % step == 0 or idx == len(rs) - 1:
+                                                        curve.append(round(cum, 2))
+                                                found.append({
+                                                    "id": f"{fam}-{det}-{tf}-{n}-{k}-{d}-{sess}-{tp}-{'+'.join(req)}", "fam": fam, "det": det, "tf": tf,
+                                                    "n": n, "k": k, "d": d, "sess": sess, "tp": tp, "req": list(req), "confs": 1 + len(req),
+                                                    "model": dc_model(det, req, sess), "origin": DC_ORIGIN.get(det, ""),
+                                                    "name": dc_name_of(det, tf, d, sess, req, fam),
+                                                    "desc": dc_describe(det, n, k, tf, d, tp, req, sess),
+                                                    "stats": {"n": st["n"], "avg": round(st["avg"], 3), "wr": round(st["wr"], 1),
+                                                              "pf": round(st["pf"], 2) if st["pf"] else None, "t": round(st["t"], 2),
+                                                              "avg1": round(s1["avg"], 3), "avg2": round(s2["avg"], 3), "n2": s2["n"],
+                                                              "per_week": round(st["n"] / weeks, 1)},
+                                                    "curve": curve})
+            # beste je Modell/Zeiteinheit/Richtung/Session/Bestätigungen, höchstens 4 je Auslöser, insgesamt 30
             found.sort(key=lambda x: -x["stats"]["t"])
-            seen, per_det, top = set(), {}, []
+            # Zufallstreffer aussieben: Ein echtes Muster darf nicht an einer einzigen Einstellung hängen.
+            # Es muss mit mindestens zwei verschiedenen Einstellungen (Parameter oder Ziel) bestehen.
+            sib = {}
             for f in found:
-                key = (f["fam"], f["det"], f["tf"], f["d"], f["sess"])
+                sib.setdefault((f["fam"], f["det"], f["tf"], f["d"], f["sess"], tuple(f["req"])), set()).add((f["n"], f["k"], f["tp"]))
+            found = [f for f in found if len(sib[(f["fam"], f["det"], f["tf"], f["d"], f["sess"], tuple(f["req"]))]) >= 2]
+            seen, per_det, top = set(), {}, []
+            taken = {v["name"] for v in items.values() if v["status"] != "gefunden"}
+            for f in found:
+                key = (f["fam"], f["det"], f["tf"], f["d"], f["sess"], tuple(f["req"]))
                 same_tr = (f["fam"], f["det"], f["tf"], f["d"], f["stats"]["n"], f["stats"]["avg"])   # z. B. ORB „ganztags“ = „NY-Vorm.“
-                if key in seen or same_tr in seen or per_det.get(f["det"], 0) >= 3:
+                near = (f["fam"], f["det"], f["tf"], f["d"], f["sess"])   # dasselbe Modell nicht in fünf fast gleichen Fassungen
+                if key in seen or same_tr in seen or f["name"] in seen or per_det.get(f["det"], 0) >= 4 or per_det.get(near, 0) >= 2:
                     continue
-                seen.add(key)
-                seen.add(same_tr)
+                if f["name"] in taken and f["id"] not in items:
+                    continue
+                seen.update((key, same_tr, f["name"]))
                 per_det[f["det"]] = per_det.get(f["det"], 0) + 1
+                per_det[near] = per_det.get(near, 0) + 1
                 top.append(f)
-                if len(top) >= 25:
+                if len(top) >= 30:
                     break
             now = time.time()
             # Mitlernen: Gibt es für eine laufende Strategie inzwischen eine klar bessere Einstellung desselben Musters?
             for it in list(items.values()):
                 if it["status"] not in ("aktiv", "probe") or it.get("succ"):
                     continue
-                same = [f for f in found if (f["fam"], f["det"], f["tf"], f["d"], f["sess"]) == (it["fam"], it["det"], it["tf"], it["d"], it["sess"])
+                same = [f for f in found if (f["fam"], f["det"], f["tf"], f["d"], f["sess"], f["req"]) ==
+                        (it["fam"], it["det"], it["tf"], it["d"], it["sess"], list(it.get("req") or []))
                         and f["id"] != it["id"] and f["id"] not in items]
                 if not same:
                     continue
@@ -3253,7 +3488,7 @@ class Engine:
                 with self.lock:
                     self._disc_auto(items)
             self._disc_save()
-            self.db.log(f"Strategie-Finder: {tested:,} Varianten geprüft, {len(top)} vielversprechend".replace(",", "."))
+            self.db.log(f"Strategie-Finder: {tested:,} Varianten geprüft".replace(",", ".") + f" (jede mit mindestens {min_conf} Bestätigungen), {len(top)} vielversprechend")
         except Exception as e:  # noqa: BLE001
             self.disc_state["error"] = str(e)
             self.db.log(f"Strategie-Finder fehlgeschlagen: {e}", "warn")
@@ -3278,7 +3513,7 @@ class Engine:
 
     def _disc_auto(self, items):
         probe = [i for i in items.values() if i["status"] == "probe"]
-        for it in sorted((i for i in items.values() if i["status"] == "gefunden" and i["stats"]["t"] >= 2.5),
+        for it in sorted((i for i in items.values() if i["status"] == "gefunden" and i["stats"]["t"] >= 3.0),
                          key=lambda i: -i["stats"]["t"]):
             if len(probe) >= 6:
                 break
@@ -3295,7 +3530,7 @@ class Engine:
                     self._write_cfg(self.cfg)
                 self.db.log(f"Lernmodul (automatisch): Strategie-Finder – {it['name']} verworfen "
                             f"(Probelauf {f['n']} Trades, Ø {_fmt(f['avg'] or 0, '+.2f')} R)")
-            elif it["status"] == "probe" and f.get("n", 0) >= 20 and f["avg"] >= 0.1 and (f.get("t") or 0) >= 1.0:
+            elif it["status"] == "probe" and f.get("n", 0) >= 25 and f["avg"] >= 0.1 and (f.get("t") or 0) >= 1.5:
                 if self.broker.name == "paper":
                     self._disc_activate(it)
                     self.db.log(f"Lernmodul (automatisch): Strategie-Finder – {it['name']} handelt ab jetzt mit "
@@ -3344,6 +3579,7 @@ class Engine:
         bundle = getattr(self, "last_bundle", 1)
         return {"items": list(D.get("items", {}).values()), "last_run": D.get("last_run"), "tested": D.get("tested", 0),
                 "data": D.get("data", {}), "state": dict(self.disc_state), "detectors": {k: v["name"] for k, v in DC_DETECTORS.items()},
+                "origins": DC_ORIGIN, "factors": {k: v["short"] for k, v in CF_FACTORS.items()}, "min_conf": self.cfg["confluence"]["min"],
                 "bundle": bundle, "chart_tf": {k: v / 60000 for k, v in self.chart_tf.items()}, "broker": self.broker.name}
 
     def disc_async(self):
@@ -3361,7 +3597,7 @@ class Engine:
         now_ms = time.time() * 1000
         chart_ms = self.chart_tf.get(fam) or 300000
         for tf in sorted({i["tf"] for i in act}):
-            ser = self._disc_series(fam, tf, since_ms=now_ms - 4 * 86400000, limit=2000 if tf == 1 else 600)
+            ser = self._disc_series(fam, tf, since_ms=now_ms - 6 * 86400000, limit=4000 if tf == 1 else 1200)
             t, o, h, l, c = ser
             if len(t) < 100 or t[-1] + tf * 60000 < now_ms - 150000:
                 continue   # keine frischen Kerzen (z. B. gebündelt): lieber kein Signal als ein veraltetes
@@ -3371,8 +3607,16 @@ class Engine:
                 for i, d, stop in dc_detect(it["det"], it["n"], it["k"], o, h, l, c, ctx["P"], ctx["tick"], start=max(0, last - 120)):
                     if d != it["d"] or ctx["entry"](i) != last:
                         continue
-                    if it["sess"] != "alle" and ctx["sess_of"](t[last]) != it["sess"]:
+                    if it["sess"] == "sb":
+                        if not dc_in_sb(ctx["P"]["hm"][last]):
+                            continue
+                    elif it["sess"] != "alle" and ctx["sess_of"](t[last]) != it["sess"]:
                         continue
+                    own_k = DC_OWN.get(it["det"])
+                    mask = (ctx["F"][0] if d > 0 else ctx["F"][1])[i] | CF_BIT.get(own_k, 0)
+                    need = cf_mask(it.get("req") or ())
+                    if mask & need != need:
+                        continue   # Pflicht-Bestätigungen fehlen
                     key = (it["id"], t[i])
                     if key in self._disc_sent:
                         continue
@@ -3384,7 +3628,9 @@ class Engine:
                     self.db.log(f"Strategie-Finder: Signal {it['name']}")
                     self._on_entry({"action": "buy" if d > 0 else "sell", "ticker": fam, "price": entry, "stopLoss": stop,
                                     "takeProfit": entry + d * it["tp"] * risk, "setup": it["name"],
-                                    "time": t[last] + tf * 60000 - chart_ms})
+                                    "time": t[last] + tf * 60000 - chart_ms,
+                                    "_confs": {"keys": [k_ for k_ in cf_keys(mask) if k_ == own_k or k_ in (it.get("req") or ()) or self.cfg["confluence"]["use"].get(k_, True)],
+                                               "trigger": None if own_k else DC_DETECTORS[it["det"]]["short"], "ok": True}})
 
     def import_ohlc(self, fam, text):
         """Kursdaten einlesen: TradingView-Export, Databento-CSV oder NinjaTrader-Export, 1- oder 5-Minuten-Kerzen."""
@@ -3502,7 +3748,7 @@ class Engine:
     @staticmethod
     def _reason_cat(reason):
         r = reason or ""
-        for key, label in (("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
+        for key, label in (("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
                            ("Regel-Finder", "Regel-Finder"), ("Fremdkapital", "Fremdkapital-Schutz"),
                            ("Session", "Außerhalb Session"), ("Tagesziel", "Tages-Stopp"), ("Tagesverlust", "Tages-Stopp"),
                            ("Trades pro Tag", "Max. Trades"), ("offener Positionen", "Max. Positionen"),
@@ -3586,7 +3832,7 @@ class Engine:
         d = dt.date.fromisoformat(day) if day else ny_date()
         a = self._ny_day_start(d)
         b = a + 86400 + 3600
-        sigs = self.db.rows("SELECT id, ts, root, side, setup, entry, sl, tp, qty, risk_usd, flags, status, reason, is_test, mgmt "
+        sigs = self.db.rows("SELECT id, ts, root, side, setup, entry, sl, tp, qty, risk_usd, flags, status, reason, is_test, mgmt, confs "
                             "FROM signals WHERE ts>=? AND ts<? ORDER BY ts", (a, b))
         sigs = [s for s in sigs if ny_date(s["ts"]) == d]
         pos = {p["signal_id"]: p for p in self.db.rows(
@@ -3697,6 +3943,19 @@ class Engine:
             ds = self.discord_state
             st = "bad" if ds.get("error") else "ok"
             items.append(("discord", "Discord", st, ds.get("error") or (f"zuletzt gesendet vor {_ago(now - ds['last'])}" if ds.get("last") else "bereit")))
+        cfc = self.cfg["confluence"]
+        if cfc["enabled"] and self.last_bar:
+            cn = self.confluence_now()
+            miss = [f for f in self.last_bar if f not in cn]
+            old = [f for f, v_ in self.script_v.items() if v_ < 212]
+            if miss:
+                items.append(("conf", "Bestätigungen", "warn" if mo else "off",
+                              f"Für {', '.join(miss)} fehlen aktuelle Kursdaten (mind. 150 Kerzen): Signale werden so lange nicht genommen"))
+            elif old and getattr(self, "last_bundle", 1) > 1:
+                items.append(("conf", "Bestätigungen", "warn", "TradingView-Script ist älter als 2.12: Die Signal-Kerze kommt gebündelt bis zu "
+                                                               "10 Minuten später an. Neues Script einspielen (Einstellungen → TradingView), dann sind die Bestätigungen aktuell"))
+            else:
+                items.append(("conf", "Bestätigungen", "ok", f"mindestens {cfc['min']} je Trade · Kursdaten aktuell"))
         ds = self.daystop()
         if ds["hit"]:
             items.append(("daystop", "Tages-Stopp", "warn", ds["text"]))
@@ -4033,6 +4292,7 @@ class Engine:
                 "summary": self.summary(),
                 "timeline": self.timeline(),
                 "health": self.health(),
+                "confluence": {"now": self.confluence_now(), "factors": {k: {"name": v["name"], "short": v["short"], "text": v["text"]} for k, v in CF_FACTORS.items()}},
                 "news_next": next(({"title": e["title"], "ts": e["ts"], "start": e["start"], "end": e["end"]}
                                    for e in self.news_window() if not e["active"]), None),
                 "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),

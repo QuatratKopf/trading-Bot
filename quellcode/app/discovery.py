@@ -1,33 +1,368 @@
-"""Strategie-Finder: sucht in den gespeicherten Kursdaten nach neuen Einstiegs-Mustern
-(Orderblöcke, Breaker, FVG-Retests, Liquiditäts-Sweeps, BOS-Pullbacks/OTE, Range-Ausbrüche, Rückkehr zum Mittel
-und bekannte Scalping-Konzepte: Judas Swing / Asia-Range-Sweep, Vortages-Hoch/Tief-Sweep, Candle Range Theory, Opening Range Breakout)
-und bewertet sie ehrlich: nach Gebühren, mit Prüfung in einer späteren Zeit-Hälfte und danach im Probelauf."""
+"""Strategie-Finder: sucht in den gespeicherten Kursdaten nach Einstiegs-Modellen bekannter Trader
+(ICT 2022, Silver Bullet, Judas Swing, Turtle Soup, Opening Range Breakout, Holy Grail, Orderblock, Breaker, OTE, CRT …)
+und verlangt für jedes Modell mehrere unabhängige Bestätigungen. Bewertet wird ehrlich: nach Gebühren,
+mit Prüfung in einer späteren Zeit-Hälfte und danach im Probelauf auf neuen Kerzen."""
 import math
 
 DC_DETECTORS = {
+    "fvg":   {"name": "FVG-Retest", "short": "FVG", "N": (30,), "K": (0.3, 0.5, 0.8)},
     "ob":    {"name": "Orderblock-Retest", "short": "Orderblock", "N": (5, 10, 20), "K": (1.0, 1.5, 2.0)},
     "brk":   {"name": "Breaker-Block", "short": "Breaker", "N": (5, 10, 20), "K": (1.0, 1.5, 2.0)},
-    "fvg":   {"name": "FVG-Retest", "short": "FVG-Retest", "N": (30,), "K": (0.3, 0.5, 0.8)},
     "sweep": {"name": "Liquiditäts-Sweep", "short": "Sweep", "N": (10, 20, 40), "K": (0.0, 0.15, 0.3)},
-    "bos":   {"name": "BOS-Pullback / OTE", "short": "BOS-Pullback", "N": (10, 20, 40), "K": (0.5, 0.618, 0.705, 0.79)},
-    "rng":   {"name": "Range-Ausbruch", "short": "Range-Ausbruch", "N": (10, 20, 40), "K": (2.0, 3.0, 4.0)},
-    "mr":    {"name": "Rückkehr zum Mittel", "short": "Mittel-Rückkehr", "N": (20, 50), "K": (1.5, 2.0, 2.5)},
-    # bekannte Konzepte bekannter Scalper (ICT/Smart Money, Opening-Range-Trader)
-    "judas": {"name": "Judas Swing (Asia-Range-Sweep)", "short": "Judas", "N": (1,), "K": (0.0, 0.1, 0.25)},
-    "pdhl":  {"name": "Vortages-Hoch/Tief-Sweep", "short": "PDH/PDL-Sweep", "N": (1,), "K": (0.0, 0.1, 0.25)},
+    "bos":   {"name": "BOS-Pullback / OTE", "short": "OTE", "N": (10, 20, 40), "K": (0.5, 0.618, 0.705, 0.79)},
+    "rng":   {"name": "Range-Ausbruch", "short": "Range", "N": (10, 20, 40), "K": (2.0, 3.0, 4.0)},
+    "mr":    {"name": "Rückkehr zum Mittel", "short": "Mittel", "N": (20, 50), "K": (1.5, 2.0, 2.5)},
+    "judas": {"name": "Judas Swing (Asia-Range-Sweep)", "short": "Judas Swing", "N": (1,), "K": (0.0, 0.1, 0.25)},
+    "pdhl":  {"name": "Turtle Soup (Vortages-Hoch/Tief)", "short": "Turtle Soup", "N": (1,), "K": (0.0, 0.1, 0.25)},
     "crt":   {"name": "Candle Range Theory", "short": "CRT", "N": (15, 60, 240), "K": (0.0, 0.15)},
     "orb":   {"name": "Opening Range Breakout", "short": "ORB", "N": (5, 15, 30), "K": (0.5, 1.0)},
+    "hg":    {"name": "Holy Grail (Trend-Rücklauf zur EMA)", "short": "Holy Grail", "N": (20,), "K": (25.0, 30.0)},
 }
+# Herkunft der Modelle (für die Anzeige)
+DC_ORIGIN = {
+    "fvg": "ICT (Michael Huddleston)", "ob": "ICT / Smart Money", "brk": "ICT / Smart Money", "sweep": "ICT / Smart Money",
+    "bos": "ICT (Optimal Trade Entry)", "judas": "ICT (Power of 3)", "pdhl": "Linda Raschke & Larry Connors", "crt": "Candle Range Theory",
+    "orb": "Toby Crabel / Zarattini-Studie", "hg": "Linda Raschke", "rng": "klassischer Ausbruch", "mr": "klassische Gegenbewegung",
+}
+
+# ───────── Bestätigungen: unabhängige Gründe für einen Trade, nur aus Kerzen berechnet, die schon fertig sind ─────────
+CF_FACTORS = {
+    "fvg":   {"name": "Fair Value Gap", "short": "FVG",
+              "text": "Der Kurs testet gerade eine offene Kurslücke (Fair Value Gap) in Trade-Richtung."},
+    "sweep": {"name": "Liquiditäts-Sweep", "short": "Sweep",
+              "text": "In den letzten 45 Minuten wurden auf der Gegenseite Stops abgeholt (Vortag, Asien, London, NY-Vormittag oder markantes Hoch/Tief) und der Kurs kam zurück."},
+    "mss":   {"name": "Strukturbruch (MSS)", "short": "MSS",
+              "text": "In den letzten 30 Minuten hat eine kräftige Kerze das letzte Zwischenhoch bzw. -tief in Trade-Richtung durchbrochen und der Kurs hält sich darüber."},
+    "ob":    {"name": "Orderblock", "short": "OB",
+              "text": "Der Kurs reagiert an der letzten Gegenkerze vor einem starken Ausbruch."},
+    "htf":   {"name": "Übergeordneter Trend", "short": "Trend",
+              "text": "Der 15-Minuten-Trend (EMA 50) und der Stunden-Trend zeigen beide in Trade-Richtung, der Kurs liegt auf der richtigen Seite."},
+    "pd":    {"name": "Günstige Zone", "short": "Zone",
+              "text": "Long im unteren Drittel der 24-Stunden-Spanne (Discount), Short im oberen Drittel (Premium)."},
+    "kerze": {"name": "Umkehrkerze", "short": "Kerze",
+              "text": "Die Signalkerze selbst zeigt Ablehnung: Hammer/Pin-Bar oder eine Kerze, die die vorherige Gegenkerze komplett umschließt."},
+}
+CF_KEYS = tuple(CF_FACTORS)
+CF_BIT = {k: 1 << i for i, k in enumerate(CF_KEYS)}
+# Welche Bestätigung ein Auslöser selbst schon mitbringt (zählt als eine)
+DC_OWN = {"fvg": "fvg", "ob": "ob", "sweep": "sweep", "judas": "sweep", "pdhl": "sweep", "crt": "sweep", "bos": "mss"}
+CF_TRIPLES = (("sweep", "mss", "htf"), ("sweep", "mss", "fvg"), ("sweep", "mss", "pd"), ("sweep", "mss", "kerze"),
+              ("mss", "htf", "fvg"), ("sweep", "fvg", "htf"), ("sweep", "kerze", "pd"), ("mss", "htf", "kerze"), ("sweep", "fvg", "pd"))
+
+
+def cf_mask(keys):
+    m = 0
+    for k in keys:
+        m |= CF_BIT[k]
+    return m
+
+
+def cf_keys(mask):
+    return [k for k in CF_KEYS if mask & CF_BIT[k]]
+
+
+def cf_reqs(det, min_conf):
+    """Pflicht-Bestätigungen, die der Finder für einen Auslöser durchprobiert (Auslöser zählt als eine)."""
+    own = DC_OWN.get(det)
+    rest = [k for k in CF_KEYS if k != own]
+    singles = [(a,) for a in rest]
+    pairs = [(a, b) for i, a in enumerate(rest) for b in rest[i + 1:]]
+    triples = [t for t in CF_TRIPLES if own not in t]
+    need = max(1, int(min_conf) - 1)
+    pool = {1: singles + pairs, 2: pairs + triples, 3: triples}.get(need, triples)
+    return [r for r in pool if len(r) >= need]
+
+
+def cf_compute(o, h, l, c, P, tf):
+    """Je Kerze zwei Bitmasken (Long, Short): welche Bestätigungen zum Schluss dieser Kerze vorliegen."""
+    N = len(c)
+    FL, FS = [0] * N, [0] * N
+    if N < 30:
+        return FL, FS
+    atr, hm, day = P["atr"], P.get("hm"), P.get("day")
+    tf = max(1, int(tf))
+    B_FVG, B_SW, B_MSS, B_OB, B_HTF, B_PD, B_KZ = (CF_BIT[k] for k in CF_KEYS)
+    w_sw, w_ms, w_rt = max(4, 45 // tf), max(3, 30 // tf), 2
+    z_age, life, life_major = max(20, 150 // tf), max(200, 1440 // tf), max(600, 3 * 1440 // tf)
+    n_htf, k_htf = max(20, 750 // tf), max(3, 60 // tf)
+    a_htf, a_h2 = 2.0 / (n_htf + 1), 2.0 / (4 * n_htf + 1)
+    n_pd = max(50, 1440 // tf)
+    PV, PM = max(8, 30 // tf), max(3, 10 // tf)
+    hi10, lo10 = _dc_rmax(P, h, 10), _dc_rmin(P, l, 10)
+    from collections import deque
+    highs, lows = [], []          # Liquidität: [Kurs, entstanden, wichtig, angestochen seit, Extrem]
+    pend_h = pend_l = 0
+    hi_min = lo_max = None
+    sw_l, sw_s = (-10 ** 9, 0.0), (-10 ** 9, 0.0)   # letzter Sweep: (Kerze, Extrem)
+    last_sh = last_sl = None
+    mss_d, mss_i, mss_lv = 0, -10 ** 9, 0.0
+    zl, zs, obl, obs = [], [], [], []   # offene Zonen: [oben, unten, verfällt]
+    rt_l = rt_s = ort_l = ort_s = -10 ** 9
+    ema, ema2, em = c[0], c[0], [0.0] * N
+    qmax, qmin = deque(), deque()
+    cur_day = None
+    dh = dl = None
+    rng = {"asia": [1200, 1440, None, None], "london": [120, 300, None, None], "nyam": [570, 690, None, None]}
+
+    def add(lst, price, i, major, is_high):
+        if price is None or (is_high and c[i] >= price) or (not is_high and c[i] <= price):
+            return
+        lst.append([price, i, major, -1, price])
+        if len(lst) > 40:
+            for x in lst:
+                if not x[2]:
+                    lst.remove(x)
+                    break
+            else:
+                lst.pop(0)
+
+    for i in range(N):
+        a = atr[i]
+        hi, lo, cl, op = h[i], l[i], c[i], o[i]
+        changed = False
+        # ── neue Liquiditäts-Marken: Vortag und Sessions ──
+        if day is not None:
+            if day[i] != cur_day:
+                if cur_day is not None:
+                    add(highs, dh, i, True, True)
+                    add(lows, dl, i, True, False)
+                    changed = True
+                cur_day, dh, dl = day[i], hi, lo
+            else:
+                if hi > dh:
+                    dh = hi
+                if lo < dl:
+                    dl = lo
+            m = hm[i]
+            for r in rng.values():
+                if r[0] <= m < r[1]:
+                    r[2] = hi if r[2] is None or hi > r[2] else r[2]
+                    r[3] = lo if r[3] is None or lo < r[3] else r[3]
+                elif r[2] is not None:
+                    add(highs, r[2], i, True, True)
+                    add(lows, r[3], i, True, False)
+                    r[2] = r[3] = None
+                    changed = True
+        # ── markante Hochs/Tiefs (bestätigt nach PV Kerzen) ──
+        if i >= 2 * PV:
+            j = i - PV
+            if h[j] >= max(h[j - PV:i + 1]):
+                add(highs, h[j], i, False, True)
+                changed = True
+            if l[j] <= min(l[j - PV:i + 1]):
+                add(lows, l[j], i, False, False)
+                changed = True
+        # ── Sweep: Marke angestochen und zurück geschlossen (bis zu 2 Kerzen später) ──
+        if highs and (pend_h or changed or hi_min is None or hi > hi_min):
+            keep = []
+            for lv in highs:
+                pr = lv[0]
+                if i - lv[1] > (life_major if lv[2] else life):
+                    continue
+                if lv[3] >= 0:
+                    if hi > lv[4]:
+                        lv[4] = hi
+                    if cl < pr:
+                        sw_s = (i, lv[4])
+                        continue
+                    if i - lv[3] >= 2:
+                        continue
+                    keep.append(lv)
+                elif hi > pr and lv[1] < i:
+                    if cl < pr:
+                        sw_s = (i, hi)
+                        continue
+                    lv[3], lv[4] = i, hi
+                    keep.append(lv)
+                else:
+                    keep.append(lv)
+            highs = keep
+            pend_h = sum(1 for lv in highs if lv[3] >= 0)
+            hi_min = min(lv[0] for lv in highs) if highs else None
+        if lows and (pend_l or changed or lo_max is None or lo < lo_max):
+            keep = []
+            for lv in lows:
+                pr = lv[0]
+                if i - lv[1] > (life_major if lv[2] else life):
+                    continue
+                if lv[3] >= 0:
+                    if lo < lv[4]:
+                        lv[4] = lo
+                    if cl > pr:
+                        sw_l = (i, lv[4])
+                        continue
+                    if i - lv[3] >= 2:
+                        continue
+                    keep.append(lv)
+                elif lo < pr and lv[1] < i:
+                    if cl > pr:
+                        sw_l = (i, lo)
+                        continue
+                    lv[3], lv[4] = i, lo
+                    keep.append(lv)
+                else:
+                    keep.append(lv)
+            lows = keep
+            pend_l = sum(1 for lv in lows if lv[3] >= 0)
+            lo_max = max(lv[0] for lv in lows) if lows else None
+        # ── Strukturbruch: Schluss durch das letzte Zwischenhoch/-tief mit kräftiger Kerze ──
+        if a:
+            if last_sh is not None and cl > last_sh:
+                if cl - op >= a:
+                    mss_d, mss_i, mss_lv = 1, i, last_sh
+                last_sh = None
+            if last_sl is not None and cl < last_sl:
+                if op - cl >= a:
+                    mss_d, mss_i, mss_lv = -1, i, last_sl
+                last_sl = None
+        if i >= 2 * PM:
+            j = i - PM
+            if h[j] >= max(h[j - PM:i + 1]):
+                last_sh = h[j]
+            if l[j] <= min(l[j - PM:i + 1]):
+                last_sl = l[j]
+        # ── FVG und Orderblock: Retest offener Zonen ──
+        if zl:
+            keep = []
+            for z in zl:
+                if i > z[2] or cl < z[1]:
+                    continue
+                if lo <= z[0]:
+                    rt_l = i
+                    continue
+                keep.append(z)
+            zl = keep
+        if zs:
+            keep = []
+            for z in zs:
+                if i > z[2] or cl > z[0]:
+                    continue
+                if hi >= z[1]:
+                    rt_s = i
+                    continue
+                keep.append(z)
+            zs = keep
+        if obl:
+            keep = []
+            for z in obl:
+                if i > z[2] or cl < z[1]:
+                    continue
+                if lo <= z[0]:
+                    ort_l = i
+                    continue
+                keep.append(z)
+            obl = keep
+        if obs:
+            keep = []
+            for z in obs:
+                if i > z[2] or cl > z[0]:
+                    continue
+                if hi >= z[1]:
+                    ort_s = i
+                    continue
+                keep.append(z)
+            obs = keep
+        if a and i >= 2:
+            if lo > h[i - 2] and lo - h[i - 2] >= 0.4 * a:
+                zl.append([lo, h[i - 2], i + z_age])
+                if len(zl) > 12:
+                    zl.pop(0)
+            elif hi < l[i - 2] and l[i - 2] - hi >= 0.4 * a:
+                zs.append([l[i - 2], hi, i + z_age])
+                if len(zs) > 12:
+                    zs.pop(0)
+            if hi10[i] is not None:
+                if cl > hi10[i] and cl - op >= a:
+                    for j in range(i - 1, max(i - 6, 0), -1):
+                        if c[j] < o[j]:
+                            obl.append([h[j], l[j], i + z_age * 2])
+                            if len(obl) > 8:
+                                obl.pop(0)
+                            break
+                elif cl < lo10[i] and op - cl >= a:
+                    for j in range(i - 1, max(i - 6, 0), -1):
+                        if c[j] > o[j]:
+                            obs.append([h[j], l[j], i + z_age * 2])
+                            if len(obs) > 8:
+                                obs.pop(0)
+                            break
+        # ── Trend und 24-Stunden-Spanne ──
+        ema += a_htf * (cl - ema)
+        ema2 += a_h2 * (cl - ema2)
+        em[i] = ema
+        while qmax and h[qmax[-1]] <= hi:
+            qmax.pop()
+        qmax.append(i)
+        while qmin and l[qmin[-1]] >= lo:
+            qmin.pop()
+        qmin.append(i)
+        while qmax[0] <= i - n_pd:
+            qmax.popleft()
+        while qmin[0] <= i - n_pd:
+            qmin.popleft()
+        fl = fs = 0
+        if i - rt_l < w_rt:
+            fl |= B_FVG
+        if i - rt_s < w_rt:
+            fs |= B_FVG
+        if i - sw_l[0] <= w_sw and cl > sw_l[1]:
+            fl |= B_SW
+        if i - sw_s[0] <= w_sw and cl < sw_s[1]:
+            fs |= B_SW
+        if i - mss_i <= w_ms:
+            if mss_d > 0 and cl > mss_lv:
+                fl |= B_MSS
+            elif mss_d < 0 and cl < mss_lv:
+                fs |= B_MSS
+        if i - ort_l < w_rt:
+            fl |= B_OB
+        if i - ort_s < w_rt:
+            fs |= B_OB
+        if i >= n_htf:
+            back = em[i - k_htf]
+            if cl > ema > back and cl > ema2:
+                fl |= B_HTF
+            elif cl < ema < back and cl < ema2:
+                fs |= B_HTF
+        if i >= n_pd // 4:
+            top, bot = h[qmax[0]], l[qmin[0]]
+            if cl < bot + 0.382 * (top - bot):
+                fl |= B_PD
+            elif cl > top - 0.382 * (top - bot):
+                fs |= B_PD
+        rg = hi - lo
+        if a and i and rg >= 0.8 * a:
+            bd = abs(cl - op)
+            if cl > op:
+                if (c[i - 1] < o[i - 1] and cl >= o[i - 1] and op <= c[i - 1] and bd >= 0.5 * rg) or \
+                        (min(op, cl) - lo >= 2 * bd and min(op, cl) - lo >= 0.5 * rg and hi - cl <= 0.25 * rg):
+                    fl |= B_KZ
+            if cl < op:
+                if (c[i - 1] > o[i - 1] and cl <= o[i - 1] and op >= c[i - 1] and bd >= 0.5 * rg) or \
+                        (hi - max(op, cl) >= 2 * bd and hi - max(op, cl) >= 0.5 * rg and cl - lo <= 0.25 * rg):
+                    fs |= B_KZ
+            elif cl >= op and min(op, cl) - lo >= 2 * bd and min(op, cl) - lo >= 0.6 * rg:
+                fl |= B_KZ
+        FL[i], FS[i] = fl, fs
+    return FL, FS
+
+
 DC_TPS = (1.0, 1.5, 2.0, 3.0)
 DC_SESS_SHORT = {"asia": "Asien", "london": "London", "ny_am": "NY-Vorm.", "ny_lunch": "NY-Mittag", "ny_pm": "NY-Nachm.",
-              "aus": "Randzeiten", "alle": "ganztags"}
+              "aus": "Randzeiten", "alle": "ganztags", "sb": "SB-Fenster"}
+DC_SESSIONS = ("alle", "asia", "london", "ny_am", "ny_lunch", "ny_pm", "sb")
+
+
+def dc_in_sb(m):
+    """Silver-Bullet-Fenster (New York): 3–4, 10–11 und 14–15 Uhr."""
+    return 180 <= m < 240 or 600 <= m < 660 or 840 <= m < 900
 
 
 def _dc_num(v):
     return (f"{v:g}").replace(".", ",")
 
 
-def dc_describe(det, n, k, tf, d, tp):
+def dc_describe(det, n, k, tf, d, tp, req=(), sess="alle"):
     """Die Strategie in einfachen Worten."""
     side = "Long" if d > 0 else "Short"
     up, hi, lo = ("über", "Hoch", "Tief") if d > 0 else ("unter", "Tief", "Hoch")
@@ -58,12 +393,34 @@ def dc_describe(det, n, k, tf, d, tp):
                f"in deren Range: {side} Richtung andere Seite. Stop hinter dem Docht.",
         "orb": f"Opening Range: Hoch und Tief der ersten {n} Minuten ab 9:30 New York. Schließt eine Kerze bis 11:30 {up} der Range: {side}. "
                f"Stop {'in der Mitte' if k < 1 else 'auf der anderen Seite'} der Range, einmal pro Tag.",
+        "hg": f"Holy Grail: Starker Trend (ADX über {_dc_num(k)}), der Kurs läuft zur {n}er-EMA zurück. Schließt danach eine Kerze "
+              f"{'über dem Hoch' if d > 0 else 'unter dem Tief'} der Vorkerze: {side} mit dem Trend. Stop hinter dem Rücklauf.",
     }[det]
-    return f"{t} Ziel {_dc_num(tp)}R. Zeiteinheit {tf} Min."
+    extra = ""
+    if req:
+        extra = " Pflicht dazu: " + " und ".join(CF_FACTORS[r]["name"] for r in req) + "."
+    if sess == "sb":
+        extra += " Nur in den Silver-Bullet-Fenstern (3–4, 10–11, 14–15 Uhr New York)."
+    return f"{t}{extra} Ziel {_dc_num(tp)}R. Zeiteinheit {tf} Min."
 
 
-def dc_name_of(det, tf, d, sess):
-    return f"Neu: {DC_DETECTORS[det]['short']} {tf}m {'Long' if d > 0 else 'Short'} {DC_SESS_SHORT.get(sess, sess)}"[:40]
+def dc_model(det, req, sess):
+    """Bekannter Name des Modells, wenn Auslöser und Bestätigungen dazu passen."""
+    r = set(req)
+    if det == "fvg" and sess == "sb":
+        return "Silver Bullet"
+    if det == "fvg" and {"sweep", "mss"} <= r:
+        return "ICT 2022"
+    return DC_DETECTORS[det]["short"]
+
+
+def dc_name_of(det, tf, d, sess, req=(), fam="NQ"):
+    base = dc_model(det, req, sess)
+    rest = [r for r in req if not (base == "ICT 2022" and r in ("sweep", "mss"))]
+    plus = "".join("+" + CF_FACTORS[r]["short"] for r in rest)
+    where = "" if sess == "sb" and base == "Silver Bullet" else " " + DC_SESS_SHORT.get(sess, sess)
+    name = f"{'' if fam == 'NQ' else fam + ' '}{base}{plus} {tf}m {'L' if d > 0 else 'S'}{where}"
+    return name[:40]
 
 
 def _dc_atr(h, l, c, n=14):
@@ -77,6 +434,39 @@ def _dc_atr(h, l, c, n=14):
         if len(q) == n:
             out[i] = s / n
     return out
+
+
+def _dc_adx(h, l, c, n=14):
+    """ADX mit +DI/−DI nach Wilder."""
+    N = len(c)
+    adx, pdi, mdi = [None] * N, [None] * N, [None] * N
+    trs = pds = mds = 0.0
+    dxs, dxn, prev = 0.0, 0, None
+    for i in range(1, N):
+        up, dn = h[i] - h[i - 1], l[i - 1] - l[i]
+        pdm = up if up > dn and up > 0 else 0.0
+        mdm = dn if dn > up and dn > 0 else 0.0
+        tr = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+        if i <= n:
+            trs, pds, mds = trs + tr, pds + pdm, mds + mdm
+            if i < n:
+                continue
+        else:
+            trs, pds, mds = trs - trs / n + tr, pds - pds / n + pdm, mds - mds / n + mdm
+        if trs <= 0:
+            continue
+        p_, m_ = 100 * pds / trs, 100 * mds / trs
+        pdi[i], mdi[i] = p_, m_
+        dx = 100 * abs(p_ - m_) / (p_ + m_) if p_ + m_ > 0 else 0.0
+        if dxn < n:
+            dxs, dxn = dxs + dx, dxn + 1
+            if dxn == n:
+                prev = dxs / n
+                adx[i] = prev
+        else:
+            prev = (prev * (n - 1) + dx) / n
+            adx[i] = prev
+    return adx, pdi, mdi
 
 
 def _dc_roll(arr, n, fn):
@@ -306,6 +696,43 @@ def dc_detect(det, n, k, o, h, l, c, P, tick, start=0):
             elif (cur, 1) not in used and ll < prev[1] - k * a and c[i] > prev[1] and c[i] > o[i]:
                 out.append((i, 1, ll - tick))
                 used.add((cur, 1))
+    elif det == "hg":
+        key = ("adx", 14)
+        if key not in P["cache"]:
+            P["cache"][key] = _dc_adx(h, l, c)
+        adx, pdi, mdi = P["cache"][key]
+        ek = ("ema", n)
+        if ek not in P["cache"]:
+            e_, al, arr = c[0], 2.0 / (n + 1), [0.0] * N
+            for i in range(N):
+                e_ += al * (c[i] - e_)
+                arr[i] = e_
+            P["cache"][ek] = arr
+        ema = P["cache"][ek]
+        touch = None   # [richtung, kerze, extrem]
+        for i in range(max(3 * 14 + n, start), N):
+            a = atr[i]
+            if not a or adx[i] is None:
+                continue
+            if touch:
+                d, ti, ext = touch
+                ext = min(ext, l[i]) if d > 0 else max(ext, h[i])
+                touch[2] = ext
+                if i - ti > 5 or (d > 0 and c[i] < ema[i] - 1.5 * a) or (d < 0 and c[i] > ema[i] + 1.5 * a):
+                    touch = None
+                elif d > 0 and c[i] > h[i - 1]:
+                    out.append((i, 1, ext - tick))
+                    touch = None
+                    continue
+                elif d < 0 and c[i] < l[i - 1]:
+                    out.append((i, -1, ext + tick))
+                    touch = None
+                    continue
+            if touch is None and adx[i] >= k:
+                if pdi[i] > mdi[i] and l[i] <= ema[i] and c[i] > ema[i] - a and c[i - 1] > ema[i - 1]:
+                    touch = [1, i, l[i]]
+                elif mdi[i] > pdi[i] and h[i] >= ema[i] and c[i] < ema[i] + a and c[i - 1] < ema[i - 1]:
+                    touch = [-1, i, h[i]]
     elif det == "orb" and "day" in P:
         day, hm = P["day"], P["hm"]
         cur, oh, ol, used = None, None, None, set()
@@ -328,7 +755,7 @@ def dc_detect(det, n, k, o, h, l, c, P, tick, start=0):
     return out
 
 
-def dc_simulate(sigs, o, h, l, c, t, tf_ms, entry_idx, cost_fn, min_stop, max_hold):
+def dc_simulate(sigs, o, h, l, c, t, tf_ms, entry_idx, cost_fn, min_stop, max_hold, F=None, own=0):
     """Spielt jedes Signal durch: Stop vor Ziel, wenn beides in derselben Kerze liegt (vorsichtig).
     entry_idx(i) gibt die Kerze zurück, zu deren Schluss der Bot live wirklich einsteigen könnte (Verzögerung)."""
     trades = []
@@ -365,7 +792,8 @@ def dc_simulate(sigs, o, h, l, c, t, tf_ms, entry_idx, cost_fn, min_stop, max_ho
         for x in range(len(DC_TPS)):
             if rs[x] is None:
                 rs[x], ex[x] = rc, last
-        trades.append({"i": i, "e": e, "d": d, "risk": risk, "rs": rs, "ex": ex, "cost": cost_fn(entry, risk), "t": t[e]})
+        m = ((F[0] if d > 0 else F[1])[i] | own) if F else own
+        trades.append({"i": i, "e": e, "d": d, "risk": risk, "rs": rs, "ex": ex, "cost": cost_fn(entry, risk), "t": t[e], "m": m})
     return trades
 
 
@@ -381,13 +809,16 @@ def dc_stats(rs):
             "wr": sum(1 for x in rs if x > 0) / n * 100, "pf": gw / gl if gl > 0 else None}
 
 
-def dc_evaluate(trades, sess_of, tp_idx, d, sess):
-    """Trades einer Kandidaten-Strategie (Richtung, Session, Ziel) ohne Überschneidung, nach Gebühren."""
+def dc_evaluate(trades, sess_of, tp_idx, d, sess, need=0, hm=None):
+    """Trades einer Kandidaten-Strategie (Richtung, Session, Ziel, Pflicht-Bestätigungen) ohne Überschneidung, nach Gebühren."""
     out, busy = [], -1
     for tr in trades:
-        if tr["d"] != d or tr["e"] <= busy:
+        if tr["d"] != d or tr["e"] <= busy or tr["m"] & need != need:
             continue
-        if sess != "alle" and sess_of(tr["t"]) != sess:
+        if sess == "sb":
+            if hm is None or not dc_in_sb(hm[tr["e"]]):
+                continue
+        elif sess != "alle" and sess_of(tr["t"]) != sess:
             continue
         busy = tr["ex"][tp_idx]
         out.append((tr["t"], tr["rs"][tp_idx] - tr["cost"]))

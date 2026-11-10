@@ -983,6 +983,16 @@ details.set-sec[open] .s-ic{background:var(--ink);color:var(--ink-fg)}
 .td-ml{margin-bottom:4px}
 .stc .chip .dot{width:7px;height:7px;vertical-align:0}
 
+.cfs{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;vertical-align:middle}
+.cf{font-style:normal;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--fill);color:var(--accent);white-space:nowrap}
+.cf.t{background:var(--ink);color:var(--ink-fg)} .cf.off{background:var(--sunk);color:var(--muted);font-weight:500}
+.cfs>b{font-size:11.5px;font-weight:700;margin-left:2px}
+.cf-now{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12.5px;color:var(--muted)}
+.cf-now>span{display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap}
+.cf-t{width:100%;border-collapse:collapse} .cf-t td,.cf-t th{padding:7px 8px}
+.cf-min{display:flex;gap:6px;flex-wrap:wrap}
+.cf-list{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+
 /* ── Handy ── */
 @media (max-width:1060px){ .nav button{padding:8px 11px;font-size:13px} .prof .switch b{display:none} }
 @media (max-width:900px){
@@ -1322,6 +1332,15 @@ function header() {
 /* ───────── Cockpit ───────── */
 /* ───────── Tageszusammenfassung + Gesundheits-Check ───────── */
 let HC_OPEN = false;
+function cfNow() {
+  const now = (S.confluence && S.confluence.now) || {}, f = CFN(), cf = S.config.confluence || {}, fams = Object.keys(now);
+  if (!cf.enabled) return `<div class="cf-now"><span>Bestätigungen sind ausgeschaltet: jedes Signal wird ohne weitere Prüfung genommen.</span></div>`;
+  if (!fams.length) return `<div class="cf-now"><span>Bestätigungen: warte auf Kursdaten aus TradingView. Ein Trade braucht einen Auslöser und insgesamt mindestens ${cf.min} Bestätigungen.</span></div>`;
+  const row = (keys) => keys.filter(k => (cf.use || {})[k] !== false).map(k => `<i class="cf" title="${esc((f[k] || {}).text || "")}">${esc((f[k] || {}).short || k)}</i>`).join("") || '<i class="cf off">keine</i>';
+  return `<div class="cf-now" title="Welche Bestätigungen gerade am Markt vorliegen. Dazu kommt der Auslöser (z. B. FVG-Retest), der selbst als eine zählt.">
+    ${fams.map(k => `<span><b style="color:var(--fg)">${esc(k)}</b> Long ${row(now[k].long)}</span><span>Short ${row(now[k].short)}</span>`).join("")}
+    <span>· ein Trade braucht insgesamt ${cf.min}</span></div>`;
+}
 function todayCard() {   // Status-Karte: Zustand, News, Tages-Stopp-Balken, Gesundheits-Check (Zahlen stehen oben im Hero)
   const s = S.summary, ds = s.daystop || {}, total = s.realized + s.upnl;
   const goal = ds.goal || S.config.risk.daily_profit_stop || 0, loss = ds.loss || S.config.risk.max_daily_loss || 0;
@@ -1344,6 +1363,7 @@ function todayCard() {   // Status-Karte: Zustand, News, Tages-Stopp-Balken, Ges
       ${blocked.length ? `<span class="chip mute">Nicht genommen: ${blocked.map(([k, v]) => `${esc(k)} ${v}`).join(" · ")}</span>` : ""}
       ${s.own_n ? `<span class="chip mute">Eigene Trades heute ${sUsd(s.own_pnl)}</span>` : ""}
     </div>
+    ${cfNow()}
     ${meter}
     <div class="hc">
       <button type="button" class="hc-sum" id="hcT" aria-expanded="${HC_OPEN}">
@@ -1420,6 +1440,13 @@ function countUp(root) {
 }
 
 /* ───────── Timeline: was der Bot heute entschieden hat ───────── */
+const CFN = () => (S.confluence && S.confluence.factors) || {};
+function confChips(str) {   // "~ORB,fvg,htf" → kleine Marken + Zähler gegen die verlangte Mindestzahl
+  if (!str) return "";
+  const parts = String(str).split(",").filter(Boolean), f = CFN(), cf = S.config.confluence || {min: 3, enabled: true};
+  return `<span class="cfs" title="Bestätigungen für diesen Trade">${parts.map(k => k[0] === "~" ? `<i class="cf t" title="Auslöser">${esc(k.slice(1))}</i>`
+    : `<i class="cf" title="${esc((f[k] || {}).text || "")}">${esc((f[k] || {}).short || k)}</i>`).join("")}${cf.enabled ? `<b class="${parts.length >= cf.min ? "pos" : "neg"}">${parts.length}/${cf.min}</b>` : ""}</span>`;
+}
 function tlItems(items, withDate) {
   const chip = {"ausgeführt": "good", "offen": "", "abgelehnt": "mute", "verfallen": "mute", "ersetzt": "mute", "blockiert": "warn", "fehler": "bad"};
   return items.slice().reverse().map(s => {
@@ -1436,10 +1463,11 @@ function tlItems(items, withDate) {
         out = `<b class="mono ${helped ? "pos" : "neg"}" title="${helped ? "Der Filter hat einen Verlust verhindert" : "Der Filter hat einen Gewinn verhindert"}">hätte ${(sh.r > 0 ? "+" : "") + num2(sh.r)} R</b><small>${helped ? "gut, dass nicht" : "verpasst"}</small>`;
       } else if (sh) out = `<small class="hint">Schatten läuft</small>`;
     }
-    const flags = (s.flags || []).filter(f => !/^Ausstieg /.test(f));
+    const flags = (s.flags || []).filter(f => !/^(Ausstieg |Bestätigungen: )/.test(f));
+    if (s.status === "blockiert" && /Bestätigungen \(/.test(s.reason || "")) what = esc((s.reason || "").replace(/\s*\([^)]*\)\s*–/, " –"));
     return `<div class="tl-i ${kind}"><time class="mono">${withDate ? dtm(s.ts) : tm(s.ts)}</time><span class="tl-d"></span>
       <div class="tl-c"><div class="tl-h"><b class="side ${s.side}" style="font-size:12px">${s.side === "long" ? "L" : "S"}</b> ${esc(s.root)} <span class="chip">${esc(s.setup)}</span>
-        <span class="chip ${chip[s.status] ?? "mute"}">${s.status === "blockiert" && s.cat ? "nicht genommen · " + esc(s.cat) : esc(s.status)}</span>${s.is_test ? ' <span class="chip mute">Test</span>' : ""}</div>
+        <span class="chip ${chip[s.status] ?? "mute"}">${s.status === "blockiert" && s.cat ? "nicht genommen · " + esc(s.cat) : esc(s.status)}</span>${s.is_test ? ' <span class="chip mute">Test</span>' : ""} ${confChips(s.confs)}</div>
         <div class="tl-w">${what}${flags.length ? `<span class="hint"> · ${esc(flags.join(" · "))}</span>` : ""}</div></div>
       <div class="tl-o">${out}</div></div>`;
   }).join("");
@@ -1898,10 +1926,29 @@ function cvInspector() {
 }
 
 /* ───────── Lernmodul: Übersicht (das Wichtigste auf einen Blick) ───────── */
-const LO = {disc: null, at: 0};
+const LO = {cf: null, disc: null, at: 0};
+function cfCard() {
+  const v = LO.cf; if (!v) return "";
+  const rAvg = x => x && x.n ? `<b class="mono ${cls(x.avg)}">${x.avg > 0 ? "+" : ""}${num2(x.avg)} R</b> <span class="hint">(${x.n})</span>` : '<span class="hint">–</span>';
+  const byN = Object.entries(v.by_n || {}), total = byN.reduce((a, [, x]) => a + x.n, 0);
+  const verdict = f => { const a = f.mit, b = f.ohne; if (!a.n || !b.n || a.n < 10 || b.n < 10) return '<span class="chip mute">lernt noch</span>';
+    const d = a.avg - b.avg; return d >= 0.1 ? '<span class="chip good">hilft</span>' : d <= -0.1 ? '<span class="chip bad">schadet eher</span>' : '<span class="chip mute">kein Unterschied</span>'; };
+  return `<section class="panel"><div class="section-h"><div><h2>Bestätigungen</h2>
+      <p class="hint" style="margin:4px 0 0;max-width:90ch;line-height:1.6">${v.enabled ? `Ein Trade braucht mindestens <b>${v.min}</b> Bestätigungen (der Auslöser zählt als eine).` : "Bestätigungen sind ausgeschaltet."}
+      Der Bot verfolgt jedes Signal im Hintergrund weiter, auch die nicht genommenen, und lernt so, welche Bestätigungen wirklich etwas bringen.${v.since ? ` Gezählt wird seit dem Neustart des Lernmoduls am ${new Date(v.since * 1000).toLocaleDateString("de-DE")}.` : ""}</p></div>
+      <button class="btn" data-set="conf" style="align-self:flex-start">Einstellen</button></div>
+    ${total ? `<div class="grid2" style="margin-top:12px">
+      <div class="scroll"><table class="cf-t"><thead><tr><th class="t">Bestätigung</th><th>mit</th><th>ohne</th><th class="t"></th></tr></thead><tbody>${v.factors.map(f =>
+        `<tr><td class="t" title="${esc(f.text)}">${esc(f.name)}${v.use[f.key] === false ? ' <span class="chip mute">zählt nicht</span>' : ""}</td><td>${rAvg(f.mit)}</td><td>${rAvg(f.ohne)}</td><td class="t">${verdict(f)}</td></tr>`).join("")}</tbody></table></div>
+      <div><table class="cf-t"><thead><tr><th class="t">Anzahl beim Signal</th><th>Signale</th><th>Treffer</th><th>Ø Ergebnis</th></tr></thead><tbody>${byN.map(([k, x]) =>
+        `<tr><td class="t">${k}${k === "5" ? " oder mehr" : ""} ${+k >= v.min ? '<span class="chip good">wird genommen</span>' : '<span class="chip mute">zu wenig</span>'}</td><td>${x.n}</td><td>${pct(x.wr)}</td><td class="${cls(x.avg)}">${x.avg > 0 ? "+" : ""}${num2(x.avg)} R</td></tr>`).join("")}</tbody></table>
+        <p class="hint" style="margin:8px 0 0">Ø Ergebnis je Signal in R (1 R = das Risiko des Trades), aus ${total} abgeschlossenen Signalen.</p></div></div>`
+    : `<p class="hint" style="margin:12px 0 0">Noch keine abgeschlossenen Signale seit dem Neustart. Die Auswertung füllt sich mit jedem Signal.</p>`}
+  </section>`;
+}
 async function learnOverview() {
   const body = $("#lnBody");
-  if (!LO.disc || Date.now() - LO.at > 60000) { try { LO.disc = await api("/api/disc"); LO.at = Date.now(); } catch (e) {} }
+  if (!LO.disc || Date.now() - LO.at > 60000) { try { [LO.disc, LO.cf] = await Promise.all([api("/api/disc"), api("/api/confluence")]); LO.at = Date.now(); } catch (e) {} }
   if (TAB !== "learn" || LTAB !== "uebersicht") return;
   const L = S.learning, c = S.config, sn = {asia: "Asien", london: "London", ny_am: "NY AM", ny_lunch: "NY Mittag", ny_pm: "NY PM", aus: "Sonst"};
   const stChip = s => ({"aktiv": "good", "halbe Größe": "warn", "pausiert": "bad", "aus": "bad", "lernt": "mute"}[s] || "mute");
@@ -1913,6 +1960,7 @@ async function learnOverview() {
   body.innerHTML = `
     <section class="panel lo-top"><div><h2>Was der Bot gelernt hat</h2><p class="hint" style="margin:4px 0 0">Nur das, was gerade anders läuft als ohne Lernen. Alles Weitere steht unter „Details“.</p></div>
       <div class="lo-st"><span class="chip ${L.params.auto_adopt === false ? "mute" : "good"}">Selbst umsetzen: ${L.params.auto_adopt === false ? "aus" : "an"}</span><span class="hint">Letzte Auswertung ${L.last_run ? dtm(L.last_run) : "–"}</span></div></section>
+    ${cfCard()}
     <div class="lo-g">
       ${card("Strategien", "strategien", strat.length ? (() => { const dev = strat.filter(s => s.effective !== "aktiv" || Object.values(s.sessions || {}).some(x => x.status === "pausiert" || x.status === "halbe Größe")); const ok = strat.length - dev.length;
         return (dev.length ? "" : `<p class="hint" style="margin:0 0 6px">Alle ${strat.length} Strategien laufen normal.</p>`) + `<div class="lo-l">${dev.map(s => { const bad = Object.entries(s.sessions || {}).filter(([, x]) => x.status === "pausiert" || x.status === "halbe Größe");
@@ -1922,12 +1970,13 @@ async function learnOverview() {
       ${card("Session-Ziele", "sessionziele", sc.length ? `<div class="lo-l">${sc.map(([k, v]) => { const [a, b] = k.includes("|") ? k.split("|") : [null, k];
         return `<div class="lo-r"><span>${a ? esc(a) + " · " : ""}${sn[b] || esc(b)}</span><span class="chip">Ziel ${Math.round(v.f * 100)} % · Stop ${Math.round(v.g * 100)} %</span></div>`; }).join("")}</div>` : none("Stop und Ziel wie im Signal."))}
       ${card("Regeln", "regeln", rules.length ? `<div class="lo-l">${rules.map(r => `<div class="lo-r"><span>${esc(r.setup)}</span><span class="chip ${r.action === "avoid" ? "bad" : "good"}">${r.action === "avoid" ? "meiden" : "nur"}: ${esc(r.label)}</span></div>`).join("")}</div>` : none("Keine Filter aktiv."))}
-      ${card("Neue Strategien", "finder", dAct.length || dProbe.length ? `<div class="lo-l">${dAct.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip good">handelt mit</span></div>`).join("")}${dProbe.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip">Probelauf ${i.fwd ? i.fwd.n : 0}/20</span></div>`).join("")}</div>` : none("Keine im Probelauf."))}
+      ${card("Neue Strategien", "finder", dAct.length || dProbe.length ? `<div class="lo-l">${dAct.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip good">handelt mit</span></div>`).join("")}${dProbe.map(i => `<div class="lo-r"><span>${esc(i.name.replace("Neu: ", ""))}</span><span class="chip">Probelauf ${i.fwd ? i.fwd.n : 0}/25</span></div>`).join("")}</div>` : none("Keine im Probelauf."))}
       ${card("Frühe Ausstiege", "ausstiege", `<p class="hint" style="margin:0">Ob Smart-Ausstieg, TradingView-Exit, News- oder Sessionende-Ausstiege Geld sparen oder kosten.</p>`)}
     </div>
     <section class="section"><h2>Zuletzt selbst geändert</h2><div class="panel">${(L.auto_log || []).length ? `<div class="lo-log">${L.auto_log.slice(0, 8).map(i => `<div><span class="mono hint">${new Date(i.t * 1000).toLocaleDateString("de-DE", {day: "2-digit", month: "2-digit"})}</span> ${esc(i.text)}</div>`).join("")}</div>` : none("Noch nichts. Jeden Abend nach Börsenschluss prüft der Bot, was sich bewährt hat.")}</div></section>
     ${L.insights.length ? `<details class="ck-more"><summary>Erkenntnisse (${L.insights.length})</summary><div class="panel" style="margin-top:8px"><div class="flags" style="flex-direction:column;align-items:flex-start;gap:8px">${L.insights.map(i => `<span class="chip wrapc ${i.kind === "bad" ? "bad" : i.kind === "good" ? "good" : "warn"}">${esc(i.text)}</span>`).join("")}</div></div></details>` : ""}`;
   body.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { const t = document.querySelector(`[data-lt="${b.dataset.go}"]`); if (t) t.click(); });
+  body.querySelectorAll("[data-set]").forEach(b => b.onclick = () => { TAB = "settings"; OPEN.add(b.dataset.set); setHash(TAB); window.scrollTo({top: 0}); render(true); });
 }
 /* ───────── Wochenbericht ───────── */
 const WK = {off: 0, data: null, at: 0, err: null};
@@ -2491,7 +2540,7 @@ function posCard(p) {
   return `<article class="pc ${p.side}" id="pc-${p.id}">
     <div class="pc-h">
       <span class="side ${p.side}">${p.side === "long" ? "LONG" : "SHORT"}</span><b class="mono">${p.qty}× ${esc(p.contract)}</b>
-      <span class="chip">${esc(p.setup)}</span>${p.is_test ? '<span class="chip mute">Test</span>' : ""}${p.mgmt ? `<span class="chip">${esc(p.mgmt)}</span>` : ""}
+      <span class="chip">${esc(p.setup)}</span>${p.is_test ? '<span class="chip mute">Test</span>' : ""}${p.mgmt ? `<span class="chip">${esc(p.mgmt)}</span>` : ""}${confChips(p.confs)}
       <span class="hint" id="pcAge-${p.id}"></span>
       <div class="pc-pl"><b id="pcPl-${p.id}">–</b><small id="pcPl2-${p.id}"></small></div>
     </div>
@@ -2603,7 +2652,7 @@ function cockpit(full) {
   chCard();
   const perfKey = JSON.stringify([PERF, S.daily]);
   if (perfKey !== cockpit._perfKey || full) { cockpit._perfKey = perfKey; $("#perf").innerHTML = perfCard(); bindPerf($("#perf"), () => { cockpit._perfKey = ""; cockpit(false); }); }
-  const tdKey = JSON.stringify([S.summary, S.health, S.balance, S.news_next, S.challenge && [S.challenge.can_lose, S.challenge.to_target], S.config.paused, S.config.auto_mode, S.session_open, S.news_pause, HC_OPEN]);
+  const tdKey = JSON.stringify([S.summary, S.health, S.balance, S.news_next, S.challenge && [S.challenge.can_lose, S.challenge.to_target], S.config.paused, S.config.auto_mode, S.session_open, S.news_pause, HC_OPEN, S.confluence && S.confluence.now, S.config.confluence]);
   if (tdKey !== cockpit._tdKey || full) { cockpit._tdKey = tdKey; $("#todayK").innerHTML = todayCard(); $("#hcT").onclick = () => { HC_OPEN = !HC_OPEN; cockpit._tdKey = ""; cockpit(false); }; }
   $("#posSec").hidden = !S.positions.length;
   $("#sugSec").hidden = S.config.auto_mode && !S.pending.length;   // im Auto-Modus gibt es nichts anzunehmen
@@ -2689,7 +2738,8 @@ function sugCard(p) {
       <label>Stop-Loss<input class="sl" type="number" step="${inst.tick}" value="${p.sl}"></label>
       <label>Ziel<input class="tp" type="number" step="${inst.tick}" value="${p.tp}"></label>
     </div>
-    ${p.flags && p.flags.length ? `<div class="flags">${p.flags.map(f => `<span class="chip warn">${esc(f)}</span>`).join("")}</div>` : ""}
+    ${p.confs ? `<div class="flags">${confChips(p.confs)}</div>` : ""}
+    ${p.flags && p.flags.filter(f => !/^Bestätigungen: /.test(f)).length ? `<div class="flags">${p.flags.filter(f => !/^Bestätigungen: /.test(f)).map(f => `<span class="chip warn">${esc(f)}</span>`).join("")}</div>` : ""}
     <div class="actions"><button class="btn good acc">Annehmen</button><button class="btn rej">Ablehnen</button></div>
   </article>`;
 }
@@ -3286,11 +3336,11 @@ async function labFinder(force) {
   const d = DF.data; if (!d) { body.innerHTML = `<p class="err-msg">${esc(DF.err || "")}</p>`; return; }
   const st = d.state || {}, items = d.items || [];
   const by = k => items.filter(i => i.status === k).sort((a, b) => b.stats.t - a.stats.t);
-  const rel = t => t >= 3.5 ? ["good", "hoch"] : t >= 2.5 ? ["warn", "mittel"] : ["mute", "niedrig"];
+  const rel = t => t >= 4.5 ? ["good", "hoch"] : t >= 3.5 ? ["warn", "mittel"] : ["mute", "niedrig"];
   const card = (it, actions) => { const s = it.stats, f = it.fwd, [rc, rl] = rel(s.t);
     return `<div class="df-c">
-      <div class="df-h"><b>${esc(it.name)}</b><span class="chip ${rc}" title="t-Wert ${num2(s.t)}">Zuverlässigkeit ${rl}</span>${it.auto ? '<span class="chip mute">vom Bot gewählt</span>' : ""}<span style="flex:1"></span>${dfCurve(it.curve)}</div>
-      <p class="hint" style="margin:4px 0 8px;line-height:1.55">${esc(it.desc)}</p>
+      <div class="df-h"><b>${esc(it.name)}</b><span class="chip ${rc}" title="t-Wert ${num2(s.t)}">Zuverlässigkeit ${rl}</span>${it.confs ? `<span class="cfs"><i class="cf t" title="Auslöser">${esc((d.detectors || {})[it.det] || it.det)}</i>${(it.req || []).map(k => `<i class="cf" title="${esc((CFN()[k] || {}).text || "")}">${esc((CFN()[k] || {}).short || k)}</i>`).join("")}<b class="pos">${it.confs}</b></span>` : ""}${it.auto ? '<span class="chip mute">vom Bot gewählt</span>' : ""}<span style="flex:1"></span>${dfCurve(it.curve)}</div>
+      <p class="hint" style="margin:4px 0 8px;line-height:1.55">${it.origin ? `<b style="color:var(--fg)">Nach ${esc(it.origin)}.</b> ` : ""}${esc(it.desc)}</p>
       <div class="df-s">
         <span><small>Rückblick</small><b class="mono">${s.n} Trades</b></span><span><small>Treffer</small><b class="mono">${pct(s.wr)}</b></span>
         <span><small>Ø nach Gebühren</small><b class="mono ${cls(s.avg)}">${s.avg > 0 ? "+" : ""}${num2(s.avg)} R</b></span><span><small>Profit-Faktor</small><b class="mono">${num2(s.pf)}</b></span>
@@ -3303,7 +3353,7 @@ async function labFinder(force) {
   const data = Object.entries(d.data || {});
   const lowTf = act.some(i => i.tf < 5) || probe.some(i => i.tf < 5);
   body.innerHTML = `
-    <section class="panel"><div class="section-h"><div><h2>Strategie-Finder</h2><p class="hint" style="max-width:92ch;margin:4px 0 0;line-height:1.6">Sucht in allen gespeicherten 1- und 5-Minuten-Kerzen nach <b>neuen Einstiegen</b> – Orderblock-Retest, Breaker-Block, FVG-Retest, Liquiditäts-Sweep, BOS-Pullback/OTE, Range-Ausbruch, Rückkehr zum Mittel und bekannte Scalping-Konzepte: Judas Swing (Asien-Range-Sweep), Vortages-Hoch/Tief-Sweep (Turtle Soup), Candle Range Theory und Opening Range Breakout – je Session, Richtung und Ziel. Läuft eine Strategie, prüft er jeden Abend, ob es inzwischen eine klar bessere Einstellung desselben Musters gibt; die muss dann ihren eigenen Probelauf bestehen und löst die alte ab. Gerechnet wird ehrlich: nach Gebühren, Stop vor Ziel bei Unklarheit, Einstieg erst dann, wenn die Kerzen live auch ankommen. Was hier gut aussieht, kann trotzdem Zufall sein (bei ${(d.tested || 0).toLocaleString("de-DE")} geprüften Varianten sind ein paar Glückstreffer normal). Deshalb muss jede Strategie erst einen <b>Probelauf</b> auf neuen Kerzen bestehen (20 Trades, Ø mind. +0,1 R), bevor sie mithandelt.</p></div>
+    <section class="panel"><div class="section-h"><div><h2>Strategie-Finder</h2><p class="hint" style="max-width:92ch;margin:4px 0 0;line-height:1.6">Prüft in allen gespeicherten 1- und 5-Minuten-Kerzen die Einstiegs-Modelle bekannter Trader: <b>ICT 2022</b> (Sweep → Strukturbruch → FVG), <b>Silver Bullet</b> (FVG in den Fenstern 3–4, 10–11, 14–15 Uhr NY), <b>Judas Swing</b>, Orderblock, Breaker und OTE (alle ICT), <b>Turtle Soup</b> und <b>Holy Grail</b> (Linda Raschke), <b>Opening Range Breakout</b> (Toby Crabel), Candle Range Theory, Range-Ausbruch und Rückkehr zum Mittel. Jedes Modell wird nur zusammen mit weiteren Bestätigungen geprüft, sodass jede Strategie mindestens <b>${d.min_conf || 3} Bestätigungen</b> hat – je Session, Richtung und Ziel. Gerechnet wird ehrlich: nach Gebühren, Stop vor Ziel bei Unklarheit, Einstieg erst dann, wenn die Kerzen live auch ankommen. Trotzdem kann ein gutes Ergebnis Zufall sein (bei ${(d.tested || 0).toLocaleString("de-DE")} geprüften Varianten sind Glückstreffer normal). Deshalb gilt: Eine Strategie muss mit mindestens zwei verschiedenen Einstellungen bestehen, in beiden Zeit-Hälften im Plus sein und danach einen <b>Probelauf</b> auf neuen Kerzen schaffen (25 Trades, Ø mind. +0,1 R), bevor sie mithandelt. Läuft sie danach schlecht, fliegt sie wieder raus.</p></div>
       <div class="inline" style="gap:8px;flex-wrap:wrap;justify-content:flex-end"><button class="btn primary" id="dfRun" ${st.busy ? "disabled" : ""}>${st.busy ? "Sucht …" : "Jetzt suchen"}</button></div></div>
       ${st.busy ? `<div class="df-prog"><div class="mc-bar" style="margin:10px 0 4px"><i class="p" style="width:${st.total ? Math.round(st.done / st.total * 100) : 3}%;background:var(--accent)"></i></div><span class="hint">${esc(st.step || "")} · ${st.done || 0} / ${st.total || "?"}</span></div>` : ""}
       ${st.error ? `<p class="err-msg">${esc(st.error)}</p>` : ""}
@@ -3506,6 +3556,7 @@ const SIC = {
   sess: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   tv: '<path d="M4 16 9 10l4 3 7-8"/><path d="M15 5h5v5"/>',
   acc: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  conf: '<path d="m5 12 3 3 5-6"/><path d="m12 15 1.5 1.5L19 10"/><rect x="3" y="4" width="18" height="16" rx="4"/>',
   adv: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
 };
 const intro = t => `<p class="hint" style="margin:0">${t}</p>`;
@@ -3536,6 +3587,7 @@ function settings() {
   const sessOn = Object.entries(S.sessions).filter(([k]) => (r.sessions || {})[k]).map(([, x]) => x.name);
   const sizeSum = (sz.mode === "fixed" ? `${sz.fixed_qty} Kontrakt${sz.fixed_qty == 1 ? "" : "e"} pro Trade` : sz.mode === "risk_usd" ? `${usd(sz.risk_usd)} Risiko pro Trade` : `${sz.risk_pct} % Risiko pro Trade`)
     + ` · ${{auto: "Mini oder Micro", mini: "nur Mini", micro: "nur Micro"}[sz.contract_type] || ""} · max. ${sz.max_qty}`;
+  const cfg0 = c.confluence || {enabled: true, min: 3, use: {}};
   const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
   const accChip = t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
@@ -3574,6 +3626,15 @@ function settings() {
     ${field("ct", "Kontrakttyp", sz.contract_type, {select: [["auto", "Automatisch (Mini oder Micro)"], ["mini", "Nur Mini (NQ / ES)"], ["micro", "Nur Micro (MNQ / MES)"]]})}
     ${field("mq", "Höchstens Kontrakte", sz.max_qty, {attrs: {min: 1, step: 1}})}
     <div class="preview"><span class="hint">Beispiel mit gespeicherter Einstellung</span><div><b>NQ</b> ${prev("NQ")}</div><div><b>ES</b> ${prev("ES")}</div></div>`)}
+
+  ${sec("conf", "Bestätigungen", cfg0.enabled ? `Ein Trade braucht mindestens ${cfg0.min} Bestätigungen · ${Object.values(cfg0.use || {}).filter(Boolean).length} von ${Object.keys(CFN()).length} zählen` : "aus: jedes Signal wird genommen", cfg0.enabled ? `<span class="chip good">mind. ${cfg0.min}</span>` : '<span class="chip warn">aus</span>', `
+    ${intro("Der Bot steigt nur ein, wenn mehrere unabhängige Gründe zusammenkommen. Der Auslöser selbst (z. B. der FVG-Retest aus TradingView) zählt als eine Bestätigung, die anderen prüft die App selbst aus den Kursdaten. Je höher die Zahl, desto weniger, aber besser abgesicherte Trades.")}
+    ${field("cfE", "Bestätigungen verlangen", cfg0.enabled, {check: true})}
+    ${field("cfM", "Mindestens so viele Bestätigungen", cfg0.min, {select: [[2, "2 (Auslöser + 1 weitere)"], [3, "3 (Auslöser + 2 weitere) – empfohlen"], [4, "4 (Auslöser + 3 weitere) – sehr streng"], [5, "5 (kaum noch Trades)"]]})}
+    <span class="lbl">Diese Bestätigungen zählen</span>
+    <div class="cf-list">${Object.entries(CFN()).map(([k, f]) => field("cfU_" + k, f.name, (cfg0.use || {})[k] !== false, {check: true, help: f.text})).join("")}</div>
+    <span class="lbl">Neu anfangen</span>
+    <div class="row"><label>Alles Gelernte vergessen<small>Strategie-Bewertungen, Regeln, Ausstiege, Session-Ziele und gefundene Strategien werden geleert. Deine Trades, der Kalender und das Konto bleiben. Vorher wird eine Sicherung angelegt.</small></label><button type="button" class="btn ghost-danger" id="lrnReset">Lernmodul zurücksetzen</button></div>`)}
 
   ${sec("risk", "Risiko & Schutz", riskSum, '<span class="chip good">Safe-Stop an</span>', `
     ${intro("Jede Order bekommt einen Stop-Loss. Fehlt er im Signal, nimmt der Bot den Standard-Stop.")}
@@ -3700,6 +3761,8 @@ function settings() {
     $('[data-row="fq"]').hidden = mode !== "fixed"; $('[data-row="ru"]').hidden = mode !== "risk_usd"; $('[data-row="rp"]').hidden = mode !== "risk_pct"; dirty(); });
   $("#bk").addEventListener("change", () => { $("#ppd").hidden = v("bk") !== "paper"; });
   $("#discard").onclick = () => { settingsDirty = false; render(true); };
+  if ($("#lrnReset")) $("#lrnReset").onclick = () => confirmBtn($("#lrnReset"), "Wirklich alles Gelernte vergessen?", async () => {
+    try { const r = await api("/api/learn/reset", {}); toast(`Lernmodul zurückgesetzt · Sicherung: ${r.backup}`); LO.disc = null; LO.cf = null; DF.data = null; await refresh(); } catch (e) { toast(e.message); } });
   const doSave = async () => {
     const patch = {
       sizing: {mode, fixed_qty: v("fq"), risk_usd: num("ru"), risk_pct: num("rp"), contract_type: v("ct"), max_qty: v("mq")},
@@ -3709,6 +3772,7 @@ function settings() {
       auto_update: v("au"),
       news: {enabled: v("nwE"), before_min: parseInt(v("nwB")), after_min: parseInt(v("nwA")), impact: v("nwI"), usd_only: v("nwU"), close_before: v("nwC")},
       suggestion_timeout_sec: parseInt(v("to")), follow_tv_exits: v("fx"), early_exit: v("ee"), stop_follow: v("sf"),
+      confluence: {enabled: v("cfE"), min: parseInt(v("cfM")), use: Object.fromEntries(Object.keys(CFN()).map(k => [k, v("cfU_" + k)]))},
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},

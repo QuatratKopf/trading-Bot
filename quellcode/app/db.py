@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS signals (
     ticker TEXT, root TEXT, contract TEXT, side TEXT, setup TEXT,
     entry REAL, sl REAL, tp REAL, qty INTEGER, risk_usd REAL,
     flags TEXT, status TEXT, reason TEXT, expires REAL,
-    is_test INTEGER DEFAULT 0, raw TEXT, bar_time REAL, mgmt TEXT
+    is_test INTEGER DEFAULT 0, raw TEXT, bar_time REAL, mgmt TEXT, confs TEXT
 );
 CREATE TABLE IF NOT EXISTS positions (
     id TEXT PRIMARY KEY,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS positions (
     qty INTEGER, entry REAL, sl REAL, tp REAL, initial_sl REAL,
     opened REAL, closed REAL, exit REAL, pnl REAL,
     status TEXT, close_reason TEXT, broker_ref TEXT, is_test INTEGER DEFAULT 0, bar_time REAL,
-    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL, journal TEXT, shots TEXT, ghost_status TEXT, ghost_sl REAL, ghost_tp REAL, ghost_exit REAL, ghost_r REAL, ghost_how TEXT, exit_cat TEXT
+    source TEXT, trade_day TEXT, note TEXT, mgmt TEXT, best REAL, exit_bar REAL, journal TEXT, shots TEXT, ghost_status TEXT, ghost_sl REAL, ghost_tp REAL, ghost_exit REAL, ghost_r REAL, ghost_how TEXT, exit_cat TEXT, confs TEXT
 );
 CREATE TABLE IF NOT EXISTS shadow (
     id TEXT PRIMARY KEY,
@@ -175,6 +175,14 @@ class DB:
     def update_shadow(self, sid, **kw):
         sets = ",".join(f"{k}=?" for k in kw)
         self._exec(f"UPDATE shadow SET {sets} WHERE id=?", list(kw.values()) + [sid])
+
+    def archive_learning(self, stamp):
+        """Schatten-Trades und Varianten wegräumen (bleiben als Sicherungs-Tabellen in der Datenbank), neu und leer anlegen."""
+        with self.lock:
+            for tb in ("shadow", "variants"):
+                self.con.execute(f"ALTER TABLE {tb} RENAME TO {tb}_alt_{stamp}")
+            self.con.executescript(SCHEMA)
+            self.con.commit()
 
     def open_shadows(self):
         return self.rows("SELECT * FROM shadow WHERE status='offen'")

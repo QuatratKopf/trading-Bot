@@ -1281,6 +1281,16 @@ def disc_get(h):
     h._send(200, engine.disc_view())
 
 
+@route("GET", r"/api/confluence")
+def confluence_get(h):
+    h._send(200, engine.confluence_view())
+
+
+@route("POST", r"/api/learn/reset")
+def learn_reset(h):
+    h._send(200, engine.reset_learning("von Hand"))
+
+
 @route("POST", r"/api/disc/run")
 def disc_run(h):
     engine.disc_async()

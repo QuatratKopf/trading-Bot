@@ -1,6 +1,6 @@
 {
-  "version": "3.0.1",
-  "file": "releases/FVG-Trader-3.0.1.cmd",
-  "sha256": "6a2cfd592348b76fa18be5cd41abf96f5acd18d554c0624199ed6b0c8cb35758",
-  "notes": "Neue Einstellung: frühe Ausstiege (Smart-Ausstieg) und Stop-Nachziehen lassen sich unter Risiko & Schutz abschalten"
+  "version": "3.1.0",
+  "file": "releases/FVG-Trader-3.1.0.cmd",
+  "sha256": "89ffb9d65fb765db821e619c05189d76a05b3dd23d79cad9f0e2736118166460",
+  "notes": "Bestätigungs-System: Trades nur noch mit mindestens 3 Bestätigungen (einstellbar). Alles bisher Gelernte wird einmalig zurückgesetzt (mit Sicherung). Strategie-Finder prüft jetzt Modelle bekannter Trader (ICT 2022, Silver Bullet, Judas Swing, Turtle Soup, ORB, Holy Grail …) jeweils mit Pflicht-Bestätigungen. Neues TradingView-Script 2.12 empfohlen."
 }
