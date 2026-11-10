@@ -1,6 +1,6 @@
 {
-  "version": "3.1.0",
-  "file": "releases/FVG-Trader-3.1.0.cmd",
-  "sha256": "89ffb9d65fb765db821e619c05189d76a05b3dd23d79cad9f0e2736118166460",
-  "notes": "Bestätigungs-System: Trades nur noch mit mindestens 3 Bestätigungen (einstellbar). Alles bisher Gelernte wird einmalig zurückgesetzt (mit Sicherung). Strategie-Finder prüft jetzt Modelle bekannter Trader (ICT 2022, Silver Bullet, Judas Swing, Turtle Soup, ORB, Holy Grail …) jeweils mit Pflicht-Bestätigungen. Neues TradingView-Script 2.12 empfohlen."
+  "version": "3.2.0",
+  "file": "releases/FVG-Trader-3.2.0.cmd",
+  "sha256": "915019dedb4b43401ce2f0f06fd86113e0765d9cb2f5b81242544ab5777d3df9",
+  "notes": "Bias-Analyse: Zu Beginn jeder Session bestimmt der Bot aus fünf Bausteinen die Tagesrichtung und handelt nur noch in diese Richtung (einstellbar unter Bias & Bestätigungen)."
 }

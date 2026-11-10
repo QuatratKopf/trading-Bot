@@ -14,6 +14,7 @@ import uuid
 from brokers import BROKERS, BrokerError
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
+from discovery import BS_PARTS, bias_compute, bs_sess
 from discovery import dc_describe, dc_detect, dc_evaluate, dc_in_sb, dc_model, dc_name_of, dc_prepare, dc_simulate, dc_stats
 
 # Tickgröße und $ pro Punkt
@@ -132,6 +133,8 @@ DEFAULT_CONFIG = {
     # Bestätigungen: ein Trade braucht mehrere unabhängige Gründe (der Auslöser selbst zählt als einer)
     "confluence": {"enabled": True, "min": 3, "use": {k: True for k in CF_KEYS}},
     "learn_epoch": 0,          # Zeitpunkt des letzten Zurücksetzens des Lernstands
+    # Bias: Tagesrichtung, zu Beginn jeder Session neu bestimmt. streng = nicht gegen den Bias handeln, hinweis = nur anzeigen
+    "bias": {"mode": "streng"},
     "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
@@ -306,12 +309,14 @@ FEATURES = {
     "side": "Richtung", "hour": "Uhrzeit (NY)", "weekday": "Wochentag", "session": "Session",
     "gap": "Opening-Gap", "london": "London-Range", "ib": "Initial Balance", "asia": "Asien-Range",
     "pd": "Lage zum Vortag", "on": "Lage zum Overnight", "mo": "Midnight Open", "ro": "RTH-Open",
-    "nconf": "Anzahl Bestätigungen", **{"c_" + k: "Bestätigung " + v["name"] for k, v in CF_FACTORS.items()},
+    "bias": "Bias der Session", "nconf": "Anzahl Bestätigungen", **{"c_" + k: "Bestätigung " + v["name"] for k, v in CF_FACTORS.items()},
 }
 WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 
 def describe_cond(f, v):
+    if f == "bias":
+        return {"mit": "mit dem Bias", "gegen": "gegen den Bias", "neutral": "bei neutralem Bias"}.get(v, str(v))
     if f == "nconf":
         return f"{v} Bestätigung{'' if str(v) == '1' else 'en'}"
     if f.startswith("c_") and f[2:] in CF_FACTORS:
@@ -406,6 +411,7 @@ class Engine:
         self._pm_busy = False
         self._ratr_cache, self._smart_pos_cache = {}, {}
         self._conf_cache, self._conf_now, self._late, self.script_v = {}, {}, [], {}
+        self._bias, self._bias_st = {}, {}
         self.disc, self.disc_state, self._disc_sent, self.last_bundle = None, {"busy": False}, set(), 1
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
@@ -592,6 +598,9 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
+        bs = c.setdefault("bias", {})
+        if bs.get("mode") not in ("streng", "hinweis", "aus"):
+            bs["mode"] = "streng"
         cf = c.setdefault("confluence", {})
         cf["enabled"] = bool(cf.get("enabled", True))
         try:
@@ -938,6 +947,12 @@ class Engine:
             ctx["nconf"] = str(min(cf_n, 5))
             for k_ in CF_KEYS:
                 ctx["c_" + k_] = "ja" if k_ in cf["keys"] else "nein"
+        # Bias: die Tagesrichtung aus der Analyse zu Beginn der Session
+        bias, b_mode = None, self.cfg["bias"]["mode"]
+        if b_mode != "aus" and not is_test:
+            bias = self._bias_get(fam)
+            if bias:
+                ctx["bias"] = "neutral" if not bias["dir"] else "mit" if bias["dir"] == (1 if side == "long" else -1) else "gegen"
         if not is_test:
             now_ny = ny_time(sig_ts)
             shid = uuid.uuid4().hex[:10]
@@ -995,6 +1010,11 @@ class Engine:
             ses_p = ((self.learning.get("setups", {}).get(base["setup"]) or {}).get("sessions") or {}).get(sess_now, {}).get("status") == "pausiert"
             guard = (f"Strategie {base['setup']} vom Lernmodul in {SESSION_NAMES.get(sess_now, sess_now)} pausiert (läuft im Schatten weiter)"
                      if ses_p else f"Strategie {base['setup']} vom Lernmodul pausiert (läuft im Schatten weiter)")
+        if bias:
+            flags.append(f"Bias: {self.BIAS_WORD[bias['dir']]} ({bias['score']:+d})")
+            if not guard and b_mode == "streng" and ctx.get("bias") == "gegen":
+                guard = (f"Gegen den Bias: Die Analyse zu Beginn der Session {SESSION_NAMES.get(bias['sess'], bias['sess'])} ist "
+                         f"{self.BIAS_WORD[bias['dir']]} ({bias['score']:+d} von {bias['max']}), deshalb kein {side.upper()}")
         cfc = self.cfg["confluence"]
         flags.append("Bestätigungen: " + (self._conf_text(cf) or "keine") + f" ({cf_n})")
         if not guard and not is_test and cfc["enabled"] and cf_n < int(cfc["min"]):
@@ -1026,6 +1046,77 @@ class Engine:
         self.db.add_signal(base)
         self.db.log(f"Vorschlag: {side.upper()} {qty}× {root} @ {price:.2f}, Stop {sl:.2f}")
         return {"ok": True, "status": "offen", "id": sid}
+
+    BIAS_WORD = {1: "bullisch", -1: "bärisch", 0: "neutral"}
+
+    def _bias_get(self, fam):
+        """Bias der laufenden Session (wird zu Session-Beginn einmal bestimmt und gilt bis zur nächsten)."""
+        now = time.time()
+        hit = self._bias.get(fam)
+        key = session_of(ny_time(now))
+        if hit:
+            info = hit["info"]
+            fresh = info and now * 1000 - (info["t"] or 0) < 12 * 3600000 and (key == "aus" or info["sess"] == key)
+            if fresh or now - hit["at"] < 120:
+                return info
+        info = None
+        try:
+            t, o, h, l, c = self._disc_series(fam, 5, since_ms=now * 1000 - 20 * 86400000)
+            if len(t) >= 300:
+                P = dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000))
+                _, info = bias_compute(o, h, l, c, P)
+                if info and now * 1000 - (info["t"] or 0) > 20 * 3600000:
+                    info = None   # veraltet: seit der letzten Analyse kamen keine Kerzen mehr
+        except Exception as e:  # noqa: BLE001
+            self.db.log(f"Bias-Analyse nicht möglich: {e}", "warn")
+        old = (hit or {}).get("info")
+        self._bias[fam] = {"at": now, "info": info}
+        if info and (not old or (old["sess"], old["t"]) != (info["sess"], info["t"])) and now * 1000 - info["t"] < 30 * 60000 \
+                and self.cfg["bias"]["mode"] != "aus":
+            why = " ".join(x["text"] for x in info["parts"] if x["v"] == info["dir"] and info["dir"]) or "Die Bausteine widersprechen sich."
+            txt = (f"Bias {fam} zur Session {SESSION_NAMES.get(info['sess'], info['sess'])}: {self.BIAS_WORD[info['dir']]} "
+                   f"({info['score']:+d} von {info['max']}). {why}")
+            self.db.log(txt)
+            self.notify("daily", f"Bias {fam}: {self.BIAS_WORD[info['dir']]}", txt, "info")
+        return info
+
+    def _bias_stats(self, fam):
+        """Wie oft lief der Kurs bis zum Session-Ende in Bias-Richtung? (letzte 150 Tage, einmal am Tag gerechnet)"""
+        day = str(ny_time().date())
+        hit = self._bias_st.get(fam)
+        if hit and hit[0] == day:
+            return hit[1]
+        out = {}
+        try:
+            t, o, h, l, c = self._disc_series(fam, 5, since_ms=time.time() * 1000 - 150 * 86400000)
+            if len(t) >= 2000:
+                P = dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000))
+                B, _ = bias_compute(o, h, l, c, P)
+                hm, prev, start, res = P["hm"], None, None, {}
+                for i in range(len(c)):
+                    s_ = bs_sess(hm[i])
+                    if s_ != prev:
+                        if prev and start is not None and B[start]:
+                            res.setdefault(prev, []).append((c[i - 1] - o[start]) * B[start] > 0)
+                        start = i if s_ else None
+                    prev = s_
+                out = {k: {"n": len(v), "hit": round(sum(v) / len(v) * 100, 1)} for k, v in res.items() if v}
+                allv = [x for v in res.values() for x in v]
+                if allv:
+                    out["alle"] = {"n": len(allv), "hit": round(sum(allv) / len(allv) * 100, 1)}
+        except Exception:  # noqa: BLE001
+            out = {}
+        self._bias_st[fam] = (day, out)
+        return out
+
+    def bias_view(self):
+        fams = sorted(set(self.last_bar) | {"NQ"} if self.last_bar else {r["fam"] for r in self.db.rows("SELECT DISTINCT fam FROM bars1")})
+        out = {}
+        for fam in fams:
+            info = self._bias_get(fam)
+            if info:
+                out[fam] = dict(info, word=self.BIAS_WORD[info["dir"]], sess_name=SESSION_NAMES.get(info["sess"], info["sess"]), stats=self._bias_stats(fam))
+        return out
 
     @staticmethod
     def _conf_text(cf):
@@ -3334,7 +3425,7 @@ class Engine:
                 sess_cache[k] = session_of(ny_time(ts / 1000))
             return sess_cache[k]
         P = dc_prepare(o, h, l, c, t, lambda ms: ny_time(ms / 1000))
-        return {"P": P, "F": cf_compute(o, h, l, c, P, tf_min), "entry": self._disc_entry_fn(t, tf_min * 60000, chart_ms), "sess_of": sess_of,
+        return {"P": P, "F": cf_compute(o, h, l, c, P, tf_min), "B": bias_compute(o, h, l, c, P)[0] if self.cfg["bias"]["mode"] == "streng" else None, "entry": self._disc_entry_fn(t, tf_min * 60000, chart_ms), "sess_of": sess_of,
                 "cost": lambda entry, risk: self._cost_r(fam, entry, risk), "min_stop": float(self.cfg["safe_stop"][fam]["min"]),
                 "tick": INSTR[fam]["tick"], "hold": 60 if tf_min == 1 else 36}
 
@@ -3343,6 +3434,8 @@ class Engine:
         sigs = dc_detect(it["det"], it["n"], it["k"], o, h, l, c, ctx["P"], ctx["tick"])
         tr = dc_simulate(sigs, o, h, l, c, t, it["tf"] * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"],
                          F=ctx["F"], own=CF_BIT.get(DC_OWN.get(it["det"]), 0))
+        if ctx.get("B"):
+            tr = [x for x in tr if ctx["B"][x["e"]] * x["d"] >= 0]
         return dc_evaluate(tr, ctx["sess_of"], DC_TPS.index(it["tp"]), it["d"], it["sess"],
                            need=cf_mask(it.get("req") or ()), hm=ctx["P"].get("hm"))
 
@@ -3384,6 +3477,8 @@ class Engine:
                             sigs = dc_detect(det, n, k, o, h, l, c, ctx["P"], ctx["tick"])
                             trs = dc_simulate(sigs, o, h, l, c, t, tf * 60000, ctx["entry"], ctx["cost"], ctx["min_stop"], ctx["hold"],
                                               F=ctx["F"], own=own)
+                            if ctx.get("B"):
+                                trs = [x for x in trs if ctx["B"][x["e"]] * x["d"] >= 0]
                             if len(trs) < 40:
                                 continue
                             for d in (1, -1):
@@ -3748,7 +3843,7 @@ class Engine:
     @staticmethod
     def _reason_cat(reason):
         r = reason or ""
-        for key, label in (("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
+        for key, label in (("Gegen den Bias", "Gegen den Bias"), ("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
                            ("Regel-Finder", "Regel-Finder"), ("Fremdkapital", "Fremdkapital-Schutz"),
                            ("Session", "Außerhalb Session"), ("Tagesziel", "Tages-Stopp"), ("Tagesverlust", "Tages-Stopp"),
                            ("Trades pro Tag", "Max. Trades"), ("offener Positionen", "Max. Positionen"),
@@ -4292,6 +4387,7 @@ class Engine:
                 "summary": self.summary(),
                 "timeline": self.timeline(),
                 "health": self.health(),
+                "bias": self.bias_view() if self.cfg["bias"]["mode"] != "aus" else {},
                 "confluence": {"now": self.confluence_now(), "factors": {k: {"name": v["name"], "short": v["short"], "text": v["text"]} for k, v in CF_FACTORS.items()}},
                 "news_next": next(({"title": e["title"], "ts": e["ts"], "start": e["start"], "end": e["end"]}
                                    for e in self.news_window() if not e["active"]), None),

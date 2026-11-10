@@ -347,6 +347,116 @@ def cf_compute(o, h, l, c, P, tf):
     return FL, FS
 
 
+# ───────── Bias: zu Beginn jeder Session wird aus fünf Bausteinen eine Tagesrichtung bestimmt ─────────
+BS_PARTS = {
+    "struktur": "Tages-Struktur",
+    "schluss": "Schluss des Vortags",
+    "trend": "Stunden-Trend",
+    "nacht": "Verlauf seit Handelsstart",
+    "woche": "Wochen-Eröffnung",
+}
+BS_SESS = (("asia", 1200, 1440), ("london", 120, 300), ("ny_am", 570, 690), ("ny_lunch", 690, 810), ("ny_pm", 810, 950))
+
+
+def bs_sess(m):
+    for k, a, b in BS_SESS:
+        if a <= m < b:
+            return k
+    return None
+
+
+def bias_compute(o, h, l, c, P):
+    """Bias je Kerze (+1 bullisch, −1 bärisch, 0 neutral), festgelegt zu Beginn jeder Session und bis zur nächsten gültig.
+    Rückgabe: (Liste, Einzelheiten der letzten Analyse). Nutzt nur Kerzen, die zum Session-Beginn schon fertig waren."""
+    import datetime as _dt
+    N = len(c)
+    B = [0] * N
+    hm, day, t = P.get("hm"), P.get("day"), P.get("t")
+    if not hm or N < 2:
+        return B, None
+    d1 = d2 = None                 # letzter und vorletzter fertiger Handelstag: (hoch, tief, schluss)
+    cur_day, dh, dl = None, None, None
+    wk_open = None
+    sw_lo = sw_hi = False          # seit Handelsstart unter das Vortagestief / über das Vortageshoch gelaufen
+    ema, a_h, eh, last_hour = None, 2.0 / 49, [], None
+    prev_sess, cur, info = None, 0, None
+    for i in range(N):
+        if day[i] != cur_day:
+            if cur_day is not None:
+                d2, d1 = d1, (dh, dl, c[i - 1])
+            cur_day, dh, dl = day[i], h[i], l[i]
+            sw_lo = sw_hi = False
+            if _dt.date.fromordinal(day[i]).weekday() == 0 or wk_open is None:
+                wk_open = o[i]
+        else:
+            if h[i] > dh:
+                dh = h[i]
+            if l[i] < dl:
+                dl = l[i]
+        hour = (day[i], hm[i] // 60)
+        if hour != last_hour:
+            if i:
+                ema = c[i - 1] if ema is None else ema + a_h * (c[i - 1] - ema)
+                eh.append(ema)
+            last_hour = hour
+        sess = bs_sess(hm[i])
+        if sess and sess != prev_sess and d1:
+            px = o[i]
+            parts = []
+
+            def part(key, v, text):
+                parts.append({"k": key, "name": BS_PARTS[key], "v": v, "text": text})
+            if d2:
+                if d1[2] > d2[0]:
+                    part("struktur", 1, "Der Vortag hat über dem Hoch des Tages davor geschlossen: Käufer haben die Kontrolle.")
+                elif d1[2] < d2[1]:
+                    part("struktur", -1, "Der Vortag hat unter dem Tief des Tages davor geschlossen: Verkäufer haben die Kontrolle.")
+                elif d1[0] > d2[0] and d1[1] >= d2[1]:
+                    part("struktur", -1, "Der Vortag hat das Hoch des Tages davor nur kurz überschritten und darunter geschlossen: Ausbruch gescheitert.")
+                elif d1[1] < d2[1] and d1[0] <= d2[0]:
+                    part("struktur", 1, "Der Vortag hat das Tief des Tages davor nur kurz unterschritten und darüber geschlossen: Ausbruch nach unten gescheitert.")
+                else:
+                    part("struktur", 0, "Der Vortag blieb innerhalb der Spanne des Tages davor oder hat beide Seiten geholt: keine klare Richtung.")
+            rng = d1[0] - d1[1]
+            pos = (d1[2] - d1[1]) / rng if rng > 0 else 0.5
+            part("schluss", 1 if pos >= 0.67 else -1 if pos <= 0.33 else 0,
+                 f"Der Vortag hat im {'oberen' if pos >= 0.67 else 'unteren' if pos <= 0.33 else 'mittleren'} Drittel seiner Spanne geschlossen.")
+            if len(eh) >= 12:
+                back = eh[-7] if len(eh) >= 7 else eh[0]
+                if px > ema > back:
+                    part("trend", 1, "Der Kurs liegt über dem steigenden 48-Stunden-Schnitt.")
+                elif px < ema < back:
+                    part("trend", -1, "Der Kurs liegt unter dem fallenden 48-Stunden-Schnitt.")
+                else:
+                    part("trend", 0, "Der Stunden-Trend ist uneinheitlich.")
+            if sw_lo and not sw_hi and px > d1[1]:
+                part("nacht", 1, "Seit Handelsstart wurde das Vortagestief abgeholt und der Kurs ist wieder darüber: Stops unten sind raus.")
+            elif sw_hi and not sw_lo and px < d1[0]:
+                part("nacht", -1, "Seit Handelsstart wurde das Vortageshoch abgeholt und der Kurs ist wieder darunter: Stops oben sind raus.")
+            elif px > d1[0]:
+                part("nacht", 1, "Der Kurs hält sich über dem Vortageshoch.")
+            elif px < d1[1]:
+                part("nacht", -1, "Der Kurs hält sich unter dem Vortagestief.")
+            else:
+                part("nacht", 0, "Der Kurs liegt innerhalb der Vortagesspanne, ohne dass eine Seite abgeholt wurde." if not (sw_lo or sw_hi)
+                     else "Seit Handelsstart wurden beide Seiten der Vortagesspanne angelaufen.")
+            if wk_open is not None:
+                part("woche", 1 if px > wk_open else -1 if px < wk_open else 0,
+                     f"Der Kurs liegt {'über' if px > wk_open else 'unter' if px < wk_open else 'auf'} der Wochen-Eröffnung.")
+            score = sum(x["v"] for x in parts)
+            cur = 1 if score >= 2 else -1 if score <= -2 else 0
+            info = {"dir": cur, "score": score, "max": len(parts), "parts": parts, "sess": sess, "t": t[i] if t else None, "px": px,
+                    "levels": {"pdh": d1[0], "pdl": d1[1], "pdc": d1[2], "wo": wk_open}}
+        prev_sess = sess
+        if d1:
+            if l[i] < d1[1]:
+                sw_lo = True
+            if h[i] > d1[0]:
+                sw_hi = True
+        B[i] = cur
+    return B, info
+
+
 DC_TPS = (1.0, 1.5, 2.0, 3.0)
 DC_SESS_SHORT = {"asia": "Asien", "london": "London", "ny_am": "NY-Vorm.", "ny_lunch": "NY-Mittag", "ny_pm": "NY-Nachm.",
               "aus": "Randzeiten", "alle": "ganztags", "sb": "SB-Fenster"}
