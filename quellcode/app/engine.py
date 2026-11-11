@@ -1028,7 +1028,7 @@ class Engine:
                          f"es fehl{'t' if int(cfc['min']) - cf_n == 1 else 'en'} noch {int(cfc['min']) - cf_n} (möglich: {', '.join(miss)})")
         if not guard and not is_test:
             guard = self.rule_block(base["setup"], ctx)
-        guard = guard or self._dup_block(fam, side) or self._guards(fam, base.get("risk_usd"))
+        guard = guard or self._dup_block(fam, side, base["setup"], price, sl, base.get("bar_time")) or self._guards(fam, base.get("risk_usd"))
         if guard:
             base.update(status="blockiert", reason=guard)
             self.db.add_signal(base)
@@ -1319,16 +1319,27 @@ class Engine:
         e = act[0]
         return f"News-Pause: {e['title']} um {ny_time(e['ts'] / 1000).strftime('%H:%M')} NY (bis {ny_time(e['end']).strftime('%H:%M')})"
 
-    def _dup_block(self, fam, side):
-        """Nicht denselben Trade zweimal: je Markt (NQ, ES) höchstens eine offene Position."""
+    def _dup_block(self, fam, side, setup=None, entry=None, sl=None, bar_time=None):
+        """Nicht denselben Trade zweimal. Mehrere Trades in dieselbe Richtung sind erlaubt, solange es wirklich
+        ein anderer Trade ist: andere Strategie, andere Signal-Kerze und ein deutlich anderer Einstieg."""
         for p in self.db.open_positions():
             if family(p["root"]) != fam:
                 continue
-            if p["side"] == side:
-                return (f"Schon eine Position im Markt: In {fam} läuft bereits ein {side.upper()}-Trade ({p['setup']}), "
-                        "derselbe Trade wird nicht doppelt genommen")
-            return (f"Schon eine Position im Markt: In {fam} läuft ein {p['side'].upper()}-Trade ({p['setup']}). "
-                    "Long und Short gleichzeitig im selben Markt heben sich nur auf")
+            if p["side"] != side:
+                return (f"Schon eine Position im Markt: In {fam} läuft ein {p['side'].upper()}-Trade ({p['setup']}). "
+                        "Long und Short gleichzeitig im selben Markt heben sich nur auf")
+            why = None
+            if setup and p["setup"] == setup:
+                why = f"die Strategie {setup} hat dort schon einen offenen Trade"
+            elif bar_time and p.get("bar_time") and abs(p["bar_time"] - bar_time) < 1000:
+                why = f"von derselben Signal-Kerze läuft schon ein Trade ({p['setup']})"
+            elif entry is not None and sl is not None and p.get("entry") is not None:
+                near = 0.5 * max(abs(entry - sl), abs(p["entry"] - (p.get("initial_sl") or p.get("sl") or p["entry"])))
+                if abs(entry - p["entry"]) < near:
+                    why = (f"der Einstieg liegt nur {abs(entry - p['entry']):.2f} Punkte neben dem offenen Trade ({p['setup']}), "
+                           f"das wäre derselbe Trade noch einmal")
+            if why:
+                return f"Doppelter Trade in {fam} {side.upper()}: {why}"
         return None
 
     def _guards(self, fam, risk=None):
@@ -1368,7 +1379,7 @@ class Engine:
         price = (self.last_bar.get(fam) or {}).get("close") if sig["status"] == "offen" else None
         price = price or sig["entry"]
         long_ = sig["side"] == "long"
-        dup = self._dup_block(fam, sig["side"])
+        dup = self._dup_block(fam, sig["side"], sig["setup"], price, sig["sl"], sig.get("bar_time"))
         if dup:   # z. B. Vorschlag bestätigt, während schon ein gleicher Trade läuft
             self.db.update_signal(sig["id"], status="blockiert", reason=dup)
             return {"ok": False, "status": "blockiert", "reason": dup}
@@ -3883,7 +3894,7 @@ class Engine:
     @staticmethod
     def _reason_cat(reason):
         r = reason or ""
-        for key, label in (("Schon eine Position im Markt", "Schon im Markt"), ("Gegen den Bias", "Gegen den Bias"), ("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
+        for key, label in (("Doppelter Trade", "Doppelter Trade"), ("Schon eine Position im Markt", "Gegenrichtung offen"), ("Gegen den Bias", "Gegen den Bias"), ("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
                            ("Regel-Finder", "Regel-Finder"), ("Fremdkapital", "Fremdkapital-Schutz"),
                            ("Session", "Außerhalb Session"), ("Tagesziel", "Tages-Stopp"), ("Tagesverlust", "Tages-Stopp"),
                            ("Trades pro Tag", "Max. Trades"), ("offener Positionen", "Max. Positionen"),

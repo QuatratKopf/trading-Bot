@@ -1,6 +1,6 @@
 {
-  "version": "3.2.2",
-  "file": "releases/FVG-Trader-3.2.2.cmd",
-  "sha256": "674d1bf05db6a3af6c62001e933427b7518ae3cec63135a04d2eabb1fdbf4001",
-  "notes": "Kein doppelter Trade mehr: je Markt (NQ, ES) ist immer nur eine Position offen, auch wenn mehrere Positionen gleichzeitig erlaubt sind."
+  "version": "3.2.3",
+  "file": "releases/FVG-Trader-3.2.3.cmd",
+  "sha256": "9af708eb74a7286addd08c2dc17972947b5325f92944110b13d3e15a452f3c0c",
+  "notes": "Mehrere Trades in dieselbe Richtung sind wieder möglich, nur derselbe Trade wird nicht doppelt genommen (gleiche Strategie, gleiche Signal-Kerze oder fast gleicher Einstieg)."
 }

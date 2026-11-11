@@ -3705,7 +3705,7 @@ function settings() {
     ${field("rr", "Standard-Ziel (R)", ss.default_rr, {attrs: {step: 0.25, min: 0.5}, help: "Wenn das Signal kein Ziel mitschickt"})}
     ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "Danach nimmt der Bot heute keine neuen Trades mehr. 0 = aus"})}
     ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}
-    ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}, help: "So viele Trades dürfen gleichzeitig offen sein, aber je Markt (NQ, ES) immer nur einer. Das Risiko der Positionen addiert sich."})}
+    ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}, help: "So viele Trades dürfen gleichzeitig offen sein, auch mehrere in dieselbe Richtung. Derselbe Trade wird nie doppelt genommen. Das Risiko der Positionen addiert sich."})}
     <span class="lbl">Tages-Stopp</span>
     ${field("dps", "Tagesziel ($)", r.daily_profit_stop || 0, {attrs: {min: 0, step: 50}, help: "Ist der Tag so weit im Plus, nimmt der Bot heute keine neuen Trades mehr – schützt gute Tage. 0 = aus"})}
     ${field("dsc", "Beim Tages-Stopp offene Positionen schließen", r.daily_stop_close, {check: true, help: "Gilt für Tagesziel und Tagesverlust-Limit (beide zählen offene Positionen mit)"})}
