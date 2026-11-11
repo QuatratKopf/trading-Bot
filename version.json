@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
-  "file": "releases/FVG-Trader-3.2.0.cmd",
-  "sha256": "915019dedb4b43401ce2f0f06fd86113e0765d9cb2f5b81242544ab5777d3df9",
-  "notes": "Bias-Analyse: Zu Beginn jeder Session bestimmt der Bot aus fünf Bausteinen die Tagesrichtung und handelt nur noch in diese Richtung (einstellbar unter Bias & Bestätigungen)."
+  "version": "3.2.1",
+  "file": "releases/FVG-Trader-3.2.1.cmd",
+  "sha256": "84cb5fd80de5d6c37bbcfeff4a3a2ea87533ecc9dc0dd8ea59fe0ac40a769166",
+  "notes": "Kalender leeren (alles vor heute ausblenden, nichts wird gelöscht) und „Max. gleichzeitige Positionen“ jetzt unter Risiko & Schutz."
 }

@@ -2984,8 +2984,10 @@ function calendar() {
       <span class="meta">${wkDays ? `${wkDays} ${wkDays === 1 ? "Tag" : "Tage"} · ${wk.n} Trades` : "kein Handel"}</span></div>`;
   }
   const wr = mDays.length ? wins.length / mDays.length : 0;
+  const cutD = S.config.calendar_from;
   $("#main").innerHTML = `
     <section class="section">
+      ${cutD ? `<p class="hint" style="margin:0 0 10px">Der Kalender zeigt Trades ab dem ${new Date(cutD + "T12:00:00").toLocaleDateString("de-DE")}. Ältere sind ausgeblendet. <button class="lnk" id="calAll" type="button">Wieder alles anzeigen</button></p>` : ""}
       <div class="cal-top">
         <div class="cal-mon"><h2>${MONTHS[CAL.m]}<small>${CAL.y}</small></h2>
           <button class="ibtn" id="calPrev" aria-label="Vorheriger Monat">${icon(IC_L)}</button><button class="ibtn" id="calNext" aria-label="Nächster Monat">${icon(IC_R)}</button>
@@ -2993,6 +2995,7 @@ function calendar() {
         <div class="cal-act">
           <div class="seg" role="group" aria-label="Trades filtern">${[["alle", "Alle"], ["bot", "Bot"], ["eigen", "Eigene"]].map(([k, l]) => `<button type="button" data-f="${k}" aria-pressed="${CAL.filter === k}">${l}</button>`).join("")}</div>
           <label class="btn" style="cursor:pointer">Importieren<input type="file" id="ownCsv" accept=".csv,.txt" hidden></label>
+          <button class="btn" id="calClr" title="Alle Tage vor heute ausblenden">Leeren</button>
           <button class="btn primary" id="ownAdd">+ Trade eintragen</button>
         </div>
       </div>
@@ -3013,6 +3016,8 @@ function calendar() {
   const go = dm => { CAL.m += dm; if (CAL.m < 0) { CAL.m = 11; CAL.y--; } if (CAL.m > 11) { CAL.m = 0; CAL.y++; } calendar(); };
   $("#calPrev").onclick = () => go(-1); $("#calNext").onclick = () => go(1);
   $("#calToday").onclick = () => { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); calendar(); };
+  $("#calClr").onclick = calClearDialog;
+  if ($("#calAll")) $("#calAll").onclick = async () => { try { await api("/api/calendar/clear", {restore: true}); toast("Kalender zeigt wieder alle Trades"); await refresh(); } catch (e) { toast(e.message); } };
   document.querySelectorAll(".seg [data-f]").forEach(b => b.onclick = () => { CAL.filter = b.dataset.f; try { localStorage.setItem("fvg-cal-filter", CAL.filter); } catch (e) {}
     calendar(); if (CAL.sel && $("#dayDrw")) drawDay(); });
   document.querySelectorAll(".cal button.day").forEach(b => b.onclick = () => openDay(b.dataset.day));
@@ -3129,6 +3134,22 @@ function modal(html) {
   $("#mdl").addEventListener("click", e => { if (e.target.id === "mdl") close(); });
   document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
   return close;
+}
+function calClearDialog() {
+  const cut = S.config.calendar_from;
+  const close = modal(`<h2 style="font-size:18px">Kalender leeren</h2>
+    <p style="margin:10px 0 0;line-height:1.6">Alle Tage <b>vor heute</b> werden aus Kalender, Statistik und Cockpit ausgeblendet. Heute bleibt stehen.</p>
+    <ul class="hint" style="margin:10px 0 0;padding-left:18px;line-height:1.7">
+      <li>Es wird nichts gelöscht. Die Trades bleiben gespeichert und lassen sich jederzeit wieder einblenden.</li>
+      <li>Der Kontostand bleibt, wie er ist.</li>
+      <li>Die Fremdkapital-Übersicht rechnet danach ebenfalls nur noch mit den Trades ab heute.</li></ul>
+    <div class="actions" style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      ${cut ? '<button class="btn" id="ccAll">Wieder alles anzeigen</button>' : ""}<button class="btn" id="ccNo">Abbrechen</button><button class="btn primary" id="ccYes">Alles vor heute ausblenden</button></div>`);
+  $("#ccNo").onclick = close;
+  const run = async restore => { try { const r = await api("/api/calendar/clear", {restore}); close();
+    toast(restore ? "Kalender zeigt wieder alle Trades" : `Kalender geleert: ${r.hidden} ältere Trades ausgeblendet`); await refresh(); } catch (e) { toast(e.message); } };
+  $("#ccYes").onclick = () => run(false);
+  if ($("#ccAll")) $("#ccAll").onclick = () => run(true);
 }
 function ownTradeDialog(day) {
   const close = modal(`<h2 style="font-size:18px">Eigenen Trade eintragen</h2>
@@ -3628,7 +3649,7 @@ function settings() {
   const sizeSum = (sz.mode === "fixed" ? `${sz.fixed_qty} Kontrakt${sz.fixed_qty == 1 ? "" : "e"} pro Trade` : sz.mode === "risk_usd" ? `${usd(sz.risk_usd)} Risiko pro Trade` : `${sz.risk_pct} % Risiko pro Trade`)
     + ` · ${{auto: "Mini oder Micro", mini: "nur Mini", micro: "nur Micro"}[sz.contract_type] || ""} · max. ${sz.max_qty}`;
   const cfg0 = c.confluence || {enabled: true, min: 3, use: {}};
-  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}`;
+  const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}${r.max_open > 1 ? ` · bis zu ${r.max_open} Positionen gleichzeitig` : ""}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
   const accChip = t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
   $("#main").innerHTML = `<div class="settings-wrap">
@@ -3684,6 +3705,7 @@ function settings() {
     ${field("rr", "Standard-Ziel (R)", ss.default_rr, {attrs: {step: 0.25, min: 0.5}, help: "Wenn das Signal kein Ziel mitschickt"})}
     ${field("mdl", "Tagesverlust-Limit ($)", r.max_daily_loss, {attrs: {min: 0, step: 50}, help: "Danach nimmt der Bot heute keine neuen Trades mehr. 0 = aus"})}
     ${field("mtd", "Max. Trades pro Tag", r.max_trades_day, {attrs: {min: 1, step: 1}})}
+    ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}, help: "So viele Trades dürfen gleichzeitig offen sein. Das Risiko der Positionen addiert sich."})}
     <span class="lbl">Tages-Stopp</span>
     ${field("dps", "Tagesziel ($)", r.daily_profit_stop || 0, {attrs: {min: 0, step: 50}, help: "Ist der Tag so weit im Plus, nimmt der Bot heute keine neuen Trades mehr – schützt gute Tage. 0 = aus"})}
     ${field("dsc", "Beim Tages-Stopp offene Positionen schließen", r.daily_stop_close, {check: true, help: "Gilt für Tagesziel und Tagesverlust-Limit (beide zählen offene Positionen mit)"})}
@@ -3765,8 +3787,6 @@ function settings() {
     ${field("nqmax", "NQ Maximum", ss.NQ.max, {attrs: {step: 0.25, min: 1}})}
     ${field("esmin", "ES Minimum", ss.ES.min, {attrs: {step: 0.25, min: 0.25}})}
     ${field("esmax", "ES Maximum", ss.ES.max, {attrs: {step: 0.25, min: 0.5}})}
-    <span class="lbl">Bot-Verhalten</span>
-    ${field("mo", "Max. gleichzeitige Positionen", r.max_open, {attrs: {min: 1, step: 1}})}
     <span class="lbl">Lernmodul</span>
     ${field("lw", "Auswerten über letzte Trades", L.window, {attrs: {min: 5, max: 500, step: 1}})}
     ${field("lm", "Mindest-Trades vor Bewertung", L.min_trades, {attrs: {min: 3, step: 1}})}

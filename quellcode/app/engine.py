@@ -135,6 +135,7 @@ DEFAULT_CONFIG = {
     "learn_epoch": 0,          # Zeitpunkt des letzten Zurücksetzens des Lernstands
     # Bias: Tagesrichtung, zu Beginn jeder Session neu bestimmt. streng = nicht gegen den Bias handeln, hinweis = nur anzeigen
     "bias": {"mode": "streng"},
+    "calendar_from": "",       # Kalender/Statistik zeigen Trades erst ab diesem Handelstag (JJJJ-MM-TT); leer = alle
     "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
@@ -2010,7 +2011,7 @@ class Engine:
     # ───────── Statistik & Zustand ─────────
     def stats(self, include_tests=False):
         trades = [p for p in self.db.closed_positions()
-                  if p["broker"] == self.broker.name and (include_tests or not p["is_test"])]
+                  if p["broker"] == self.broker.name and (include_tests or not p["is_test"]) and self._shown(p)]
         wins = [t for t in trades if t["pnl"] > 0]
         losses = [t for t in trades if t["pnl"] <= 0]
         gp = sum(t["pnl"] for t in wins)
@@ -2348,9 +2349,32 @@ class Engine:
                 "setups": {s: len(v) for s, v in by.items()}, "min_scope": min_scope, "active": active}
 
     # ───────── Kalender: Bot-Trades + eigene Trades ─────────
+    def _shown(self, p):
+        """Zählt der Trade für Kalender und Statistik? (ältere können ausgeblendet sein – sie bleiben gespeichert)"""
+        cut = self.cfg.get("calendar_from") or ""
+        return not cut or (p.get("trade_day") or str(ny_date(p["closed"]))) >= cut
+
+    def calendar_clear(self, restore=False):
+        """Kalender leeren: alle Tage vor heute ausblenden (nichts wird gelöscht). restore=True zeigt wieder alles."""
+        with self.lock:
+            if restore:
+                self.cfg["calendar_from"] = ""
+                self._write_cfg(self.cfg)
+                self.db.log("Kalender zeigt wieder alle Trades")
+                return {"ok": True, "from": "", "hidden": 0}
+            today = str(ny_date())
+            hidden = [p for p in self.db.closed_positions() if (p.get("trade_day") or str(ny_date(p["closed"]))) < today]
+            self.cfg["calendar_from"] = today
+            self._write_cfg(self.cfg)
+            self.db.log(f"Kalender geleert: {len(hidden)} Trades an {len({p.get('trade_day') or str(ny_date(p['closed'])) for p in hidden})} "
+                        f"Tagen vor dem {today} ausgeblendet (bleiben gespeichert, Kontostand unverändert)")
+            return {"ok": True, "from": today, "hidden": len(hidden)}
+
     def _calendar_trades(self, include_tests=False):
         out = []
         for t in self.db.closed_positions():
+            if not self._shown(t):
+                continue
             if t["broker"] == "eigen":
                 t["source"] = "eigen"
             elif t["broker"] == self.broker.name and (include_tests or not t["is_test"]):
@@ -3855,7 +3879,7 @@ class Engine:
     def _bot_closed(self, since=0, until=None):
         until = until or time.time() + 1
         return [p for p in self.db.closed_positions()
-                if p["broker"] == self.broker.name and not p["is_test"] and since <= (p["closed"] or 0) < until]
+                if p["broker"] == self.broker.name and not p["is_test"] and since <= (p["closed"] or 0) < until and self._shown(p)]
 
     def daystop(self):
         """Tages-Stopp: Tagesziel oder Tagesverlust erreicht → heute keine neuen Trades."""

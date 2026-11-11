@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.2.0 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.2.1 "Notiz"`) |
 
 ## Funktionen
 
