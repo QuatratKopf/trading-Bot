@@ -1,6 +1,6 @@
 {
-  "version": "3.2.1",
-  "file": "releases/FVG-Trader-3.2.1.cmd",
-  "sha256": "84cb5fd80de5d6c37bbcfeff4a3a2ea87533ecc9dc0dd8ea59fe0ac40a769166",
-  "notes": "Kalender leeren (alles vor heute ausblenden, nichts wird gelöscht) und „Max. gleichzeitige Positionen“ jetzt unter Risiko & Schutz."
+  "version": "3.2.2",
+  "file": "releases/FVG-Trader-3.2.2.cmd",
+  "sha256": "674d1bf05db6a3af6c62001e933427b7518ae3cec63135a04d2eabb1fdbf4001",
+  "notes": "Kein doppelter Trade mehr: je Markt (NQ, ES) ist immer nur eine Position offen, auch wenn mehrere Positionen gleichzeitig erlaubt sind."
 }

@@ -1028,7 +1028,7 @@ class Engine:
                          f"es fehl{'t' if int(cfc['min']) - cf_n == 1 else 'en'} noch {int(cfc['min']) - cf_n} (möglich: {', '.join(miss)})")
         if not guard and not is_test:
             guard = self.rule_block(base["setup"], ctx)
-        guard = guard or self._guards(fam, base.get("risk_usd"))
+        guard = guard or self._dup_block(fam, side) or self._guards(fam, base.get("risk_usd"))
         if guard:
             base.update(status="blockiert", reason=guard)
             self.db.add_signal(base)
@@ -1319,6 +1319,18 @@ class Engine:
         e = act[0]
         return f"News-Pause: {e['title']} um {ny_time(e['ts'] / 1000).strftime('%H:%M')} NY (bis {ny_time(e['end']).strftime('%H:%M')})"
 
+    def _dup_block(self, fam, side):
+        """Nicht denselben Trade zweimal: je Markt (NQ, ES) höchstens eine offene Position."""
+        for p in self.db.open_positions():
+            if family(p["root"]) != fam:
+                continue
+            if p["side"] == side:
+                return (f"Schon eine Position im Markt: In {fam} läuft bereits ein {side.upper()}-Trade ({p['setup']}), "
+                        "derselbe Trade wird nicht doppelt genommen")
+            return (f"Schon eine Position im Markt: In {fam} läuft ein {p['side'].upper()}-Trade ({p['setup']}). "
+                    "Long und Short gleichzeitig im selben Markt heben sich nur auf")
+        return None
+
     def _guards(self, fam, risk=None):
         r = self.cfg["risk"]
         if self.cfg["paused"]:
@@ -1356,6 +1368,10 @@ class Engine:
         price = (self.last_bar.get(fam) or {}).get("close") if sig["status"] == "offen" else None
         price = price or sig["entry"]
         long_ = sig["side"] == "long"
+        dup = self._dup_block(fam, sig["side"])
+        if dup:   # z. B. Vorschlag bestätigt, während schon ein gleicher Trade läuft
+            self.db.update_signal(sig["id"], status="blockiert", reason=dup)
+            return {"ok": False, "status": "blockiert", "reason": dup}
         if (long_ and price <= sig["sl"]) or (not long_ and price >= sig["sl"]):
             self.db.update_signal(sig["id"], status="verfallen", reason="Kurs hat den Stop bereits erreicht")
             return {"ok": False, "status": "verfallen", "reason": "Kurs hat den Stop bereits erreicht"}
@@ -3867,7 +3883,7 @@ class Engine:
     @staticmethod
     def _reason_cat(reason):
         r = reason or ""
-        for key, label in (("Gegen den Bias", "Gegen den Bias"), ("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
+        for key, label in (("Schon eine Position im Markt", "Schon im Markt"), ("Gegen den Bias", "Gegen den Bias"), ("Bestätigung", "Zu wenig Bestätigungen"), ("News", "News-Pause"), ("Lernmodul", "Lernmodul-Pause"), ("ausgeschaltet", "Strategie aus"),
                            ("Regel-Finder", "Regel-Finder"), ("Fremdkapital", "Fremdkapital-Schutz"),
                            ("Session", "Außerhalb Session"), ("Tagesziel", "Tages-Stopp"), ("Tagesverlust", "Tages-Stopp"),
                            ("Trades pro Tag", "Max. Trades"), ("offener Positionen", "Max. Positionen"),
