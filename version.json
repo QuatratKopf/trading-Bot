@@ -1,6 +1,6 @@
 {
-  "version": "3.2.3",
-  "file": "releases/FVG-Trader-3.2.3.cmd",
-  "sha256": "9af708eb74a7286addd08c2dc17972947b5325f92944110b13d3e15a452f3c0c",
-  "notes": "Mehrere Trades in dieselbe Richtung sind wieder möglich, nur derselbe Trade wird nicht doppelt genommen (gleiche Strategie, gleiche Signal-Kerze oder fast gleicher Einstieg)."
+  "version": "3.2.4",
+  "file": "releases/FVG-Trader-3.2.4.cmd",
+  "sha256": "4ed649f536a603659dc2083d0027dbff6f27ff457ab3ce7afd1b7443ee14f53b",
+  "notes": "Doppelt ankommende Signale und Kerzen aus TradingView werden nur noch einmal verarbeitet. Bereits doppelt erfasste Signale werden einmalig aufgeräumt. Der Gesundheits-Check meldet, wenn zwei Alarme aktiv sind."
 }

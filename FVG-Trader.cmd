@@ -1936,6 +1936,7 @@ class Engine:
         self._ratr_cache, self._smart_pos_cache = {}, {}
         self._conf_cache, self._conf_now, self._late, self.script_v = {}, {}, [], {}
         self._bias, self._bias_st = {}, {}
+        self._seen_sig, self._seen_bar, self._dups = {}, {}, {}
         self.disc, self.disc_state, self._disc_sent, self.last_bundle = None, {"busy": False}, set(), 1
         self.last_bar = {}            # Familie (NQ/ES) -> Bar
         self.chart_tf = {}            # Familie -> Kerzenlänge des TradingView-Charts in ms
@@ -1961,6 +1962,10 @@ class Engine:
                     self._write_cfg(self.cfg)
             except Exception as e:  # noqa: BLE001
                 self.db.log(f"Lernstand konnte nicht zurückgesetzt werden: {e}", "error")
+        try:
+            self._dedupe_history()
+        except Exception as e:  # noqa: BLE001
+            self.db.log(f"Doppelte Einträge konnten nicht aufgeräumt werden: {e}", "warn")
         threading.Thread(target=self._loop, daemon=True).start()
         _t = threading.Timer(180, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
         if time.time() - (self.disc.get("last_run") or 0) > 20 * 3600:
@@ -2202,6 +2207,12 @@ class Engine:
             raise ValueError("Bar-Nachricht unvollständig")
         bar["ts"] = time.time()
         bar["time"] = self._num(p.get("time"))
+        if bar["time"]:
+            bk = (fam, bar["time"], bar["close"], len(p.get("m1") or []), len(p.get("bars") or []))
+            if bk == self._seen_bar.get(fam) and bar["ts"] - self._seen_bar.get((fam, "ts"), 0) < 120:
+                self._dup_note("Eine Kerze")
+                return {"ok": True, "type": "bar", "status": "doppelt"}
+            self._seen_bar[fam], self._seen_bar[(fam, "ts")] = bk, bar["ts"]
         tf = self._num(p.get("tf"))
         if tf and tf > 0:
             self.chart_tf[fam] = tf
@@ -2411,6 +2422,48 @@ class Engine:
         return {"ok": True, "closed": n}
 
     # ───────── Einstieg ─────────
+    def _dedupe_history(self):
+        """Einmalig: Signale, die doppelt ankamen und doppelt erfasst wurden, auf einen Eintrag zusammenführen
+        (samt Schatten-Trades, damit das Lernmodul nicht jedes Signal zweimal zählt). Echte Trades bleiben unberührt."""
+        if int(self.cfg.get("dedupe_gen") or 0) >= 1:
+            return
+        rows = self.db.rows("SELECT id, ts, root, side, setup, bar_time, entry, sl, status FROM signals WHERE is_test=0 ORDER BY ts")
+        best, drop = {}, []
+        rank = {"ausgeführt": 0, "wird ausgeführt": 0, "offen": 1}
+        for r in rows:
+            if not r["bar_time"]:
+                continue
+            key = (r["root"], r["side"], r["setup"], r["bar_time"], r["entry"], r["sl"])
+            b = best.get(key)
+            if b is None:
+                best[key] = r
+            elif abs(r["ts"] - b["ts"]) < 900:
+                keep, lose = (b, r) if rank.get(b["status"], 2) <= rank.get(r["status"], 2) else (r, b)
+                if rank.get(lose["status"], 2) == 0:
+                    continue   # beide wurden ausgeführt: nichts anfassen
+                best[key] = keep
+                drop.append(lose["id"])
+        for sid in drop:
+            for sh in self.db.rows("SELECT id FROM shadow WHERE signal_id=?", (sid,)):
+                self.db._exec("DELETE FROM variants WHERE shadow_id=?", (sh["id"],))
+            self.db._exec("DELETE FROM shadow WHERE signal_id=?", (sid,))
+            self.db._exec("DELETE FROM signals WHERE id=?", (sid,))
+        self.cfg["dedupe_gen"] = 1
+        self._write_cfg(self.cfg)
+        if drop:
+            self.db.log(f"Aufgeräumt: {len(drop)} doppelt erfasste Signale samt Schatten-Trades entfernt")
+
+    def _dup_note(self, what):
+        """Doppelt angekommene Nachrichten zählen (für den Gesundheits-Check) und einmal am Tag ins Protokoll schreiben."""
+        day = str(ny_date())
+        d = self._dups if self._dups.get("day") == day else {"day": day, "n": 0, "last": 0}
+        d["n"] += 1
+        d["last"] = time.time()
+        if d["n"] == 1:
+            self.db.log(f"{what} aus TradingView kam doppelt an und wurde nur einmal verarbeitet. Wahrscheinlich sind dort zwei Alarme "
+                        "für dieselbe Strategie aktiv – bitte den älteren löschen.", "warn")
+        self._dups = d
+
     def _bar_in(self, fam, bt):
         """Ist die Kerze mit Öffnungszeit bt schon gespeichert (als Chart-Kerze oder vollständig in 1-Minuten-Kerzen)?"""
         if ((self.db.one("SELECT MAX(t) AS t FROM bars WHERE fam=?", (fam,)) or {}).get("t") or 0) >= bt:
@@ -2438,6 +2491,15 @@ class Engine:
         side = "long" if action in ("buy", "long") else "short"
         sig_root = self._root(p.get("ticker"))
         fam = family(sig_root)
+        # Dasselbe Signal kommt doppelt an (z. B. zwei aktive Alarme in TradingView): nur einmal verarbeiten.
+        if not is_test and not p.get("_late"):
+            dk = (fam, side, str(p.get("setup") or ""), self._num(p.get("time")), self._num(p.get("price")), self._num(p.get("stopLoss")))
+            now_ = time.time()
+            self._seen_sig = {k: v for k, v in self._seen_sig.items() if now_ - v < 900}
+            if dk in self._seen_sig:
+                self._dup_note("Signal")
+                return {"ok": True, "status": "doppelt", "reason": "Dasselbe Signal kam schon an und wird nicht noch einmal verarbeitet"}
+            self._seen_sig[dk] = now_
         # Die Signal-Kerze kommt oft erst Sekunden nach dem Signal an. Für die Bestätigungen kurz darauf warten.
         bt_ = self._num(p.get("time"))
         if (not is_test and not p.get("_late") and not isinstance(p.get("_confs"), dict) and self.cfg["confluence"]["enabled"]
@@ -5612,6 +5674,10 @@ class Engine:
             ds = self.discord_state
             st = "bad" if ds.get("error") else "ok"
             items.append(("discord", "Discord", st, ds.get("error") or (f"zuletzt gesendet vor {_ago(now - ds['last'])}" if ds.get("last") else "bereit")))
+        if self._dups.get("day") == str(ny_date()) and time.time() - self._dups.get("last", 0) < 6 * 3600:
+            items.append(("dups", "Doppelte Nachrichten", "warn",
+                          f"TradingView hat heute {self._dups['n']} Nachrichten doppelt geschickt (die App hat jede nur einmal verarbeitet). "
+                          "Wahrscheinlich sind zwei Alarme für die Strategie aktiv: in TradingView unter Alarme den älteren löschen"))
         cfc = self.cfg["confluence"]
         if cfc["enabled"] and self.last_bar:
             cn = self.confluence_now()
@@ -6558,7 +6624,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.2.3"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.2.4"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
