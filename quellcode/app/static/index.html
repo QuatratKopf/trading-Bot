@@ -726,6 +726,7 @@ body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-body);letter-spa
 .ib{width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:var(--fg);display:grid;place-items:center;padding:0;position:relative;transition:background .2s,transform .2s var(--ease)}
 .ib:hover{background:var(--sunk)} .ib:active{transform:scale(.92)}
 .ib svg{width:18px;height:18px}
+.ib.sm{width:26px;height:26px;display:inline-grid;vertical-align:middle;margin-left:4px;color:var(--muted)} .ib.sm svg{width:14px;height:14px} .ib.sm:hover{color:var(--fg)}
 .ib .dot{position:absolute;top:7px;right:7px;width:7px;height:7px;box-shadow:0 0 0 2px var(--surface)}
 .prof{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 14px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow)}
 .prof .switch{border:0;background:transparent;padding:0;gap:8px}
@@ -1203,6 +1204,7 @@ const I = {
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   log: '<path d="M6 4h9l4 4v12H6z"/><path d="M15 4v4h4M9 12h7M9 16h5"/>',
   reload: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   pause: '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>',
   play: '<path d="M8 5l11 7-11 7z"/>',
   candle: '<path d="M7 4v16M17 4v16"/><rect x="5" y="8" width="4" height="7" rx="1"/><rect x="15" y="6" width="4" height="9" rx="1"/>',
@@ -1422,7 +1424,7 @@ function heroHtml() {
   const wr = s.n ? Math.round(s.wins / s.n * 100) : null;
   return `
   <div class="hero-card">
-    <div class="hc-top"><span>Kontostand</span><small>${esc(S.broker.label)}</small></div>
+    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button></span><small>${esc(S.broker.label)}</small></div>
     <div><div class="bal mono" ${bal == null ? "" : cu(bal, "usd2")}>${bal == null ? "–" : usd2(bal)}</div>
       <div class="delta"><b class="${total > 0 ? "pos" : total < 0 ? "neg" : "zero"}">${total > 0 ? "↗" : total < 0 ? "↘" : "→"} ${base ? (dp >= 0 ? "+" : "") + dp.toFixed(2).replace(".", ",") + " %" : "0 %"}</b>heute</div></div>
     <div class="hb-act">
@@ -1454,6 +1456,7 @@ function heroRender(full) {
   box.innerHTML = heroHtml();
   if (full) { box.classList.add("fresh"); clearTimeout(heroRender._t); heroRender._t = setTimeout(() => box.classList.remove("fresh"), 2200); countUp(box); }
   $("#hPause").onclick = () => act(() => api("/api/config", {paused: !S.config.paused}), S.config.paused ? "Handel fortgesetzt" : "Handel pausiert: keine neuen Trades");
+  $("#hBal").onclick = balanceDialog;
   $("#hChart").onclick = () => { TAB = "chart"; setHash(TAB); window.scrollTo({top: 0}); render(true); };
 }
 function countUp(root) {
@@ -3134,6 +3137,25 @@ function modal(html) {
   $("#mdl").addEventListener("click", e => { if (e.target.id === "mdl") close(); });
   document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
   return close;
+}
+function balanceDialog() {
+  if (S.broker.name !== "paper") {
+    const close = modal(`<h2 style="font-size:18px">Kontostand</h2><p style="margin:10px 0 0;line-height:1.6">Bei ${esc(S.broker.label)} kommt der Kontostand direkt vom Broker-Konto und lässt sich hier nicht ändern.</p>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn primary" id="blNo">Verstanden</button></div>`);
+    $("#blNo").onclick = close; return;
+  }
+  const close = modal(`<h2 style="font-size:18px">Kontostand bearbeiten</h2>
+    <form id="blF" class="form" style="gap:10px;margin-top:10px">
+      <label class="lbl" for="blV">Neues Gesamtguthaben ($)</label>
+      <input id="blV" type="number" inputmode="decimal" step="0.01" min="1" value="${S.balance != null ? S.balance.toFixed(2) : ""}" required style="font-size:20px;font-weight:600;padding:12px 14px">
+      <p class="hint" style="margin:0;line-height:1.6">Aktuell ${S.balance != null ? usd2(S.balance) : "–"}. Deine Trades, der Kalender und die Statistik bleiben unverändert, es ändert sich nur das Guthaben des Paper-Kontos. Die Fremdkapital-Übersicht hat ihr eigenes Startkapital und wird nicht verändert.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn" id="blNo">Abbrechen</button><button class="btn primary">Speichern</button></div>
+    </form>`);
+  $("#blNo").onclick = close;
+  setTimeout(() => { const i = $("#blV"); if (i) { i.focus(); i.select(); } }, 50);
+  $("#blF").onsubmit = async e => { e.preventDefault();
+    try { const r = await api("/api/balance", {value: $("#blV").value}); close(); toast(`Kontostand geändert: ${usd2(r.before)} → ${usd2(r.balance)}`); heroRender._k = ""; await refresh(); }
+    catch (err) { toast(err.message); } };
 }
 function calClearDialog() {
   const cut = S.config.calendar_from;

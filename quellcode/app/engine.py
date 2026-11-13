@@ -1288,6 +1288,24 @@ class Engine:
             flags.append(f"Ziel auf {self.cfg['safe_stop']['default_rr']:g}R gesetzt")
         return sl, round_tick(tp, tick), flags
 
+    def set_balance(self, value):
+        """Gesamtguthaben des Paper-Kontos von Hand setzen. Trades und Kalender bleiben, verschoben wird nur das Startkapital."""
+        with self.lock:
+            if self.broker.name != "paper":
+                raise ValueError("Der Kontostand kommt bei diesem Broker direkt vom Konto und lässt sich hier nicht ändern.")
+            try:
+                value = float(str(value).replace(",", "."))
+            except (TypeError, ValueError):
+                raise ValueError("Bitte einen Betrag als Zahl eingeben")
+            if not 0 < value <= 100_000_000:
+                raise ValueError("Der Betrag muss größer als 0 sein")
+            old = self.balance()
+            closed = sum(p["pnl"] or 0 for p in self.db.closed_positions() if p["broker"] == "paper")
+            self.cfg["paper"]["start_balance"] = round(value - closed, 2)
+            self._write_cfg(self.cfg)
+            self.db.log(f"Kontostand von Hand geändert: {old:,.2f} $ → {value:,.2f} $")
+            return {"ok": True, "balance": self.balance(), "before": old}
+
     def balance(self):
         if self.broker.name == "paper":
             closed = sum(p["pnl"] or 0 for p in self.db.closed_positions() if p["broker"] == "paper")

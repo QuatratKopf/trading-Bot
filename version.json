@@ -1,6 +1,6 @@
 {
-  "version": "3.2.4",
-  "file": "releases/FVG-Trader-3.2.4.cmd",
-  "sha256": "4ed649f536a603659dc2083d0027dbff6f27ff457ab3ce7afd1b7443ee14f53b",
-  "notes": "Doppelt ankommende Signale und Kerzen aus TradingView werden nur noch einmal verarbeitet. Bereits doppelt erfasste Signale werden einmalig aufgeräumt. Der Gesundheits-Check meldet, wenn zwei Alarme aktiv sind."
+  "version": "3.2.5",
+  "file": "releases/FVG-Trader-3.2.5.cmd",
+  "sha256": "c56ba296ed471ce25c6f69ab930bb53d73bc735ebea946154d713c7277ed8f16",
+  "notes": "Kontostand bearbeiten: Stift neben „Kontostand“ im Cockpit setzt das Gesamtguthaben des Paper-Kontos auf einen eigenen Betrag."
 }

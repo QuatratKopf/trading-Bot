@@ -1281,6 +1281,11 @@ def disc_get(h):
     h._send(200, engine.disc_view())
 
 
+@route("POST", r"/api/balance")
+def balance_set(h):
+    h._send(200, engine.set_balance((h._json() or {}).get("value")))
+
+
 @route("POST", r"/api/calendar/clear")
 def calendar_clear(h):
     h._send(200, engine.calendar_clear(restore=bool((h._json() or {}).get("restore"))))
