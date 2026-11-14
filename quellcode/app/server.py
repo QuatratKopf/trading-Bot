@@ -158,10 +158,11 @@ def pine_source():
         return f.read()
 
 
-def mt5_source():
-    if "MT5_SOURCE" in globals():
-        return globals()["MT5_SOURCE"]
-    with open(os.path.join(ROOT, "mt5", "FVG-Bridge.mq5"), encoding="utf-8") as f:
+def mt5_source(chart=False):
+    key, fn = ("MT5_CHART_SOURCE", "FVG-Chart.mq5") if chart else ("MT5_SOURCE", "FVG-Bridge.mq5")
+    if key in globals():
+        return globals()[key]
+    with open(os.path.join(ROOT, "mt5", fn), encoding="utf-8") as f:
         return f.read()
 
 
@@ -872,13 +873,19 @@ def challenge_preset(h):
 
 @route("POST", r"/api/mt5/install")
 def mt5_install(h):
-    h._send(200, engine.mt5_install(mt5_source()))
+    h._send(200, engine.mt5_install(mt5_source(), mt5_source(chart=True)))
 
 
 @route("GET", r"/api/mt5/ea")
 def mt5_ea(h):
     h._send(200, ("\ufeff" + mt5_source()).encode("utf-8"), ctype="text/plain; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="FVG-Bridge.mq5"'})
+
+
+@route("GET", r"/api/mt5/chart")
+def mt5_chart(h):
+    h._send(200, ("\ufeff" + mt5_source(chart=True)).encode("utf-8"), ctype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="FVG-Chart.mq5"'})
 
 
 @route("POST", r"/api/topstep/test")

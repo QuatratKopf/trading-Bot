@@ -3972,7 +3972,8 @@ function settings() {
       <li>Oben in MT5 <b>Algo Trading</b> einschalten. Nach ein paar Sekunden erscheint das Konto hier unten.</li>
       <li>Für jedes weitere Konto ein eigenes MT5-Fenster öffnen (eigene Installation) und dasselbe tun.</li>
     </ol>
-    <div class="inline wrap-gap"><button class="btn primary" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">EA herunterladen</a></div>
+    <div class="inline wrap-gap"><button class="btn primary" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">EA herunterladen</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage herunterladen</a></div>
+    <p class="hint">Chart-Vorlage „FVG-Chart“: zeigt FVGs, Sessions (wie im Bot), Vortageshoch/-tief und Mitternachts-Open in einem ruhigen dunklen Design. In MT5 im Navigator unter „Indikatoren“ auf den Chart ziehen.</p>
     <span class="lbl">2 · Konten</span>
     ${m5Rows || '<p class="hint">Noch kein MT5-Konto gemeldet. Sobald FVG-Bridge in einem MT5-Fenster läuft, erscheint es hier.</p>'}
     <p class="hint">„Bot handelt hier“: Signale des Bots werden auf diesem Konto ausgeführt (dazu unter „Konten & Broker“ MetaTrader 5 wählen). Faktor 1 = gleiches Risiko in $ wie berechnet, 0,5 = halb so viel.</p>
@@ -4055,7 +4056,7 @@ function settings() {
     catch (e) { $("#saveMsg").textContent = e.message; $("#saveMsg").className = "err-msg"; }
   };
   $("#m5Inst").onclick = async () => {
-    try { const r = await api("/api/mt5/install", {}); toast(r.count ? `In ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte „EA herunterladen“ und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts ablegen."); }
+    try { const r = await api("/api/mt5/install", {}); toast(r.count ? `EA und Chart-Vorlage in ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte beide Dateien herunterladen und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts bzw. Indicators ablegen."); }
     catch (e) { toast(e.message); }
   };
   $("#tsTest").onclick = async () => {

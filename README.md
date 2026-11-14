@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.4.1 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.5.0 "Notiz"`) |
 
 ## Funktionen
 
@@ -41,6 +41,6 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 - Edge-Check je Strategie: Trefferquote mit 95-%-Bereich, Breakeven, Edge, Note A–D, Vertrauen, Wochentage, Stunden
 - Session-Muster aus gesammelten Kerzen: Gap-Fill, London-/IB-/Asien-Breakout, PDH/PDL genommen, Zeitpunkt von Tageshoch und -tief
 - Wirtschafts-News im Cockpit: wichtige US-Termine (CPI, NFP, FOMC …) mit Countdown
-- Paper-Trading, Topstep (TopstepX-API) und MetaTrader 5: mehrere Konten gleichzeitig (z. B. FTMO) und Copytrading über den EA FVG-Bridge
+- Paper-Trading, Topstep (TopstepX-API) und MetaTrader 5: mehrere Konten gleichzeitig (z. B. FTMO) und Copytrading über den EA FVG-Bridge, dazu die Chart-Vorlage FVG-Chart (FVGs, Sessions, Key Levels)
 
 Keine Anlageberatung. Futures sind gehebelt, teste zuerst im Paper-Modus.

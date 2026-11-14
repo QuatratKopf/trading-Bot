@@ -1,6 +1,6 @@
 {
-  "version": "3.4.1",
-  "file": "releases/FVG-Trader-3.4.1.cmd",
-  "sha256": "54397114ac94376c68d2465ff5c04c3ddc1ccb32584f0202118e3a7e38812512",
-  "notes": "Korrektur IQ Capital: Bei den CFD/Krypto-Konten auf MetaTrader 5 kann der Bot handeln. Nur die Futures-Konten (über Tradovate) gehen nicht."
+  "version": "3.5.0",
+  "file": "releases/FVG-Trader-3.5.0.cmd",
+  "sha256": "979824c417af07f9a2e833a3b883af2253c84656a5b29477a71c48858a360206",
+  "notes": "Neu: Chart-Vorlage FVG-Chart für MetaTrader 5 (FVGs, Sessions wie im Bot, Vortageshoch/-tief, Mitternachts-Open, dunkles Design). Einstellungen → MetaTrader 5 → In MT5 installieren."
 }

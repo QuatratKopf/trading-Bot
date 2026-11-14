@@ -2183,29 +2183,35 @@ class Engine:
         return {"dir": self.mt5_link.dir, "accounts": rows,
                 "copy": {"last": st.get("last"), "error": st.get("error"), "copies": st.get("copies"), "waiting": st.get("waiting") or []}}
 
-    def mt5_install(self, source):
-        """Legt den EA in alle gefundenen MT5-Installationen (MQL5/Experts) und in den Datenordner."""
+    def mt5_install(self, source, chart_source=None):
+        """Legt den EA (MQL5/Experts) und den Chart-Indikator (MQL5/Indicators) in alle gefundenen MT5-Installationen."""
         base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "MetaQuotes", "Terminal")
+        files = [("Experts", "FVG-Bridge.mq5", source)] + ([("Indicators", "FVG-Chart.mq5", chart_source)] if chart_source else [])
         done = []
         try:
             names = os.listdir(base)
         except OSError:
             names = []
         for n in names:
-            exp = os.path.join(base, n, "MQL5", "Experts")
-            if os.path.isdir(exp):
-                try:
-                    with open(os.path.join(exp, "FVG-Bridge.mq5"), "w", encoding="utf-8-sig", newline="\r\n") as f:
-                        f.write(source)
-                    done.append(n)
-                except OSError:
-                    pass
-        with open(os.path.join(self.data_dir, "FVG-Bridge.mq5"), "w", encoding="utf-8-sig", newline="\r\n") as f:
-            f.write(source)
+            ok = False
+            for sub, fn, src in files:
+                d = os.path.join(base, n, "MQL5", sub)
+                if os.path.isdir(d):
+                    try:
+                        with open(os.path.join(d, fn), "w", encoding="utf-8-sig", newline="\r\n") as f:
+                            f.write(src)
+                        ok = True
+                    except OSError:
+                        pass
+            if ok:
+                done.append(n)
+        for _, fn, src in files:
+            with open(os.path.join(self.data_dir, fn), "w", encoding="utf-8-sig", newline="\r\n") as f:
+                f.write(src)
         self.mt5_link.ensure_dir()
         self.mt5_link.write_symbols()
-        self.db.log(f"MT5-EA in {len(done)} MetaTrader-Installation(en) gelegt")
-        return {"ok": True, "count": len(done), "copy": os.path.join(self.data_dir, "FVG-Bridge.mq5")}
+        self.db.log(f"MT5: EA und Chart-Vorlage in {len(done)} MetaTrader-Installation(en) gelegt")
+        return {"ok": True, "count": len(done), "copy": self.data_dir}
 
     def _loop(self):
         while True:
