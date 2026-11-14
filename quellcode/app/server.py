@@ -865,6 +865,11 @@ def own_import(h):
     h._send(200, engine.own_import(str(b.get("csv") or ""), bool(b.get("subtract_fees", True))))
 
 
+@route("POST", r"/api/challenge/preset")
+def challenge_preset(h):
+    h._send(200, engine.apply_prop(h._json()))
+
+
 @route("POST", r"/api/mt5/install")
 def mt5_install(h):
     h._send(200, engine.mt5_install(mt5_source()))

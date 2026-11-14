@@ -521,6 +521,23 @@ svg.chart{width:100%;height:auto}
 .inline{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .inline input[type=time]{width:auto}
 .wrap-gap{justify-content:flex-start}
+.cp{display:flex;flex-direction:column;gap:12px;min-width:0}
+.cp-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cp-h h2{font-size:17px;margin:0;text-transform:none;letter-spacing:0;color:var(--fg)}
+.cp-r{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cp-r > .l,.cp-rules .l,.cp-bar .l{font-size:12px;color:var(--muted)}
+.seg.cp-seg{display:flex;flex-wrap:wrap;gap:6px;width:auto}
+.seg.cp-seg{border:0;background:transparent;padding:0;border-radius:0;overflow:visible}
+.seg.cp-seg button,.seg.cp-seg button:last-child{flex:0 0 auto;white-space:normal;text-align:left;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:8px 12px;font-size:13.5px}
+.seg.cp-seg button[aria-pressed="true"]{border-color:var(--accent);background:var(--fill);color:var(--accent);font-weight:600;box-shadow:none}
+.cp-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.cp-rules > div{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.cp-rules b{font-size:17px}
+.cp-rules small{font-size:11.5px;color:var(--muted)}
+.cp-what{margin:0;line-height:1.55}
+.cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cp-bar b{font-size:16px}
 .m5-acc{border:1px solid var(--line, rgba(127,127,127,.25));border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .m5-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0}
 .m5-h small{flex-basis:100%;overflow-wrap:anywhere}
@@ -2481,15 +2498,15 @@ function chChart(c) {
 function challenge(full) {
   const c = S.challenge, cfg = (S.config.challenge || {});
   if (full !== false || !$("#chWrap")) {
-    $("#main").innerHTML = `<div id="chWrap" style="display:contents"><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
-      <details class="set-sec ch-form" id="chForm" ${c ? "" : "open"}><summary><span class="s-ic">${icon('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>')}</span>
-        <span class="s-t"><b>Regeln deiner Challenge</b><span class="hint">${c ? `${esc(cfg.name || "Konto")} · ${mUsd(cfg.start_balance)} · Ziel ${mUsd(cfg.profit_target)} · Drawdown ${mUsd(cfg.max_dd)} ${DDT[cfg.dd_type].split(" ")[0]}` : "Einmal eintragen, dann rechnet die App live mit"}</span></span><span></span></summary>
+    $("#main").innerHTML = `<div id="chWrap" style="display:contents"><section class="panel cp" id="chPick"></section><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
+      <details class="set-sec ch-form" id="chForm"><summary><span class="s-ic">${icon('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>')}</span>
+        <span class="s-t"><b>Feineinstellungen</b><span class="hint">${c ? `${esc(cfg.name || "Konto")} · ${mUsd(cfg.start_balance)} · Ziel ${mUsd(cfg.profit_target)} · Drawdown ${mUsd(cfg.max_dd)} ${DDT[cfg.dd_type].split(" ")[0]}` : "Einmal eintragen, dann rechnet die App live mit"}</span></span><span></span></summary>
         <div class="set-b" id="chFormB"></div></details></div>`;
     chForm();
+    chPick();
   }
   const live = $("#chLive");
-  if (!c) { live.innerHTML = `<section class="panel ch-empty"><h2 style="font-size:18px;text-transform:none;letter-spacing:0;color:var(--fg)">Fremdkapital-Challenge</h2>
-    <p class="hint" style="font-size:13.5px;line-height:1.6">Trag unten die Regeln deiner Prop-Firm ein (Kontogröße, Profitziel, maximaler Drawdown, Tageslimit …). Danach siehst du hier live, <b>wie viel du noch verlieren darfst</b> und <b>wie viel bis zum Ziel fehlt</b>. Im Cockpit erscheint eine kleine Übersicht. Auf Wunsch stoppt die App den Bot, bevor die Grenze erreicht ist.</p></section>`; return; }
+  if (!c) { live.innerHTML = ""; $("#mcBox").hidden = true; return; }
   const [st, txt] = chStatus(c), tgt = c.cfg.profit_target, prog = tgt > 0 ? Math.max(0, Math.min(100, c.profit / tgt * 100)) : 0;
   const md = c.cfg.min_days || 0, cons = c.consistency;
   const rule = (ok, title, val, sub) => `<div class="rl ${ok === true ? "ok" : ok === false ? "no" : ""}"><span class="rl-i">${ok === true ? "✓" : ok === false ? "!" : "·"}</span><div><b>${title}</b><small>${sub}</small></div><span class="mono">${val}</span></div>`;
@@ -2522,6 +2539,67 @@ function challenge(full) {
   $("#mcBox").hidden = false;
   if (!MC.data || MC.key !== JSON.stringify(c.cfg)) { if (!MC.busy) mcRun(); } else if (full !== false || !$("#mcBox").innerHTML) mcPanel();
 }
+// Firma, Programm und Kontogröße wählen: Regeln + Bot-Einstellungen in einem Schritt
+const CP = {firm: null, program: null, size: null, risk: null, open: false};
+function chPick() {
+  const box = $("#chPick"); if (!box) return;
+  const P = S.prop_presets || {}, RK = S.prop_risk || {}, cf = S.config.challenge || {}, pre = cf.enabled && cf.preset ? cf.preset : null;
+  if (CP.firm === null) Object.assign(CP, pre ? {firm: pre.firm, program: pre.program, size: pre.size, risk: pre.risk || "normal"} : {firm: "ftmo", program: "2s1", size: 100000, risk: "normal"}, {open: !cf.enabled});
+  const f = P[CP.firm];
+  if (f && !f.programs[CP.program]) CP.program = Object.keys(f.programs)[0];
+  if (f && !f.sizes.includes(+CP.size)) CP.size = f.sizes[Math.min(f.sizes.length - 1, 2)];
+  const kk = v => v >= 1000 ? (v / 1000).toLocaleString("de-DE") + "K" : v;
+  const rules = (() => {
+    if (!f) return null;
+    const p = f.programs[CP.program], size = +CP.size;
+    if (CP.firm === "topstep") { const u = f.usd[size] || f.usd[String(size)]; return {target: p.funded ? 0 : u.target, dd: u.dd, daily: u.daily, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons}; }
+    return {target: size * p.target / 100, dd: size * p.dd / 100, daily: size * p.daily / 100, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons};
+  })();
+  const riskUsd = f ? Math.round(+CP.size * (RK[CP.risk] || 0.5) / 100) : 0;
+  const active = pre ? `${esc((P[pre.firm] || {}).name || "")} · ${esc(((P[pre.firm] || {}).programs || {})[pre.program] ? P[pre.firm].programs[pre.program].label : "")} · ${kk(pre.size)}`
+    : cf.enabled ? `${esc(cf.name || "Eigene Regeln")} · ${mUsd(cf.start_balance)}` : "";
+  if (cf.enabled && !CP.open) {
+    box.innerHTML = `<div class="cp-bar"><div><span class="l">Dein Konto</span><b>${active}</b>${pre ? `<small class="hint">Risiko ${esc(pre.risk || "normal")} · ${mUsd(Math.round(pre.size * (RK[pre.risk] || 0.5) / 100))} pro Trade</small>` : ""}</div>
+      <button type="button" class="btn" id="cpOpen">Konto ändern</button></div>`;
+    $("#cpOpen").onclick = () => { CP.open = true; chPick(); };
+    return;
+  }
+  const seg = (attr, items, cur) => `<div class="seg cp-seg" role="group">${items.map(([k, l]) => `<button type="button" ${attr}="${k}" aria-pressed="${String(cur) === String(k)}">${l}</button>`).join("")}</div>`;
+  const ddTxt = {static: "fest ab Start", eod: "zieht zum Tagesende nach", intraday: "zieht sofort nach"};
+  box.innerHTML = `
+    <div class="cp-h"><h2>Fremdkapital-Konto wählen</h2>${cf.enabled ? '<button type="button" class="btn" id="cpClose">Schließen</button>' : ""}</div>
+    <div class="cp-r"><span class="l">Firma</span>${seg("data-cpf", [...Object.entries(P).map(([k, x]) => [k, x.name]), ["eigen", "Eigene Regeln"]], CP.firm)}</div>
+    ${f ? `
+    <div class="cp-r"><span class="l">Programm</span>${seg("data-cpp", Object.entries(f.programs).map(([k, x]) => [k, x.label]), CP.program)}</div>
+    <div class="cp-r"><span class="l">Kontogröße</span>${seg("data-cps", f.sizes.map(v => [v, kk(v)]), CP.size)}</div>
+    <div class="cp-rules">
+      <div><span class="l">Gewinnziel</span><b class="pos">${rules.target ? mUsd(rules.target) : "keins"}</b></div>
+      <div><span class="l">Max. Verlust pro Tag</span><b class="neg">${rules.daily ? mUsd(rules.daily) : "keins"}</b></div>
+      <div><span class="l">Max. Verlust gesamt</span><b class="neg">${mUsd(rules.dd)}</b><small>${ddTxt[rules.dd_type]}</small></div>
+      <div><span class="l">Mindest-Handelstage</span><b>${rules.min_days || "keine"}</b></div>
+      ${rules.cons ? `<div><span class="l">Konsistenz</span><b>${rules.cons} %</b><small>bester Tag max. ${rules.cons} % vom Gewinn</small></div>` : ""}
+    </div>
+    <div class="cp-r"><span class="l">Risiko pro Trade</span>${seg("data-cpk", Object.entries(RK).map(([k, v]) => [k, `${k[0].toUpperCase() + k.slice(1)} · ${String(v).replace(".", ",")} %`]), CP.risk)}</div>
+    <p class="hint cp-what">Beim Übernehmen stellt die App den Bot passend ein: <b>${mUsd(riskUsd)} Risiko pro Trade</b>, Tages-Stopp bei <b>−${mUsd(Math.round((rules.daily || rules.dd * 0.5) * 0.8))}</b> (vor dem Limit der Firma)${rules.cons && rules.target ? `, Tages-Gewinnstopp bei <b>+${mUsd(Math.round(rules.target * rules.cons / 100 * 0.8))}</b> wegen der Konsistenzregel` : ""} und Bot-Schutz an. ${esc(f.note)}</p>
+    <label class="m5-c"><input type="checkbox" class="chk" id="cpAdapt" checked> Bot-Einstellungen anpassen</label>
+    ${S.broker.name === "paper" ? `<label class="m5-c"><input type="checkbox" class="chk" id="cpPaper" checked> Paper-Konto auf ${mUsd(+CP.size)} setzen (zum Üben)</label>` : ""}
+    <div class="inline wrap-gap"><button class="btn primary" id="cpGo">${cf.enabled ? "Übernehmen" : "Challenge starten"}</button><span class="hint">Werte bitte einmal mit den Regeln auf der Seite von ${esc(f.name)} vergleichen.</span></div>`
+    : `<p class="hint">Trag die Regeln deiner Firma unten unter „Feineinstellungen“ selbst ein.</p>`}`;
+  box.querySelectorAll("[data-cpf]").forEach(b => b.onclick = () => { CP.firm = b.dataset.cpf; if (CP.firm === "eigen") $("#chForm").open = true; chPick(); });
+  box.querySelectorAll("[data-cpp]").forEach(b => b.onclick = () => { CP.program = b.dataset.cpp; chPick(); });
+  box.querySelectorAll("[data-cps]").forEach(b => b.onclick = () => { CP.size = +b.dataset.cps; chPick(); });
+  box.querySelectorAll("[data-cpk]").forEach(b => b.onclick = () => { CP.risk = b.dataset.cpk; chPick(); });
+  if ($("#cpClose")) $("#cpClose").onclick = () => { CP.open = false; chPick(); };
+  if ($("#cpGo")) $("#cpGo").onclick = async () => {
+    const btn = $("#cpGo"); btn.disabled = true;
+    try {
+      const r = await api("/api/challenge/preset", {firm: CP.firm, program: CP.program, size: CP.size, risk: CP.risk,
+        adapt: $("#cpAdapt").checked, paper_balance: !!($("#cpPaper") && $("#cpPaper").checked)});
+      toast(r.changes && r.changes.length ? "Übernommen: " + r.changes[0] : "Übernommen");
+      CP.open = false; S = await api("/api/state"); MC.data = null; challenge(true);
+    } catch (e) { toast(e.message); btn.disabled = false; }
+  };
+}
 function chForm() {
   const cf = S.config.challenge || {};
   const f = (id, label, val, help, attrs = "", type = "number") => `<div class="row"><label for="${id}">${label}${help ? `<small>${help}</small>` : ""}</label><input id="${id}" type="${type}" value="${esc(val ?? "")}" ${attrs}></div>`;
@@ -2552,8 +2630,9 @@ function chForm() {
     try {
       await api("/api/config", {challenge: {enabled, name: $("#cName").value.trim(), phase: $("#cPhase").value, start_balance: n("cSize"), start_day: $("#cStart").value,
         profit_target: n("cTarget"), max_dd: n("cDd"), dd_type: $("#cType").value, lock_at_start: $("#cLock").checked, daily_loss: n("cDaily"),
-        consistency_pct: n("cCons"), min_days: Math.round(n("cDays")), source: src, guard: $("#cGuard").checked, guard_buffer: n("cBuf")}});
-      S = await api("/api/state"); toast(enabled ? "Challenge gespeichert" : "Challenge beendet"); challenge(true);
+        consistency_pct: n("cCons"), min_days: Math.round(n("cDays")), source: src, guard: $("#cGuard").checked, guard_buffer: n("cBuf"), preset: null}});
+      CP.firm = null;
+      S = await api("/api/state"); toast(enabled ? "Challenge gespeichert" : "Challenge beendet"); CP.firm = null; challenge(true);
     } catch (e) { toast(e.message); }
   };
   $("#cSave").onclick = () => save(true);

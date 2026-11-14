@@ -1,6 +1,6 @@
 {
-  "version": "3.3.0",
-  "file": "releases/FVG-Trader-3.3.0.cmd",
-  "sha256": "7204467de91a0752f4b5aff0417d61c4039973309aebe0694cf6c00e23583639",
-  "notes": "Neu: MetaTrader 5 mit mehreren Konten gleichzeitig (z. B. FTMO) und Copytrading: Einstellungen → MetaTrader 5 & Copytrading. Signale auch direkt von CFD-Charts (US100/NAS100). Tradovate wurde entfernt."
+  "version": "3.3.1",
+  "file": "releases/FVG-Trader-3.3.1.cmd",
+  "sha256": "cc56ec323ccf058d16bd4635743b3da7163f6e7af2c00b4a19b78dc18ade16ae",
+  "notes": "Fremdkapital-Tab überarbeitet: oben Firma (FTMO, Topstep), Programm und Kontogröße wählen. Die App setzt die Regeln und passt den Bot an (Risiko pro Trade, Tages-Stopp, Schutz)."
 }

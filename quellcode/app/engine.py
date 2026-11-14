@@ -141,6 +141,33 @@ DEFAULT_CONFIG = {
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
 
+# Vorlagen für Fremdkapital-Firmen. Werte in % der Kontogröße (FTMO) bzw. in $ je Größe (Topstep).
+# Stand November 2026 laut Regel-Übersichten; vor dem Kauf auf der Seite der Firma prüfen.
+PROP_PRESETS = {
+    "ftmo": {
+        "name": "FTMO", "sizes": [10000, 25000, 50000, 100000, 200000],
+        "note": "Tageswechsel bei FTMO: Mitternacht Prager Zeit. Tagesverlust zählt offene Positionen mit.",
+        "programs": {
+            "2s1": {"label": "2-Step · Phase 1 (Challenge)", "phase": "Challenge", "target": 10, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 4, "cons": 0},
+            "2s2": {"label": "2-Step · Phase 2 (Verifizierung)", "phase": "Phase 2", "target": 5, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 4, "cons": 0},
+            "2sf": {"label": "2-Step · FTMO-Konto (Funded)", "phase": "Funded", "target": 0, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 0, "cons": 0},
+            "1s": {"label": "1-Step · Challenge", "phase": "Challenge", "target": 10, "daily": 3, "dd": 10, "dd_type": "eod", "min_days": 0, "cons": 50},
+            "1sf": {"label": "1-Step · FTMO-Konto (Funded)", "phase": "Funded", "target": 0, "daily": 3, "dd": 10, "dd_type": "eod", "min_days": 0, "cons": 0},
+        },
+    },
+    "topstep": {
+        "name": "Topstep", "sizes": [50000, 100000, 150000],
+        "note": "Topstep-Werte je Kontogröße. Tageslimit und Mindesttage haben sich bei Topstep öfter geändert.",
+        "usd": {50000: {"target": 3000, "dd": 2000, "daily": 1000}, 100000: {"target": 6000, "dd": 3000, "daily": 2000},
+                150000: {"target": 9000, "dd": 4500, "daily": 3000}},
+        "programs": {
+            "tc": {"label": "Trading Combine", "phase": "Challenge", "dd_type": "eod", "min_days": 2, "cons": 50, "funded": False},
+            "xf": {"label": "Express Funded", "phase": "Funded", "dd_type": "eod", "min_days": 0, "cons": 0, "funded": True},
+        },
+    },
+}
+PROP_RISK = {"vorsichtig": 0.25, "normal": 0.5, "offensiv": 1.0}
+
 # $ pro Punkt für eigene Trades aus dem Broker-Import
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
@@ -2693,6 +2720,63 @@ class Engine:
             self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {_fmt(pnl, '+,.0f')} $")
             return {"ok": True, "id": pid}
 
+    # ───────── Fremdkapital-Vorlagen ─────────
+    def prop_rules(self, firm, prog, size):
+        f = PROP_PRESETS.get(firm)
+        if not f or prog not in f["programs"]:
+            raise ValueError("Unbekannte Firma oder unbekanntes Programm")
+        size = int(size)
+        if size not in f["sizes"]:
+            raise ValueError("Diese Kontogröße gibt es bei " + f["name"] + " nicht")
+        p = f["programs"][prog]
+        if firm == "topstep":
+            u = f["usd"][size]
+            target, dd, daily = (0 if p["funded"] else u["target"]), u["dd"], u["daily"]
+        else:
+            target, dd, daily = size * p["target"] / 100, size * p["dd"] / 100, size * p["daily"] / 100
+        return {"name": f"{f['name']} {size // 1000}K", "phase": p["phase"], "start_balance": float(size),
+                "profit_target": float(target), "max_dd": float(dd), "dd_type": p["dd_type"], "lock_at_start": True,
+                "daily_loss": float(daily), "consistency_pct": float(p["cons"]), "min_days": int(p["min_days"])}
+
+    def apply_prop(self, b):
+        """Firma + Programm + Größe wählen: Challenge-Regeln setzen und den Bot passend einstellen."""
+        firm, prog, size = str(b.get("firm") or ""), str(b.get("program") or ""), b.get("size") or 0
+        risk_key = str(b.get("risk") or "normal")
+        if risk_key not in PROP_RISK:
+            raise ValueError("Unbekannte Risiko-Stufe")
+        rules = self.prop_rules(firm, prog, size)
+        start_day = str(b.get("start_day") or ny_date())
+        size = rules["start_balance"]
+        risk_usd = round(size * PROP_RISK[risk_key] / 100, 0)
+        daily = rules["daily_loss"]
+        buffer = round(max(100.0, min(daily * 0.15 if daily else rules["max_dd"] * 0.1, risk_usd)), 0)
+        patch = {"challenge": dict(rules, enabled=True, start_day=start_day, guard=True, guard_buffer=buffer,
+                                   preset={"firm": firm, "program": prog, "size": int(size), "risk": risk_key})}
+        changes = []
+        if b.get("adapt", True):
+            # Tages-Stopp des Bots vor dem Limit der Firma (80 %), Risiko pro Trade als fester Betrag
+            stop = round((daily or rules["max_dd"] * 0.5) * 0.8, 0)
+            max_qty = int(min(50, max(5, math.ceil(risk_usd / 20))))
+            patch["sizing"] = {"mode": "risk_usd", "risk_usd": risk_usd, "max_qty": max_qty}
+            patch["risk"] = {"max_daily_loss": stop}
+            pct = f"{PROP_RISK[risk_key]:g}".replace(".", ",")
+            changes += [f"Risiko pro Trade {risk_usd:,.0f} $".replace(",", ".") + f" ({pct} %)",
+                        f"Tages-Stopp des Bots bei −{stop:,.0f} $".replace(",", ".")]
+            if rules["consistency_pct"] > 0 and rules["profit_target"] > 0:
+                # Konsistenzregel: an einem Tag nicht zu viel gewinnen, sonst muss man länger weiter handeln
+                pstop = round(rules["profit_target"] * rules["consistency_pct"] / 100 * 0.8, 0)
+                patch["risk"]["daily_profit_stop"] = pstop
+                changes.append(f"Tages-Gewinnstopp bei +{pstop:,.0f} $ wegen der Konsistenzregel".replace(",", "."))
+            else:
+                patch["risk"]["daily_profit_stop"] = 0.0
+            changes.append("Bot-Schutz an, Puffer " + f"{buffer:,.0f} $".replace(",", "."))
+        self.update_cfg(patch)
+        if b.get("paper_balance") and self.broker.name == "paper":
+            self.set_balance(size)
+            changes.append(f"Paper-Konto auf {size:,.0f} $ gesetzt".replace(",", "."))
+        self.db.log(f"Fremdkapital: {rules['name']} {rules['phase']} gewählt · " + " · ".join(changes))
+        return {"ok": True, "rules": rules, "changes": changes}
+
     # ───────── Topstep ─────────
     def test_topstep(self):
         b = BROKERS["topstep"](self.cfg)
@@ -4549,6 +4633,7 @@ class Engine:
                 "daily": self.daily(),
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
+                "prop_presets": PROP_PRESETS, "prop_risk": PROP_RISK,
                 "news_pause": self.news_block(),
                 "old_script": self.old_script,
                 "summary": self.summary(),
