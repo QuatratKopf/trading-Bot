@@ -1,6 +1,6 @@
 {
-  "version": "3.2.6",
-  "file": "releases/FVG-Trader-3.2.6.cmd",
-  "sha256": "78dbf928045e8f83cf8a7bdbd3493dc9cf93c92d391219e2eb34746482a75ad1",
-  "notes": "Neu: Topstep-Anbindung. Der Bot kann selbst auf einem Topstep-Konto handeln (Einstellungen → Konten & Broker → Topstep). Mit Stop-Schutz: ohne Stop bleibt keine Position offen."
+  "version": "3.3.0",
+  "file": "releases/FVG-Trader-3.3.0.cmd",
+  "sha256": "7204467de91a0752f4b5aff0417d61c4039973309aebe0694cf6c00e23583639",
+  "notes": "Neu: MetaTrader 5 mit mehreren Konten gleichzeitig (z. B. FTMO) und Copytrading: Einstellungen → MetaTrader 5 & Copytrading. Signale auch direkt von CFD-Charts (US100/NAS100). Tradovate wurde entfernt."
 }

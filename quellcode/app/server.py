@@ -158,6 +158,13 @@ def pine_source():
         return f.read()
 
 
+def mt5_source():
+    if "MT5_SOURCE" in globals():
+        return globals()["MT5_SOURCE"]
+    with open(os.path.join(ROOT, "mt5", "FVG-Bridge.mq5"), encoding="utf-8") as f:
+        return f.read()
+
+
 # ───────────────────────── Passwort ─────────────────────────
 def _hash(pw, salt):
     return hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 200_000).hex()
@@ -858,19 +865,20 @@ def own_import(h):
     h._send(200, engine.own_import(str(b.get("csv") or ""), bool(b.get("subtract_fees", True))))
 
 
-@route("POST", r"/api/own/sync")
-def own_sync(h):
-    h._send(200, engine.own_sync())
+@route("POST", r"/api/mt5/install")
+def mt5_install(h):
+    h._send(200, engine.mt5_install(mt5_source()))
+
+
+@route("GET", r"/api/mt5/ea")
+def mt5_ea(h):
+    h._send(200, ("\ufeff" + mt5_source()).encode("utf-8"), ctype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="FVG-Bridge.mq5"'})
 
 
 @route("POST", r"/api/topstep/test")
 def topstep_test(h):
     h._send(200, engine.test_topstep())
-
-
-@route("POST", r"/api/tradovate/test")
-def tradovate_test(h):
-    h._send(200, engine.test_tradovate())
 
 
 @route("POST", r"/api/tests/delete")

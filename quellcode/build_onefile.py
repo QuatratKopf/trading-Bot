@@ -80,6 +80,8 @@ def main():
         html = f.read()
     with open(os.path.join(HERE, "tradingview", "fvg_bot_multi.pine"), encoding="utf-8") as f:
         pine = f.read()
+    with open(os.path.join(HERE, "mt5", "FVG-Bridge.mq5"), encoding="utf-8") as f:
+        mt5 = f.read()
     body = "".join(module(m) for m in ("db.py", "brokers.py", "discovery.py", "engine.py", "tunnel.py", "appshell.py"))
     server = module("server.py")
     server = server.replace(
@@ -91,7 +93,7 @@ def main():
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), "Version wie 1.4.0 angeben"
     server = server.replace('APP_VERSION = "dev"', f'APP_VERSION = "{version}"', 1)
     assert f'APP_VERSION = "{version}"' in server
-    consts = f"\nINDEX_HTML = {html!r}\n\nPINE_SOURCE = {pine!r}\n"
+    consts = f"\nINDEX_HTML = {html!r}\n\nPINE_SOURCE = {pine!r}\n\nMT5_SOURCE = {mt5!r}\n"
     out = HEADER + body + consts + server
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8", newline="\r\n") as f:

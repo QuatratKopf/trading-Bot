@@ -521,6 +521,12 @@ svg.chart{width:100%;height:auto}
 .inline{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .inline input[type=time]{width:auto}
 .wrap-gap{justify-content:flex-start}
+.m5-acc{border:1px solid var(--line, rgba(127,127,127,.25));border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.m5-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0}
+.m5-h small{flex-basis:100%;overflow-wrap:anywhere}
+.m5-o{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.m5-c{display:inline-flex;align-items:center;gap:6px;font-size:14px}
+.m5-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;line-height:1.5;font-size:14px}
 .lbl{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;margin:4px 0 4px}
 .preview{display:flex;flex-direction:column;gap:4px;background:var(--sunk);border-radius:8px;padding:10px 12px;font-size:12.5px}
 .preview div{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:baseline}
@@ -1317,13 +1323,12 @@ function header() {
   $("#pTv").innerHTML = `<span class="dot ${tvState[0]}"></span>${tvState[1]}`;
   $("#pDot").className = "dot " + tvState[0]; $("#pDot").title = tvState[1];
   $("#pVer").textContent = "Version " + S.version;
-  $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "tradovate" ? " " + (c.tradovate.env === "live" ? "LIVE" : "Demo") : ""}${S.broker.name === "topstep" && c.topstep && c.topstep.account ? " " + esc(c.topstep.account) : ""}`;
+  $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "topstep" && c.topstep && c.topstep.account ? " " + esc(c.topstep.account) : ""}`;
   $("#pBroker").title = S.broker.status;
   $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? esc(S.session_name) : "keine Session"}`;
   $("#autoT").setAttribute("aria-checked", c.auto_mode);
   $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
-    : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
-    + (S.broker.name === "topstep" ? `<div class="banner">Topstep-Konto aktiv: Der Bot schickt Orders an ${esc((c.topstep || {}).account || "dein Topstep-Konto")}. Die App muss auf deinem eigenen PC laufen, nicht auf einem gemieteten Server.</div>` : "")
+    : (S.broker.name === "topstep" ? `<div class="banner">Topstep-Konto aktiv: Der Bot schickt Orders an ${esc((c.topstep || {}).account || "dein Topstep-Konto")}. Die App muss auf deinem eigenen PC laufen, nicht auf einem gemieteten Server.</div>` : "")
     + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
         <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "")
     + (S.remote && S.remote.limit && S.remote.n > S.remote.limit * 0.8 ? `<div class="banner">ngrok-Kontingent fast aufgebraucht: ${S.remote.n.toLocaleString("de-DE")} von ${S.remote.limit.toLocaleString("de-DE")} Anfragen diesen Monat. Ist es leer, kommen keine Signale mehr an. App am Handy seltener offen lassen; mehr dazu unter Einstellungen → TradingView.</div>` : "")
@@ -3221,7 +3226,7 @@ async function importDialog(file) {
   const text = await file.text();
   const close = modal(`<h2 style="font-size:18px">Eigene Trades importieren</h2>
     <p style="margin:0"><b>${esc(file.name)}</b> · ${text.split(/\r?\n/).filter(x => x.trim()).length - 1} Zeilen</p>
-    <p class="hint" style="margin:0">Funktioniert mit CSV-Exporten aus Topstep, Tradovate, NinjaTrader und den meisten Plattformen. Spalten wie Datum, Symbol, Richtung und P&L werden automatisch erkannt. Schon importierte Trades werden übersprungen.</p>
+    <p class="hint" style="margin:0">Funktioniert mit CSV-Exporten aus Topstep, NinjaTrader, MetaTrader und den meisten Plattformen. Spalten wie Datum, Symbol, Richtung und P&L werden automatisch erkannt. Schon importierte Trades werden übersprungen.</p>
     <label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="iFee" checked> Gebühren-Spalte vom P&L abziehen (falls vorhanden)</label>
     <p class="err-msg" id="iErr" hidden></p>
     <div class="actions"><button class="btn primary" id="iGo">Importieren</button><button class="btn" id="iCancel">Abbrechen</button></div>`);
@@ -3308,7 +3313,7 @@ async function labVariants(force) {
             : r.applied !== "Signal-Ziel" ? `<div class="vrec"><span>Nutzt <b>${esc(r.applied)}</b></span><button class="btn vapply" data-s="${esc(r.setup)}" data-v="Signal-Ziel">Zurück auf Signal-Ziel</button></div>`
             : `<span class="hint">${r.cols["Signal-Ziel"].n < V.min_n ? `sammelt noch (${r.cols["Signal-Ziel"].n}/${V.min_n})` : "Signal-Ziel ist gut so"}</span>`}</td></tr>`; }).join("")}
     </tbody></table></div>` : '<div class="empty">Noch keine Signale. Sobald TradingView Signale und Kerzen schickt, laufen die Varianten automatisch mit.</div>'}
-    <p class="hint">Ist „Gelerntes selbst umsetzen“ an (Standard), übernimmt der Bot die Empfehlung jeden Abend selbst. „Übernehmen“ ändert, wie der Bot bei dieser Strategie aussteigt: Ziel, Break-even oder Trailing. Der Einstieg bleibt gleich. Trailing und „Bis Session-Ende“ gehen nur mit Paper-Trading, weil Tradovate dafür eine Order ohne festes Ziel bräuchte.</p>
+    <p class="hint">Ist „Gelerntes selbst umsetzen“ an (Standard), übernimmt der Bot die Empfehlung jeden Abend selbst. „Übernehmen“ ändert, wie der Bot bei dieser Strategie aussteigt: Ziel, Break-even oder Trailing. Der Einstieg bleibt gleich. Trailing und „Bis Session-Ende“ gehen nur mit Paper-Trading, weil der Broker dafür eine Order ohne festes Ziel bräuchte.</p>
   </section>`;
   $("#labVRef").onclick = () => labVariants(true);
   body.querySelectorAll(".vapply").forEach(b => b.onclick = async () => {
@@ -3640,6 +3645,7 @@ const SIC = {
   notify: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   sess: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   tv: '<path d="M4 16 9 10l4 3 7-8"/><path d="M15 5h5v5"/>',
+  mt5: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 12l3-3 2 2 4-4"/>',
   acc: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   conf: '<path d="m5 12 3 3 5-6"/><path d="m12 15 1.5 1.5L19 10"/><rect x="3" y="4" width="18" height="16" rx="4"/>',
   adv: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
@@ -3650,6 +3656,8 @@ const sec = (key, title, sum, chip, body) => `<details class="set-sec" data-sec=
   <div class="set-b">${body}</div></details>`;
 
 let settingsKey = "";
+const m5Key = () => { const m = S.mt5 || {}; return [(m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
+const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key()]);
 // New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
 function localTime(hm) {
   const [nh, nm] = (S.now_ny || "00:00").split(":").map(Number), now = new Date();
@@ -3658,8 +3666,8 @@ function localTime(hm) {
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 }
 function settings() {
-  settingsKey = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart, S.service]);
-  const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, t = c.tradovate, L = c.learning, dc = c.discord || {};
+  settingsKey = setKey();
+  const c = S.config, sz = c.sizing, ss = c.safe_stop, r = c.risk, L = c.learning, dc = c.discord || {};
   const phoneUrl = (c.public_url || S.tunnel.url || "").replace(/\/+$/, "");
   const prev = fam => S.sizing_preview[fam].map((p, i) => {
     const pts = (fam === "NQ" ? [10, 20, 40, 60] : [3, 5, 10, 15])[i];
@@ -3677,8 +3685,19 @@ function settings() {
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
   const ts = c.topstep || {};
   const accChip = c.broker === "topstep" ? `<span class="chip ${S.broker.ok ? "good" : "bad"}">Topstep</span>`
-    : t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
-  const brokerLabel = {tradovate: "Tradovate", topstep: "Topstep"}[c.broker] || "Paper-Trading";
+    : c.broker === "mt5" ? `<span class="chip ${S.broker.ok ? "good" : "bad"}">MetaTrader 5</span>` : '<span class="chip mute">Paper</span>';
+  const brokerLabel = {topstep: "Topstep", mt5: "MetaTrader 5"}[c.broker] || "Paper-Trading";
+  const m5 = S.mt5 || {accounts: [], copy: {}}, m5c = c.mt5 || {copy: {}}, m5cc = m5c.copy || {};
+  const m5on = m5.accounts.filter(a => a.online).length;
+  const m5Chip = m5.accounts.length ? `<span class="chip ${m5on ? "good" : "bad"}">${m5on} von ${m5.accounts.length} verbunden</span>` : '<span class="chip mute">kein Konto</span>';
+  const m5Rows = m5.accounts.map(a => `<div class="m5-acc">
+      <div class="m5-h"><b class="mono">${esc(a.login)}</b> <span class="chip ${a.online ? (a.can_trade ? "good" : "warn") : "bad"}">${a.online ? (a.can_trade ? "verbunden" : "Algo Trading aus") : "nicht verbunden"}</span>
+        <small class="hint">${esc([a.company, a.server].filter(Boolean).join(" · ") || "noch keine Meldung")}${a.balance != null ? " · " + usd2(a.balance) + (a.currency && a.currency !== "USD" ? " " + esc(a.currency) : "") : ""}${a.positions ? ` · ${a.positions} offen` : ""}</small></div>
+      <div class="m5-o">
+        <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5b_${esc(a.login)}" ${a.bot ? "checked" : ""}> Bot handelt hier</label>
+        <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5c_${esc(a.login)}" ${a.copy ? "checked" : ""}> Kopien empfangen</label>
+        <label class="m5-c">Faktor <input type="number" data-cfg id="m5f_${esc(a.login)}" value="${a.factor}" min="0.01" max="100" step="0.1" style="width:80px"></label>
+      </div></div>`).join("");
   $("#main").innerHTML = `<div class="settings-wrap">
   ${sec("app", "App & Updates", `Version ${esc(S.version)}${S.autostart ? " · startet mit Windows" : ""} · Handy · Protokoll`, updState, `
     <div class="row"><label>Installierte Version<small>${S.update.checked ? "Zuletzt geprüft: " + dtm(S.update.checked) : "Die App prüft bei jedem Start und alle 6 Stunden."}</small></label>
@@ -3787,20 +3806,8 @@ function settings() {
     <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button><button class="btn" id="tNet">Webhook über Internet testen</button></div>
     ${intro("„Test-Signal senden“ prüft nur die App selbst. „Webhook über Internet testen“ schickt eine Nachricht über ngrok an die Webhook-Adresse – genau den Weg, den TradingView nimmt.")}`)}
 
-  ${sec("acc", "Konten & Broker", `Bot handelt über ${brokerLabel}${c.own_sync && c.own_sync.tradovate ? " · eigene Trades werden übernommen" : ""}`, accChip, `
-    ${intro("Einmal verbinden: Deine eigenen Trades kommen dann automatisch in den Kalender.")}
-    <div class="row"><label>TradingView<small>TradingView hat keine Schnittstelle für deine Trades. Handelst du in TradingView über Tradovate, kommen die Trades über die Tradovate-Verknüpfung unten.</small></label>
-      <div class="inline"><span class="chip mute">über Tradovate</span></div></div>
-    <span class="lbl">Tradovate ${t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">hinterlegt</span>') : '<span class="chip mute">nicht verbunden</span>'}</span>
-    ${field("tenv", "Konto", t.env, {select: [["demo", "Demo"], ["live", "Live (echtes Konto)"]]})}
-    ${field("tu", "Benutzername", t.username, {type: "text", attrs: {autocomplete: "off"}})}
-    ${field("tpw", "Passwort", t.password, {type: "password"})}
-    ${field("tcid", "API cid", t.cid, {type: "text", help: "Tradovate → Einstellungen → API-Zugang (API-Add-on nötig)"})}
-    ${field("tsec", "API secret", t.secret, {type: "password"})}
-    ${field("osync", "Eigene Trades automatisch übernehmen", c.own_sync && c.own_sync.tradovate, {check: true, help: "Alle 10 Minuten. Trades des Bots werden erkannt und nicht doppelt gezählt."})}
-    ${S.own_sync.enabled ? `<div class="row"><label>Letzter Abruf<small>${S.own_sync.error ? `<span class="neg">${esc(S.own_sync.error)}</span>` : S.own_sync.last ? `${S.own_sync.added} neue Trades` : "läuft gleich"}</small></label>
-      <div class="inline"><span class="mono">${S.own_sync.last ? dtm(S.own_sync.last) : "–"}</span></div></div>` : ""}
-    <div class="inline wrap-gap"><button class="btn" id="tvTest">Verbindung testen</button>${S.own_sync.enabled ? '<button class="btn" id="syncNow">Eigene Trades jetzt abrufen</button>' : ""}</div>
+  ${sec("acc", "Konten & Broker", `Bot handelt über ${brokerLabel}`, accChip, `
+    ${intro("Hier legst du fest, wo der Bot handelt: Paper-Trading zum Testen, ein Topstep-Konto oder deine MetaTrader-5-Konten.")}
     <span class="lbl">Topstep ${ts.username && ts.api_key ? (c.broker === "topstep" && !S.broker.ok ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">hinterlegt</span>') : '<span class="chip mute">nicht verbunden</span>'}</span>
     <p class="hint" style="margin:0 0 6px">Für Fremdkapital-Konten von Topstep. Den API-Schlüssel bekommst du in TopstepX unter Einstellungen → API (kostenpflichtiges Zusatzpaket von Topstep).</p>
     ${field("tsu", "TopstepX-Benutzername", ts.username, {type: "text", attrs: {autocomplete: "off"}, help: "Der Benutzername aus TopstepX, nicht die E-Mail-Adresse"})}
@@ -3809,11 +3816,32 @@ function settings() {
     <div class="inline wrap-gap"><button class="btn" id="tsTest">Topstep-Verbindung testen</button></div>
     <div id="tsAccs"></div>
     <span class="lbl">Bot-Orders</span>
-    ${field("bk", "Der Bot handelt über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["tradovate", "Tradovate-Konto oben"], ["topstep", "Topstep-Konto oben"]], help: c.broker !== "paper" ? `Status: ${esc(S.broker.status || "–")}` : "Empfohlen, bis der Bot sich bewährt hat"})}
+    ${field("bk", "Der Bot handelt über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["topstep", "Topstep-Konto oben"], ["mt5", "MetaTrader 5 (Konten unter „MetaTrader 5“)"]], help: c.broker !== "paper" ? `Status: ${esc(S.broker.status || "–")}` : "Empfohlen, bis der Bot sich bewährt hat"})}
     <div id="ppd" class="sub" ${c.broker === "paper" ? "" : "hidden"}>
       ${field("pb", "Startkapital Paper ($)", c.paper.start_balance, {attrs: {min: 1000, step: 1000}})}
       <div class="inline wrap-gap"><button class="btn ghost-danger" id="pr">Paper-Konto zurücksetzen</button></div>
     </div>`)}
+
+  ${sec("mt5", "MetaTrader 5 & Copytrading", m5.accounts.length ? `${m5.accounts.length} ${m5.accounts.length === 1 ? "Konto" : "Konten"}${m5cc.enabled ? " · Copytrading an" : ""}${c.broker === "mt5" ? " · Bot handelt über MT5" : ""}` : "Mehrere Konten gleichzeitig handeln, z. B. FTMO", m5Chip, `
+    ${intro("Der Bot kann auf beliebig vielen MT5-Konten gleichzeitig handeln. Jedes Konto läuft in einem eigenen MT5-Fenster mit dem Zusatzprogramm „FVG-Bridge“. Alles bleibt auf deinem PC.")}
+    <span class="lbl">1 · Zusatzprogramm einrichten</span>
+    <ol class="m5-steps">
+      <li>„In MT5 installieren“ drücken (MT5 dabei geschlossen lassen oder danach neu starten).</li>
+      <li>In MT5 links im Navigator unter „Expert Advisors“ <b>FVG-Bridge</b> auf einen beliebigen Chart ziehen. Taucht er nicht auf: Rechtsklick → Aktualisieren.</li>
+      <li>Oben in MT5 <b>Algo Trading</b> einschalten. Nach ein paar Sekunden erscheint das Konto hier unten.</li>
+      <li>Für jedes weitere Konto ein eigenes MT5-Fenster öffnen (eigene Installation) und dasselbe tun.</li>
+    </ol>
+    <div class="inline wrap-gap"><button class="btn primary" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">EA herunterladen</a></div>
+    <span class="lbl">2 · Konten</span>
+    ${m5Rows || '<p class="hint">Noch kein MT5-Konto gemeldet. Sobald FVG-Bridge in einem MT5-Fenster läuft, erscheint es hier.</p>'}
+    <p class="hint">„Bot handelt hier“: Signale des Bots werden auf diesem Konto ausgeführt (dazu unter „Konten & Broker“ MetaTrader 5 wählen). Faktor 1 = gleiches Risiko in $ wie berechnet, 0,5 = halb so viel.</p>
+    <span class="lbl">3 · Copytrading</span>
+    ${field("m5ce", "Copytrading einschalten", m5cc.enabled, {check: true, help: "Trades, die du auf dem Hauptkonto selbst eröffnest, werden auf alle Konten mit „Kopien empfangen“ übertragen: Einstieg, Stop, Ziel, Teil-Schließen und Schließen. Kopiert wird erst, wenn die Position einen Stop-Loss hat."})}
+    ${field("m5cm", "Hauptkonto", m5cc.master, {select: [["", "– wählen –"], ...m5.accounts.map(a => [a.login, a.login + (a.company ? " · " + a.company : "")])], help: "Größe der Kopie = Lots des Hauptkontos × Faktor des Empfänger-Kontos"})}
+    ${m5cc.enabled ? `<div class="row"><label>Status<small>${m5.copy.error ? `<span class="neg">${esc(m5.copy.error)}</span>` : m5.copy.waiting && m5.copy.waiting.length ? "Wartet auf Stop-Loss im Hauptkonto: " + esc(m5.copy.waiting.join(", ")) : m5.copy.last ? "läuft · " + (m5.copy.copies || 0) + " Kopien seit Start" : "startet gleich"}</small></label></div>` : ""}
+    <span class="lbl">Symbole</span>
+    ${field("m5sn", "Nasdaq in MT5", m5c.sym_NQ, {type: "text", help: "Bei FTMO „US100.cash“. Der Bot rechnet NQ-Preise aus TradingView über den aktuellen Abstand um."})}
+    ${field("m5se", "S&P 500 in MT5", m5c.sym_ES, {type: "text", help: "Bei FTMO „US500.cash“"})}`)}
 
   ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, Kontrakte, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
     <span class="lbl">Safe-Stop-Grenzen (Punkte)</span>
@@ -3828,10 +3856,9 @@ function settings() {
     ${field("lp", "Pause unter Ø R", L.pause_below_r, {attrs: {step: 0.05}})}
     <span class="lbl">Paper-Trading</span>
     ${field("psl", "Slippage (Ticks)", c.paper.slippage_ticks, {attrs: {min: 0, step: 1}})}
-    ${field("pc", "Gebühr Mini (NQ/ES) pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.01}, help: "Alles zusammen: Kommission, Börse, Clearing, NFA. Bei Prop-Firmen (z. B. Apex über Tradovate) steht der Wert in deren Hilfe-Center."})}
+    ${field("pc", "Gebühr Mini (NQ/ES) pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.01}, help: "Alles zusammen: Kommission, Börse, Clearing, NFA. Bei Prop-Firmen steht der Wert in deren Hilfe-Center."})}
     ${field("pcm", "Gebühr Micro (MNQ/MES) pro Kontrakt & Seite ($)", c.paper.commission_micro ?? 0.75, {attrs: {min: 0, step: 0.01}, help: "Gilt auch für den Strategie-Finder und die Session-Ziele"})}
-    <span class="lbl">Tradovate</span>
-    ${field("tacc", "Kontoname", t.account, {type: "text", help: "Leer = erstes Konto. Bei mehreren Konten (z. B. Topstep) den Namen eintragen."})}
+    <span class="lbl">Kontrakte (Topstep)</span>
     ${field("cnq", "Kontrakt NQ / MNQ", c.contracts.NQ, {type: "text", attrs: {placeholder: "automatisch"}})}
     ${field("ces", "Kontrakt ES / MES", c.contracts.ES, {type: "text", attrs: {placeholder: "automatisch"}})}
     <span class="lbl">Verbindung & Updates</span>
@@ -3871,11 +3898,11 @@ function settings() {
       confluence: {enabled: v("cfE"), min: parseInt(v("cfM")), use: Object.fromEntries(Object.keys(CFN()).map(k => [k, v("cfU_" + k)]))},
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
-      tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},
       topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
+      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
+        accounts: Object.fromEntries((S.mt5 ? S.mt5.accounts : []).map(a => [a.login, {bot: v("m5b_" + a.login), copy: v("m5c_" + a.login), factor: v("m5f_" + a.login)}]))},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
-      own_sync: {tradovate: v("osync")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
       discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
         daystop: v("dcD"), daily: v("dcA"), weekly: v("dcW"), learn: v("dcL")},
@@ -3886,8 +3913,8 @@ function settings() {
     try { await doSave(); toast("Gespeichert"); await refresh(true); }
     catch (e) { $("#saveMsg").textContent = e.message; $("#saveMsg").className = "err-msg"; }
   };
-  $("#tvTest").onclick = async () => {
-    try { if (settingsDirty) await doSave(); const r = await api("/api/tradovate/test", {}); toast(r.ok ? r.status : "Fehler: " + r.status); await refresh(true); }
+  $("#m5Inst").onclick = async () => {
+    try { const r = await api("/api/mt5/install", {}); toast(r.count ? `In ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte „EA herunterladen“ und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts ablegen."); }
     catch (e) { toast(e.message); }
   };
   $("#tsTest").onclick = async () => {
@@ -3901,12 +3928,6 @@ function settings() {
       box.querySelectorAll(".tsPick").forEach(b => b.onclick = () => { $("#tsa").value = b.dataset.n; dirty(); toast("Konto eingetragen. Bitte speichern."); });
     } catch (e) { toast(e.message); }
   };
-  const sn = $("#syncNow"); if (sn) sn.onclick = async () => {
-    sn.disabled = true; sn.textContent = "Rufe ab …";
-    try { const r = await api("/api/own/sync", {}); toast(r.ok ? `${r.added} neue eigene Trades übernommen` : "Fehler: " + r.error); } catch (e) { toast(e.message); }
-    await refresh(true);
-  };
-
   $("#dcTest").onclick = async () => {
     const b = $("#dcTest"); b.disabled = true; b.textContent = "Sende …";
     try { await api("/api/discord/test", {url: (v("dcU") || "").trim()}); toast("Testnachricht gesendet – schau in Discord"); } catch (e) { toast(e.message); }
@@ -4030,7 +4051,7 @@ function render(full) {
   else if (TAB === "challenge") challenge(false);
   else if (TAB === "settings" && !settingsDirty && !document.activeElement.matches("input,select")) {
     // Status-Anzeigen live nachziehen (Verbindung, Broker, Updates, Abruf), ohne Eingaben zu stören
-    const key = JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.own_sync && S.own_sync.last, S.own_sync && S.own_sync.error, S.autostart, S.service]);
+    const key = setKey();
     if (key !== settingsKey) { const y = scrollY; settings(); scrollTo(0, y); }
   }
   else if ((TAB === "stats" || TAB === "learn" || TAB === "calendar") && Date.now() > ANIM.until) ({calendar, stats, learn}[TAB])();

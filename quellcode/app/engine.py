@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from brokers import BROKERS, BrokerError
+from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
 from discovery import BS_PARTS, bias_compute, bs_sess
@@ -118,9 +118,10 @@ DEFAULT_CONFIG = {
         "guard": True, "guard_buffer": 250.0,
     },
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25, "commission_micro": 0.75},
-    "tradovate": {"env": "demo", "username": "", "password": "", "cid": "", "secret": "",
-                  "app_id": "", "account": "", "device_id": ""},
     "topstep": {"username": "", "api_key": "", "account": "", "api_url": ""},   # TopstepX-API (Topstep-Konten)
+    # MetaTrader 5: Konten melden sich über den EA FVG-Bridge. Je Konto: bot = Bot handelt hier, copy = empfängt Kopien, factor = Größe
+    "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
+            "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
     "learning": {
         "enabled": True,
@@ -137,7 +138,6 @@ DEFAULT_CONFIG = {
     # Bias: Tagesrichtung, zu Beginn jeder Session neu bestimmt. streng = nicht gegen den Bias handeln, hinweis = nur anzeigen
     "bias": {"mode": "streng"},
     "calendar_from": "",       # Kalender/Statistik zeigen Trades erst ab diesem Handelstag (JJJJ-MM-TT); leer = alle
-    "own_sync": {"tradovate": False},   # eigene Trades automatisch aus Tradovate übernehmen
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
 
@@ -145,7 +145,7 @@ DEFAULT_CONFIG = {
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
-SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("topstep", "api_key"), ("tunnel", "ngrok_token"), ("discord", "url"))
+SECRET_PATHS = (("topstep", "api_key"), ("tunnel", "ngrok_token"), ("discord", "url"))
 MASK = "••••••••"
 
 
@@ -424,8 +424,6 @@ class Engine:
         self.broker_status = ""
         self.broker_ok = False
         self._balance_cache = (0, None)
-        self._sync_client = None
-        self.sync_state = {"last": None, "added": 0, "error": "", "next": 0}
         self.db.on_log = self._on_log
         self._disc_load()
         self._daystop_day = self.learning.get("daystop_day")
@@ -444,7 +442,10 @@ class Engine:
             self._dedupe_history()
         except Exception as e:  # noqa: BLE001
             self.db.log(f"Doppelte Einträge konnten nicht aufgeräumt werden: {e}", "warn")
+        self.mt5_link = Mt5Link(self.cfg)
+        self.mt5_copier = Mt5Copier(self.cfg, os.path.join(self.data_dir, "mt5-copytrading.json"))
         threading.Thread(target=self._loop, daemon=True).start()
+        threading.Thread(target=self._copy_loop, daemon=True).start()
         _t = threading.Timer(180, lambda: self.learn_paths_async(adopt=self.cfg["learning"].get("auto_adopt", True))); _t.daemon = True; _t.start()
         if time.time() - (self.disc.get("last_run") or 0) > 20 * 3600:
             _t = threading.Timer(1200, self.disc_async); _t.daemon = True; _t.start()   # erst 20 Min nach dem Start (schwere Rechnung)
@@ -461,6 +462,11 @@ class Engine:
             cfg["update_url"] = DEFAULT_UPDATE_URL
         if not cfg["webhook_token"]:
             cfg["webhook_token"] = secrets.token_urlsafe(18)
+        # Tradovate wurde mit 3.3.0 entfernt: Zugangsdaten raus, Bot zurück auf Paper (Trades und Kalender bleiben)
+        cfg.pop("tradovate", None)
+        cfg.pop("own_sync", None)
+        if cfg.get("broker") not in BROKERS:
+            cfg["broker"] = "paper"
         self._write_cfg(cfg)
         return cfg
 
@@ -485,8 +491,7 @@ class Engine:
                     part.pop(k)
             new = deep_merge(self.cfg, patch)
             self._validate_cfg(new)
-            broker_changed = new["broker"] != self.cfg["broker"] or new["tradovate"] != self.cfg["tradovate"] \
-                or new.get("topstep") != self.cfg.get("topstep")
+            broker_changed = new["broker"] != self.cfg["broker"] or new.get("topstep") != self.cfg.get("topstep")
             if new["broker"] != self.cfg["broker"] and self.db.open_positions():
                 raise ValueError("Broker kann nur ohne offene Positionen gewechselt werden.")
             if new["auto_mode"] != self.cfg["auto_mode"]:
@@ -499,8 +504,6 @@ class Engine:
             if broker_changed:
                 self.broker = BROKERS[self.cfg["broker"]](self.cfg)
                 self._connect_broker()
-                self._sync_client = None
-                self.sync_state["next"] = 0
             return self.public_cfg()
 
     @staticmethod
@@ -606,6 +609,28 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
+        m5 = c.setdefault("mt5", {})
+        for fam, dflt in (("NQ", "US100.cash"), ("ES", "US500.cash")):
+            m5["sym_" + fam] = str(m5.get("sym_" + fam) or dflt).strip()[:40]
+        accs = {}
+        for lg, a in (m5.get("accounts") or {}).items():
+            if not str(lg).isdigit() or not isinstance(a, dict):
+                continue
+            try:
+                f = float(str(a.get("factor", 1)).replace(",", "."))
+            except ValueError:
+                raise ValueError(f"MT5-Konto {lg}: Faktor als Zahl eingeben")
+            if not 0.01 <= f <= 100:
+                raise ValueError(f"MT5-Konto {lg}: Faktor zwischen 0,01 und 100")
+            accs[str(lg)] = {"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f}
+        m5["accounts"] = accs
+        cc = m5.setdefault("copy", {})
+        cc["enabled"], cc["master"] = bool(cc.get("enabled")), str(cc.get("master") or "")
+        if cc["enabled"]:
+            if not cc["master"]:
+                raise ValueError("Copytrading: bitte ein Hauptkonto wählen")
+            if accs.get(cc["master"], {}).get("copy"):
+                raise ValueError("Copytrading: Das Hauptkonto kann nicht gleichzeitig Kopien empfangen")
         bs = c.setdefault("bias", {})
         if bs.get("mode") not in ("streng", "hinweis", "aus"):
             bs["mode"] = "streng"
@@ -667,7 +692,12 @@ class Engine:
         for r in ("MNQ", "MES", "NQ", "ES"):
             if t.startswith(r):
                 return r
-        raise ValueError(f"Symbol {ticker!r} wird nicht unterstützt (nur NQ, MNQ, ES, MES)")
+        # CFD-Charts (z. B. US100/NAS100 bei FTMO, Pepperstone, OANDA): wie NQ bzw. ES behandeln
+        if re.match(r"^(US100|NAS100|NAS|USTEC|NDX|NSXUSD|USTECH)", t):
+            return "NQ"
+        if re.match(r"^(US500|SPX500|SPX|SP500|US500CASH|SPXUSD)", t):
+            return "ES"
+        raise ValueError(f"Symbol {ticker!r} wird nicht unterstützt (NQ, MNQ, ES, MES oder US100/NAS100, US500/SPX500)")
 
     @staticmethod
     def _num(v):
@@ -1474,6 +1504,8 @@ class Engine:
             self.db.update_signal(sig["id"], status="fehler", reason=str(e))
             self.db.log(f"Order fehlgeschlagen: {e}", "error")
             return {"ok": False, "status": "fehler", "reason": str(e)}
+        for w in (ref.pop("warnings", None) or []) if isinstance(ref, dict) else []:
+            self.db.log(w, "warn")
         pid = uuid.uuid4().hex[:10]
         self.db.add_position({
             "id": pid, "signal_id": sig["id"], "broker": self.broker.name, "root": root, "contract": sig["contract"],
@@ -2039,6 +2071,59 @@ class Engine:
                 "auto_log": self.learning.get("auto_log", [])}
 
     # ───────── Hintergrund ─────────
+    def _copy_loop(self):
+        """Copytrading läuft getrennt vom Bot, jede Sekunde."""
+        while True:
+            time.sleep(1)
+            cp = self.mt5_copier
+            try:
+                cp.tick()
+            except Exception as e:   # darf nie sterben
+                cp.status["error"] = str(e)
+            while cp.log:
+                level, msg = cp.log.pop(0)
+                self.db.log(msg, level)
+
+    def mt5_view(self):
+        accs = self.mt5_link.accounts()
+        conf = self.cfg["mt5"].get("accounts") or {}
+        rows = []
+        for lg in sorted(set(accs) | set(conf), key=lambda x: (x not in accs, x)):
+            a, c = accs.get(lg) or {}, conf.get(lg) or {}
+            rows.append({"login": lg, "server": a.get("server", ""), "company": a.get("company", ""),
+                         "currency": a.get("currency", ""), "balance": a.get("balance"), "equity": a.get("equity"),
+                         "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
+                         "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
+                         "factor": float(c.get("factor") or 1.0),
+                         "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()}})
+        st = self.mt5_copier.status
+        return {"dir": self.mt5_link.dir, "accounts": rows,
+                "copy": {"last": st.get("last"), "error": st.get("error"), "copies": st.get("copies"), "waiting": st.get("waiting") or []}}
+
+    def mt5_install(self, source):
+        """Legt den EA in alle gefundenen MT5-Installationen (MQL5/Experts) und in den Datenordner."""
+        base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "MetaQuotes", "Terminal")
+        done = []
+        try:
+            names = os.listdir(base)
+        except OSError:
+            names = []
+        for n in names:
+            exp = os.path.join(base, n, "MQL5", "Experts")
+            if os.path.isdir(exp):
+                try:
+                    with open(os.path.join(exp, "FVG-Bridge.mq5"), "w", encoding="utf-8-sig", newline="\r\n") as f:
+                        f.write(source)
+                    done.append(n)
+                except OSError:
+                    pass
+        with open(os.path.join(self.data_dir, "FVG-Bridge.mq5"), "w", encoding="utf-8-sig", newline="\r\n") as f:
+            f.write(source)
+        self.mt5_link.ensure_dir()
+        self.mt5_link.write_symbols()
+        self.db.log(f"MT5-EA in {len(done)} MetaTrader-Installation(en) gelegt")
+        return {"ok": True, "count": len(done), "copy": os.path.join(self.data_dir, "FVG-Bridge.mq5")}
+
     def _loop(self):
         while True:
             time.sleep(2)
@@ -2105,9 +2190,6 @@ class Engine:
                             self._close(pos, None, "Sessionende")
                         except ValueError:
                             pass
-            if self.cfg["own_sync"].get("tradovate") and time.time() >= self.sync_state["next"]:
-                self.sync_state["next"] = time.time() + 600
-                threading.Thread(target=self.own_sync, daemon=True).start()
             if self.broker.name != "paper" and self.broker_ok:
                 mine = [p for p in self.db.open_positions() if p["broker"] == self.broker.name]
                 try:
@@ -2611,14 +2693,7 @@ class Engine:
             self.db.log(f"Eigener Trade eingetragen: {day} {side.upper()} {qty}× {root} · {_fmt(pnl, '+,.0f')} $")
             return {"ok": True, "id": pid}
 
-    # ───────── Eigene Trades automatisch aus Tradovate ─────────
-    def test_tradovate(self):
-
-        try:
-            return {"ok": True, "status": BROKERS["tradovate"](self.cfg).connect()}
-        except BrokerError as e:
-            return {"ok": False, "status": str(e)}
-
+    # ───────── Topstep ─────────
     def test_topstep(self):
         b = BROKERS["topstep"](self.cfg)
         try:
@@ -2626,59 +2701,6 @@ class Engine:
             return {"ok": True, "status": status, "accounts": b.account_names()}
         except BrokerError as e:
             return {"ok": False, "status": str(e), "accounts": b.account_names()}
-
-    def own_sync(self):
-
-        if not self.cfg["own_sync"].get("tradovate"):
-            raise ValueError("Automatische Übernahme ist ausgeschaltet")
-        st = self.sync_state
-        st["next"] = time.time() + 600
-        try:
-            if self._sync_client is None:
-                self._sync_client = BROKERS["tradovate"](self.cfg)
-            trips = self._sync_client.round_trips()
-        except BrokerError as e:
-            st.update(error=str(e), last=time.time())
-            self._sync_client = None
-            return dict(st, ok=False)
-        with self.lock:
-            bot_orders = set()
-            for p in self.db.rows("SELECT broker_ref FROM positions WHERE broker='tradovate'"):
-                try:
-                    ref = json.loads(p["broker_ref"] or "{}")
-                except ValueError:
-                    ref = {}
-                bot_orders |= {ref.get(k) for k in ("orderId", "stopId", "tpId")} - {None}
-            existing = {(p.get("broker_ref") or {}).get("key") for p in self.db.closed_positions() if p["broker"] == "eigen"}
-            added = 0
-            for t in trips:
-                key = f"tradovate-pair-{t['id']}"
-                if key in existing or any(o in bot_orders for o in t["order_ids"]):
-                    continue
-                try:
-                    tb = dt.datetime.fromisoformat(str(t["buy_ts"]).replace("Z", "+00:00")).timestamp()
-                    ts = dt.datetime.fromisoformat(str(t["sell_ts"]).replace("Z", "+00:00")).timestamp()
-                except ValueError:
-                    continue
-                m = re.match(r"^(MNQ|MES|MYM|M2K|MGC|MCL|SIL|NQ|ES|YM|RTY|GC|CL|SI)", str(t["contract"]).upper())
-                root = m.group(1) if m else str(t["contract"])[:8]
-                pv = POINT_VALUE.get(root)
-                if pv is None:
-                    continue
-                long_ = tb <= ts
-                qty = int(t["qty"])
-                td = t.get("trade_date") or {}
-                day = f"{td['year']}-{td['month']:02d}-{td['day']:02d}" if td.get("year") else str(ny_date(max(tb, ts)))
-                self._own_insert({"root": root, "side": "long" if long_ else "short", "qty": qty,
-                                  "entry": t["buy"] if long_ else t["sell"], "exit": t["sell"] if long_ else t["buy"],
-                                  "pnl": (t["sell"] - t["buy"]) * qty * pv, "opened": min(tb, ts), "closed": max(tb, ts),
-                                  "day": day, "key": key, "note": "Tradovate (ohne Gebühren)"})
-                existing.add(key)
-                added += 1
-            st.update(last=time.time(), added=added, error="")
-            if added:
-                self.db.log(f"Tradovate: {added} eigene Trades übernommen")
-        return dict(st, ok=True)
 
     def own_delete(self, pid):
         """Löscht einen eigenen Trade oder einen Test-Trade (samt Test-Signal). Echte Bot-Trades bleiben."""
@@ -2705,7 +2727,7 @@ class Engine:
             return {"ok": True, "trades": n, "signals": m, "kept": len(keep)}
 
     def own_import(self, text, subtract_fees=True):
-        """CSV-Import eigener Trades (Topstep/ProjectX, Tradovate, NinjaTrader u. a.). Spalten werden automatisch erkannt."""
+        """CSV-Import eigener Trades (Topstep/ProjectX, NinjaTrader, MT5 u. a.). Spalten werden automatisch erkannt."""
         import csv
         import hashlib
         import io
@@ -4536,7 +4558,7 @@ class Engine:
                 "confluence": {"now": self.confluence_now(), "factors": {k: {"name": v["name"], "short": v["short"], "text": v["text"]} for k, v in CF_FACTORS.items()}},
                 "news_next": next(({"title": e["title"], "ts": e["ts"], "start": e["start"], "end": e["end"]}
                                    for e in self.news_window() if not e["active"]), None),
-                "own_sync": dict(self.sync_state, enabled=bool(self.cfg["own_sync"].get("tradovate"))),
+                "mt5": self.mt5_view(),
                 "sizing_preview": {fam: [self.size_preview(fam, pts) for pts in
                                          ((10, 20, 40, 60) if fam == "NQ" else (3, 5, 10, 15))]
                                    for fam in ("NQ", "ES")},
