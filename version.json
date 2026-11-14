@@ -1,6 +1,6 @@
 {
-  "version": "3.3.1",
-  "file": "releases/FVG-Trader-3.3.1.cmd",
-  "sha256": "cc56ec323ccf058d16bd4635743b3da7163f6e7af2c00b4a19b78dc18ade16ae",
-  "notes": "Fremdkapital-Tab überarbeitet: oben Firma (FTMO, Topstep), Programm und Kontogröße wählen. Die App setzt die Regeln und passt den Bot an (Risiko pro Trade, Tages-Stopp, Schutz)."
+  "version": "3.4.0",
+  "file": "releases/FVG-Trader-3.4.0.cmd",
+  "sha256": "1b3c33e8e61baf66e3fabd85a6912309346d75a1643c4479469293ed50ab1ff1",
+  "notes": "Neu: IQ Capital als Fremdkapital-Firma. Im Fremdkapital-Tab gibt es jetzt die Ansicht „Regeln der Firmen“ mit allen Regeln von FTMO, Topstep und IQ Capital."
 }

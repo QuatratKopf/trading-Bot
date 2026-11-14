@@ -538,6 +538,29 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.cp-warn{margin:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--sunk);font-size:13px;line-height:1.5;color:var(--fg)}
+.ch-view{align-self:flex-start;margin-bottom:4px}
+.pr-intro h2,.pr-h h3{margin:0;font-size:17px;text-transform:none;letter-spacing:0;color:var(--fg)}
+.pr-intro{display:flex;flex-direction:column;gap:6px}
+.pr-firm{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pr-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.pr-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.pr-facts > div{display:flex;flex-direction:column;gap:3px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13.5px;line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.pr-facts .l{font-size:11.5px;color:var(--muted)}
+.pr-t td small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.pr-t .pr-v{display:block;white-space:nowrap}
+.pr-t td{vertical-align:top}
+@media (max-width:640px){
+  .pr-wrap{overflow:visible}
+  .pr-t,.pr-t tbody{display:block;width:100%}
+  .pr-t thead{display:none}
+  .pr-t tr{display:block;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:var(--sunk)}
+  .pr-t td{display:flex;justify-content:space-between;gap:12px;border:0!important;padding:3px 0!important;text-align:right}
+  .pr-t td.t{display:block;text-align:left;font-weight:600;padding-bottom:6px!important}
+  .pr-t td[data-l]::before{content:attr(data-l);color:var(--muted);text-align:left;font-weight:400}
+  .pr-t .pr-v{white-space:normal}
+}
+.pr-x{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:3px;font-size:13.5px;line-height:1.5}
 .m5-acc{border:1px solid var(--line, rgba(127,127,127,.25));border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .m5-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0}
 .m5-h small{flex-basis:100%;overflow-wrap:anywhere}
@@ -2498,12 +2521,17 @@ function chChart(c) {
 function challenge(full) {
   const c = S.challenge, cfg = (S.config.challenge || {});
   if (full !== false || !$("#chWrap")) {
-    $("#main").innerHTML = `<div id="chWrap" style="display:contents"><section class="panel cp" id="chPick"></section><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
+    $("#main").innerHTML = `<div class="seg ch-view" role="group" aria-label="Ansicht"><button type="button" data-chv="konto" aria-pressed="${CHV === "konto"}">Mein Konto</button><button type="button" data-chv="regeln" aria-pressed="${CHV === "regeln"}">Regeln der Firmen</button></div>
+      <div id="chRules" style="display:${CHV === "regeln" ? "contents" : "none"}"></div>
+      <div id="chWrap" style="display:${CHV === "konto" ? "contents" : "none"}"><section class="panel cp" id="chPick"></section><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
       <details class="set-sec ch-form" id="chForm"><summary><span class="s-ic">${icon('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>')}</span>
         <span class="s-t"><b>Feineinstellungen</b><span class="hint">${c ? `${esc(cfg.name || "Konto")} · ${mUsd(cfg.start_balance)} · Ziel ${mUsd(cfg.profit_target)} · Drawdown ${mUsd(cfg.max_dd)} ${DDT[cfg.dd_type].split(" ")[0]}` : "Einmal eintragen, dann rechnet die App live mit"}</span></span><span></span></summary>
         <div class="set-b" id="chFormB"></div></details></div>`;
     chForm();
     chPick();
+    $("#chRules").innerHTML = chRulesPage();
+    document.querySelectorAll("[data-chv]").forEach(b => b.onclick = () => { CHV = b.dataset.chv; try { localStorage.setItem("fvg-chv", CHV); } catch (e) { /* egal */ } challenge(true); });
+    document.querySelectorAll("[data-prpick]").forEach(b => b.onclick = () => { CHV = "konto"; CP.firm = b.dataset.prpick; CP.program = null; CP.risk = CP.risk || "normal"; CP.open = true; try { localStorage.setItem("fvg-chv", CHV); } catch (e) { /* egal */ } challenge(true); window.scrollTo(0, 0); });
   }
   const live = $("#chLive");
   if (!c) { live.innerHTML = ""; $("#mcBox").hidden = true; return; }
@@ -2539,6 +2567,42 @@ function challenge(full) {
   $("#mcBox").hidden = false;
   if (!MC.data || MC.key !== JSON.stringify(c.cfg)) { if (!MC.busy) mcRun(); } else if (full !== false || !$("#mcBox").innerHTML) mcPanel();
 }
+function propRules(p, size) {   // wie Engine.prop_program_rules
+  let t, dd, daily;
+  if (p.usd) { const u = p.usd[size] || p.usd[String(size)]; t = u.target; dd = u.dd; daily = u.daily; }
+  else { t = size * p.pct.target / 100; dd = size * p.pct.dd / 100; daily = size * p.pct.daily / 100; }
+  if (p.funded) t = 0;
+  if (p.no_daily) daily = 0;
+  return {target: t, dd, daily, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons};
+}
+// Übersicht: Regeln aller Firmen nebeneinander
+let CHV = "konto";
+try { CHV = localStorage.getItem("fvg-chv") || "konto"; } catch (e) { /* ohne Speicher */ }
+function chRulesPage() {
+  const P = S.prop_presets || {}, kk = v => (v / 1000).toLocaleString("de-DE") + "K";
+  const dd = {static: "fest ab Start", eod: "zieht zum Tagesende nach", intraday: "zieht sofort nach"};
+  return `<div class="pr-intro panel"><h2>Regeln der Firmen</h2><p class="hint">Übersicht der Fremdkapital-Firmen, die die App kennt. Die Werte stammen aus Regel-Übersichten im Internet und können sich ändern. Vor dem Kauf immer auf der Seite der Firma prüfen.</p></div>
+  ${Object.entries(P).map(([fk, f]) => `<section class="panel pr-firm">
+    <div class="pr-h"><h3>${esc(f.name)}</h3><span class="chip ${f.info.app_ok ? "good" : "warn"}">${f.info.app_ok ? "Bot kann hier handeln" : "nur Überwachung"}</span><span class="hint">Stand ${esc(f.checked)} · ${esc(f.site)}</span></div>
+    <div class="pr-facts">
+      <div><span class="l">Märkte</span><span>${esc(f.info.markets)}</span></div>
+      <div><span class="l">Plattformen</span><span>${esc(f.info.platforms)}</span></div>
+      <div><span class="l">Bots</span><span>${esc(f.info.bots)}</span></div>
+      <div><span class="l">Anbindung in der App</span><span>${esc(f.info.app)}</span></div>
+    </div>
+    <div class="scroll pr-wrap"><table class="pr-t"><thead><tr><th class="t">Programm</th><th>Größen</th><th>Gewinnziel</th><th>Max. pro Tag</th><th>Max. gesamt</th><th>Mind.-Tage</th><th>Konsistenz</th></tr></thead><tbody>
+      ${Object.values(f.programs).map(p => { const val = k => { const rs = p.sizes.map(sz => [sz, propRules(p, sz)[k]]); if (rs.every(([, v]) => !v)) return k === "daily" ? "keins" : "–";
+          if (p.pct) return String(p.pct[k === "target" ? "target" : k]).replace(".", ",") + " %";
+          return rs.map(([sz, v]) => `<span class="pr-v">${kk(sz)}: ${mUsd(v)}</span>`).join(""); };
+        const dly = p.no_daily ? "keins" : val("daily");
+        return `<tr><td class="t">${esc(p.label)}<small>${dd[p.dd_type]}${p.max_risk ? ` · max. ${String(p.max_risk).replace(".", ",")} % Risiko/Trade` : ""}</small></td><td data-l="Größen">${p.sizes.map(kk).join(", ")}</td><td data-l="Gewinnziel" class="pos">${p.funded ? "–" : val("target")}</td><td data-l="Max. pro Tag" class="neg">${dly}</td><td data-l="Max. gesamt" class="neg">${val("dd")}</td><td data-l="Mindest-Tage">${p.min_days || "–"}</td><td data-l="Konsistenz">${p.cons ? p.cons + " %" : "–"}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    ${Object.values(f.programs).some(p => p.pct) ? '<p class="hint" style="margin:0">Prozentwerte beziehen sich auf die Kontogröße, z. B. 10 % bei 100K = 10.000 $.</p>' : ""}
+    <ul class="pr-x">${f.info.extra.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+    <p class="hint" style="margin:0">${esc(f.note)}</p>
+    <div class="inline wrap-gap"><button type="button" class="btn" data-prpick="${fk}">Konto bei ${esc(f.name)} wählen</button></div>
+  </section>`).join("")}`;
+}
 // Firma, Programm und Kontogröße wählen: Regeln + Bot-Einstellungen in einem Schritt
 const CP = {firm: null, program: null, size: null, risk: null, open: false};
 function chPick() {
@@ -2547,14 +2611,11 @@ function chPick() {
   if (CP.firm === null) Object.assign(CP, pre ? {firm: pre.firm, program: pre.program, size: pre.size, risk: pre.risk || "normal"} : {firm: "ftmo", program: "2s1", size: 100000, risk: "normal"}, {open: !cf.enabled});
   const f = P[CP.firm];
   if (f && !f.programs[CP.program]) CP.program = Object.keys(f.programs)[0];
-  if (f && !f.sizes.includes(+CP.size)) CP.size = f.sizes[Math.min(f.sizes.length - 1, 2)];
+  const pg = f ? f.programs[CP.program] : null;
+  if (pg && !pg.sizes.includes(+CP.size)) CP.size = pg.sizes.includes(100000) ? 100000 : pg.sizes[Math.min(pg.sizes.length - 1, 2)];
+  if (pg && pg.max_risk && (RK[CP.risk] || 0) > pg.max_risk) CP.risk = Object.keys(RK).filter(k => RK[k] <= pg.max_risk).pop();
   const kk = v => v >= 1000 ? (v / 1000).toLocaleString("de-DE") + "K" : v;
-  const rules = (() => {
-    if (!f) return null;
-    const p = f.programs[CP.program], size = +CP.size;
-    if (CP.firm === "topstep") { const u = f.usd[size] || f.usd[String(size)]; return {target: p.funded ? 0 : u.target, dd: u.dd, daily: u.daily, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons}; }
-    return {target: size * p.target / 100, dd: size * p.dd / 100, daily: size * p.daily / 100, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons};
-  })();
+  const rules = pg ? propRules(pg, +CP.size) : null;
   const riskUsd = f ? Math.round(+CP.size * (RK[CP.risk] || 0.5) / 100) : 0;
   const active = pre ? `${esc((P[pre.firm] || {}).name || "")} · ${esc(((P[pre.firm] || {}).programs || {})[pre.program] ? P[pre.firm].programs[pre.program].label : "")} · ${kk(pre.size)}`
     : cf.enabled ? `${esc(cf.name || "Eigene Regeln")} · ${mUsd(cf.start_balance)}` : "";
@@ -2571,7 +2632,7 @@ function chPick() {
     <div class="cp-r"><span class="l">Firma</span>${seg("data-cpf", [...Object.entries(P).map(([k, x]) => [k, x.name]), ["eigen", "Eigene Regeln"]], CP.firm)}</div>
     ${f ? `
     <div class="cp-r"><span class="l">Programm</span>${seg("data-cpp", Object.entries(f.programs).map(([k, x]) => [k, x.label]), CP.program)}</div>
-    <div class="cp-r"><span class="l">Kontogröße</span>${seg("data-cps", f.sizes.map(v => [v, kk(v)]), CP.size)}</div>
+    <div class="cp-r"><span class="l">Kontogröße</span>${seg("data-cps", pg.sizes.map(v => [v, kk(v)]), CP.size)}</div>
     <div class="cp-rules">
       <div><span class="l">Gewinnziel</span><b class="pos">${rules.target ? mUsd(rules.target) : "keins"}</b></div>
       <div><span class="l">Max. Verlust pro Tag</span><b class="neg">${rules.daily ? mUsd(rules.daily) : "keins"}</b></div>
@@ -2579,7 +2640,8 @@ function chPick() {
       <div><span class="l">Mindest-Handelstage</span><b>${rules.min_days || "keine"}</b></div>
       ${rules.cons ? `<div><span class="l">Konsistenz</span><b>${rules.cons} %</b><small>bester Tag max. ${rules.cons} % vom Gewinn</small></div>` : ""}
     </div>
-    <div class="cp-r"><span class="l">Risiko pro Trade</span>${seg("data-cpk", Object.entries(RK).map(([k, v]) => [k, `${k[0].toUpperCase() + k.slice(1)} · ${String(v).replace(".", ",")} %`]), CP.risk)}</div>
+    <div class="cp-r"><span class="l">Risiko pro Trade</span>${seg("data-cpk", Object.entries(RK).filter(([, v]) => !pg.max_risk || v <= pg.max_risk).map(([k, v]) => [k, `${k[0].toUpperCase() + k.slice(1)} · ${String(v).replace(".", ",")} %`]), CP.risk)}</div>
+    ${f.info && !f.info.app_ok ? `<p class="cp-warn">${esc(f.info.app)}</p>` : ""}
     <p class="hint cp-what">Beim Übernehmen stellt die App den Bot passend ein: <b>${mUsd(riskUsd)} Risiko pro Trade</b>, Tages-Stopp bei <b>−${mUsd(Math.round((rules.daily || rules.dd * 0.5) * 0.8))}</b> (vor dem Limit der Firma)${rules.cons && rules.target ? `, Tages-Gewinnstopp bei <b>+${mUsd(Math.round(rules.target * rules.cons / 100 * 0.8))}</b> wegen der Konsistenzregel` : ""} und Bot-Schutz an. ${esc(f.note)}</p>
     <label class="m5-c"><input type="checkbox" class="chk" id="cpAdapt" checked> Bot-Einstellungen anpassen</label>
     ${S.broker.name === "paper" ? `<label class="m5-c"><input type="checkbox" class="chk" id="cpPaper" checked> Paper-Konto auf ${mUsd(+CP.size)} setzen (zum Üben)</label>` : ""}

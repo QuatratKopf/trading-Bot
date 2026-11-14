@@ -141,28 +141,81 @@ DEFAULT_CONFIG = {
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
 
-# Vorlagen für Fremdkapital-Firmen. Werte in % der Kontogröße (FTMO) bzw. in $ je Größe (Topstep).
+# Vorlagen für Fremdkapital-Firmen. Je Programm: Größen und Regeln in % der Kontogröße („pct“) oder in $ je Größe („usd“).
 # Stand November 2026 laut Regel-Übersichten; vor dem Kauf auf der Seite der Firma prüfen.
+_TS_USD = {50000: {"target": 3000, "dd": 2000, "daily": 1000}, 100000: {"target": 6000, "dd": 3000, "daily": 2000},
+           150000: {"target": 9000, "dd": 4500, "daily": 3000}}
+_IQ_USD = {50000: {"target": 3000, "dd": 2000, "daily": 1000}, 100000: {"target": 6000, "dd": 3000, "daily": 1500}}
+_FTMO_SIZES = [10000, 25000, 50000, 100000, 200000]
 PROP_PRESETS = {
     "ftmo": {
-        "name": "FTMO", "sizes": [10000, 25000, 50000, 100000, 200000],
+        "name": "FTMO", "checked": "November 2026", "site": "ftmo.com",
         "note": "Tageswechsel bei FTMO: Mitternacht Prager Zeit. Tagesverlust zählt offene Positionen mit.",
+        "info": {
+            "markets": "CFDs (US100, US500, Forex, Gold …) und seit 2026 auch Futures",
+            "platforms": "MT5, cTrader, DXtrade; Futures über Tradovate, NinjaTrader, TradingView",
+            "bots": "Erlaubt (EAs und eigene Programme). Verboten: Hochfrequenz-Handel, Latenz-Tricks",
+            "app": "Ja, über MetaTrader 5 (Einstellungen → MetaTrader 5 & Copytrading)", "app_ok": True,
+            "extra": ["Höchstens 400.000 $ Kapital pro Person bzw. Strategie, über alle Konten zusammen",
+                      "Copytrading zwischen eigenen Konten ok, solange die 400.000 $ nicht überschritten werden",
+                      "US100.cash: etwa 1 $ pro Punkt und Lot, keine Kommission, Hebel 1:50",
+                      "1-Step: ab Oktober 2026 Konsistenzregel 50 % statt „Best Day“-Regel"],
+        },
         "programs": {
-            "2s1": {"label": "2-Step · Phase 1 (Challenge)", "phase": "Challenge", "target": 10, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 4, "cons": 0},
-            "2s2": {"label": "2-Step · Phase 2 (Verifizierung)", "phase": "Phase 2", "target": 5, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 4, "cons": 0},
-            "2sf": {"label": "2-Step · FTMO-Konto (Funded)", "phase": "Funded", "target": 0, "daily": 5, "dd": 10, "dd_type": "static", "min_days": 0, "cons": 0},
-            "1s": {"label": "1-Step · Challenge", "phase": "Challenge", "target": 10, "daily": 3, "dd": 10, "dd_type": "eod", "min_days": 0, "cons": 50},
-            "1sf": {"label": "1-Step · FTMO-Konto (Funded)", "phase": "Funded", "target": 0, "daily": 3, "dd": 10, "dd_type": "eod", "min_days": 0, "cons": 0},
+            "2s1": {"label": "2-Step · Phase 1 (Challenge)", "phase": "Challenge", "sizes": _FTMO_SIZES,
+                    "pct": {"target": 10, "daily": 5, "dd": 10}, "dd_type": "static", "min_days": 4, "cons": 0},
+            "2s2": {"label": "2-Step · Phase 2 (Verifizierung)", "phase": "Phase 2", "sizes": _FTMO_SIZES,
+                    "pct": {"target": 5, "daily": 5, "dd": 10}, "dd_type": "static", "min_days": 4, "cons": 0},
+            "2sf": {"label": "2-Step · FTMO-Konto (Funded)", "phase": "Funded", "sizes": _FTMO_SIZES,
+                    "pct": {"target": 0, "daily": 5, "dd": 10}, "dd_type": "static", "min_days": 0, "cons": 0},
+            "1s": {"label": "1-Step · Challenge", "phase": "Challenge", "sizes": _FTMO_SIZES,
+                   "pct": {"target": 10, "daily": 3, "dd": 10}, "dd_type": "eod", "min_days": 0, "cons": 50},
+            "1sf": {"label": "1-Step · FTMO-Konto (Funded)", "phase": "Funded", "sizes": _FTMO_SIZES,
+                    "pct": {"target": 0, "daily": 3, "dd": 10}, "dd_type": "eod", "min_days": 0, "cons": 0},
         },
     },
     "topstep": {
-        "name": "Topstep", "sizes": [50000, 100000, 150000],
-        "note": "Topstep-Werte je Kontogröße. Tageslimit und Mindesttage haben sich bei Topstep öfter geändert.",
-        "usd": {50000: {"target": 3000, "dd": 2000, "daily": 1000}, 100000: {"target": 6000, "dd": 3000, "daily": 2000},
-                150000: {"target": 9000, "dd": 4500, "daily": 3000}},
+        "name": "Topstep", "checked": "November 2026", "site": "topstep.com",
+        "note": "Tageslimit und Mindesttage haben sich bei Topstep öfter geändert.",
+        "info": {
+            "markets": "Futures (NQ, ES, MNQ, MES …)",
+            "platforms": "TopstepX (eigene Plattform), dazu NinjaTrader und weitere",
+            "bots": "Über die TopstepX-API erlaubt, aber nur im Trading Combine und Express Funded, nicht im Live-Konto",
+            "app": "Ja, über die Topstep-Anbindung (Einstellungen → Konten & Broker)", "app_ok": True,
+            "extra": ["API kostet extra: etwa 29 $ im Monat (mit Rabattcode etwa 14,50 $)",
+                      "Bot nur vom eigenen PC: gemieteter Server (VPS) und VPN sind verboten",
+                      "Konsistenzregel 50 % im Trading Combine"],
+        },
         "programs": {
-            "tc": {"label": "Trading Combine", "phase": "Challenge", "dd_type": "eod", "min_days": 2, "cons": 50, "funded": False},
-            "xf": {"label": "Express Funded", "phase": "Funded", "dd_type": "eod", "min_days": 0, "cons": 0, "funded": True},
+            "tc": {"label": "Trading Combine", "phase": "Challenge", "sizes": [50000, 100000, 150000], "usd": _TS_USD,
+                   "dd_type": "eod", "min_days": 2, "cons": 50},
+            "xf": {"label": "Express Funded", "phase": "Funded", "sizes": [50000, 100000, 150000], "usd": _TS_USD,
+                   "funded": True, "dd_type": "eod", "min_days": 0, "cons": 0},
+        },
+    },
+    "iq": {
+        "name": "IQ Capital", "checked": "November 2026", "site": "iqcapital.io",
+        "note": "Die Angaben zu IQ Capital widersprechen sich in den Quellen teilweise. Bitte unbedingt auf iqcapital.io prüfen.",
+        "info": {
+            "markets": "Futures sowie CFDs und Krypto",
+            "platforms": "Futures: Tradovate, NinjaTrader und TradingView (Konten mit Tageslimit), außerdem Quantower, ATAS, Deepcharts",
+            "bots": "Nur eigene Programme, deren Code du besitzt. Verboten: fremde Bots, Signale kopieren, Hochfrequenz-Handel",
+            "app": "Keine direkte Anbindung: Die Futures laufen über Tradovate, und Tradovate sperrt die API für Fremdkapital-Konten. "
+                   "Die App kann die Challenge aber überwachen (eigene Trades eintragen oder per CSV einlesen).", "app_ok": False,
+            "extra": ["Futures 50K: Prüfung etwa 245 $, Aktivierung etwa 129 $; Auszahlung höchstens 1.500 $ pro Mal",
+                      "Konsistenzregel 30 % erst im Funded-Konto",
+                      "Ein „weicher“ Verstoß gegen das Tageslimit ist erlaubt (Konto wird nicht sofort beendet)",
+                      "CFD/Krypto: höchstens 1 % Risiko pro Trade in der Challenge, 0,5 % im Funded-Konto"],
+        },
+        "programs": {
+            "fd": {"label": "Futures · Challenge mit Tageslimit", "phase": "Challenge", "sizes": [50000, 100000], "usd": _IQ_USD,
+                   "dd_type": "eod", "min_days": 0, "cons": 0},
+            "fn": {"label": "Futures · Challenge ohne Tageslimit", "phase": "Challenge", "sizes": [50000, 100000], "usd": _IQ_USD,
+                   "no_daily": True, "dd_type": "eod", "min_days": 0, "cons": 0},
+            "ff": {"label": "Futures · Funded", "phase": "Funded", "sizes": [50000, 100000], "usd": _IQ_USD,
+                   "funded": True, "dd_type": "eod", "min_days": 0, "cons": 30},
+            "cfd": {"label": "CFD/Krypto · Challenge", "phase": "Challenge", "sizes": [10000, 25000, 50000, 100000, 200000],
+                    "pct": {"target": 8, "daily": 0, "dd": 6}, "dd_type": "eod", "min_days": 0, "cons": 0, "max_risk": 1.0},
         },
     },
 }
@@ -2721,22 +2774,33 @@ class Engine:
             return {"ok": True, "id": pid}
 
     # ───────── Fremdkapital-Vorlagen ─────────
+    @staticmethod
+    def prop_program_rules(p, size):
+        """Regeln eines Programms für eine Kontogröße in $."""
+        if "usd" in p:
+            u = p["usd"].get(size) or p["usd"].get(str(size))
+            target, dd, daily = u["target"], u["dd"], u["daily"]
+        else:
+            q = p["pct"]
+            target, dd, daily = size * q["target"] / 100, size * q["dd"] / 100, size * q["daily"] / 100
+        if p.get("funded"):
+            target = 0
+        if p.get("no_daily"):
+            daily = 0
+        return {"target": float(target), "dd": float(dd), "daily": float(daily)}
+
     def prop_rules(self, firm, prog, size):
         f = PROP_PRESETS.get(firm)
         if not f or prog not in f["programs"]:
             raise ValueError("Unbekannte Firma oder unbekanntes Programm")
-        size = int(size)
-        if size not in f["sizes"]:
-            raise ValueError("Diese Kontogröße gibt es bei " + f["name"] + " nicht")
         p = f["programs"][prog]
-        if firm == "topstep":
-            u = f["usd"][size]
-            target, dd, daily = (0 if p["funded"] else u["target"]), u["dd"], u["daily"]
-        else:
-            target, dd, daily = size * p["target"] / 100, size * p["dd"] / 100, size * p["daily"] / 100
+        size = int(size)
+        if size not in p["sizes"]:
+            raise ValueError("Diese Kontogröße gibt es bei " + f["name"] + " in diesem Programm nicht")
+        r = self.prop_program_rules(p, size)
         return {"name": f"{f['name']} {size // 1000}K", "phase": p["phase"], "start_balance": float(size),
-                "profit_target": float(target), "max_dd": float(dd), "dd_type": p["dd_type"], "lock_at_start": True,
-                "daily_loss": float(daily), "consistency_pct": float(p["cons"]), "min_days": int(p["min_days"])}
+                "profit_target": r["target"], "max_dd": r["dd"], "dd_type": p["dd_type"], "lock_at_start": True,
+                "daily_loss": r["daily"], "consistency_pct": float(p["cons"]), "min_days": int(p["min_days"])}
 
     def apply_prop(self, b):
         """Firma + Programm + Größe wählen: Challenge-Regeln setzen und den Bot passend einstellen."""
@@ -2745,6 +2809,9 @@ class Engine:
         if risk_key not in PROP_RISK:
             raise ValueError("Unbekannte Risiko-Stufe")
         rules = self.prop_rules(firm, prog, size)
+        cap = PROP_PRESETS[firm]["programs"][prog].get("max_risk")
+        if cap and PROP_RISK[risk_key] > cap:
+            raise ValueError(f"Bei diesem Programm sind höchstens {cap:g} % Risiko pro Trade erlaubt".replace(".", ","))
         start_day = str(b.get("start_day") or ny_date())
         size = rules["start_balance"]
         risk_usd = round(size * PROP_RISK[risk_key] / 100, 0)
