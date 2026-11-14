@@ -120,6 +120,7 @@ DEFAULT_CONFIG = {
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25, "commission_micro": 0.75},
     "tradovate": {"env": "demo", "username": "", "password": "", "cid": "", "secret": "",
                   "app_id": "", "account": "", "device_id": ""},
+    "topstep": {"username": "", "api_key": "", "account": "", "api_url": ""},   # TopstepX-API (Topstep-Konten)
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
     "learning": {
         "enabled": True,
@@ -144,7 +145,7 @@ DEFAULT_CONFIG = {
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
-SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("tunnel", "ngrok_token"), ("discord", "url"))
+SECRET_PATHS = (("tradovate", "password"), ("tradovate", "secret"), ("topstep", "api_key"), ("tunnel", "ngrok_token"), ("discord", "url"))
 MASK = "••••••••"
 
 
@@ -484,7 +485,8 @@ class Engine:
                     part.pop(k)
             new = deep_merge(self.cfg, patch)
             self._validate_cfg(new)
-            broker_changed = new["broker"] != self.cfg["broker"] or new["tradovate"] != self.cfg["tradovate"]
+            broker_changed = new["broker"] != self.cfg["broker"] or new["tradovate"] != self.cfg["tradovate"] \
+                or new.get("topstep") != self.cfg.get("topstep")
             if new["broker"] != self.cfg["broker"] and self.db.open_positions():
                 raise ValueError("Broker kann nur ohne offene Positionen gewechselt werden.")
             if new["auto_mode"] != self.cfg["auto_mode"]:
@@ -2616,6 +2618,14 @@ class Engine:
             return {"ok": True, "status": BROKERS["tradovate"](self.cfg).connect()}
         except BrokerError as e:
             return {"ok": False, "status": str(e)}
+
+    def test_topstep(self):
+        b = BROKERS["topstep"](self.cfg)
+        try:
+            status = b.connect()
+            return {"ok": True, "status": status, "accounts": b.account_names()}
+        except BrokerError as e:
+            return {"ok": False, "status": str(e), "accounts": b.account_names()}
 
     def own_sync(self):
 

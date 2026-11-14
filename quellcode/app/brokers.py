@@ -1,9 +1,10 @@
-"""Broker-Anbindungen: Paper-Trading (Simulation) und Tradovate (REST-API).
+"""Broker-Anbindungen: Paper-Trading (Simulation), Tradovate (REST-API) und Topstep (TopstepX-/ProjectX-API).
 
 Jede Order wird als Bracket mit Stop-Loss geschickt. Ohne Stop verlässt keine Order die App.
 """
 import datetime as dt
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -276,4 +277,312 @@ class TradovateBroker:
         return res.get("totalCashValue") if isinstance(res, dict) else None
 
 
-BROKERS = {"paper": PaperBroker, "tradovate": TradovateBroker}
+# ───────────────────────── Topstep (TopstepX / ProjectX-API) ─────────────────────────
+TSX_DEFAULT_URL = "https://api.topstepx.com"
+TSX_LIMIT, TSX_MARKET, TSX_STOP = 1, 2, 4          # Order-Arten der API
+TSX_BUY, TSX_SELL = 0, 1                           # 0 = Kauf (Bid), 1 = Verkauf (Ask)
+TSX_FILLED, TSX_DONE = 2, (2, 3, 4, 5)             # 2 = ausgeführt; 3/4/5 = storniert/abgelaufen/abgelehnt
+
+
+class TopstepBroker:
+    """Topstep über die TopstepX-API (ProjectX Gateway). Benötigt Benutzername und API-Schlüssel aus TopstepX.
+
+    Ablauf je Trade: Market-Order, danach eine Stop-Order und eine Limit-Order fürs Ziel.
+    Lässt sich der Stop nicht setzen, wird die Position sofort wieder geschlossen: ohne Stop bleibt nichts offen.
+    Wird eine der beiden Schutz-Orders ausgeführt, storniert der Bot die andere."""
+    name = "topstep"
+    label = "Topstep"
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.token = None
+        self.token_time = 0
+        self.account_id = None
+        self.account_name = None
+        self.accounts = []
+        self._contracts = {}      # Kontraktname -> {"id", "tick"}
+        self._front = {}          # Wurzel (MNQ) -> (Zeit, Kontraktname)
+
+    @property
+    def tcfg(self):
+        return self.cfg.setdefault("topstep", {})
+
+    @property
+    def base(self):
+        return (self.tcfg.get("api_url") or TSX_DEFAULT_URL).rstrip("/") + "/api"
+
+    def _req(self, path, body=None, auth=True):
+        if auth:
+            self._ensure_token()
+        req = urllib.request.Request(self.base + path, data=json.dumps(body or {}).encode(), method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        if auth:
+            req.add_header("Authorization", f"Bearer {self.token}")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                raw = r.read().decode() or "{}"
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and auth:
+                self.token = None
+            raise BrokerError(f"Topstep {e.code}: {e.read().decode()[:200]}")
+        except urllib.error.URLError as e:
+            raise BrokerError(f"Topstep nicht erreichbar: {e.reason}")
+        try:
+            res = json.loads(raw)
+        except ValueError:
+            raise BrokerError("Topstep: unerwartete Antwort")
+        if isinstance(res, dict) and res.get("success") is False:
+            msg = res.get("errorMessage") or f"Fehlercode {res.get('errorCode')}"
+            raise BrokerError(f"Topstep: {msg}")
+        return res
+
+    def _ensure_token(self):
+        if self.token and time.time() - self.token_time < 20 * 3600:   # Schlüssel gilt 24 Stunden
+            return
+        c = self.tcfg
+        missing = [n for k, n in (("username", "Benutzername"), ("api_key", "API-Schlüssel")) if not str(c.get(k, "")).strip()]
+        if missing:
+            raise BrokerError("Topstep-Zugangsdaten fehlen: " + ", ".join(missing))
+        try:
+            res = self._req("/Auth/loginKey", {"userName": c["username"].strip(), "apiKey": c["api_key"].strip()}, auth=False)
+        except BrokerError as e:
+            if "nicht erreichbar" in str(e):
+                raise
+            raise BrokerError("Topstep-Login fehlgeschlagen: Benutzername oder API-Schlüssel prüfen")
+        if not isinstance(res, dict) or not res.get("token"):
+            raise BrokerError("Topstep-Login fehlgeschlagen: Benutzername oder API-Schlüssel prüfen")
+        self.token, self.token_time = res["token"], time.time()
+        self._pick_account()
+
+    def _pick_account(self):
+        res = self._req("/Account/search", {"onlyActiveAccounts": True})
+        accs = [a for a in (res.get("accounts") or []) if isinstance(a, dict)]
+        self.accounts = accs
+        if not accs:
+            raise BrokerError("Kein aktives Topstep-Konto gefunden")
+        want = str(self.tcfg.get("account") or "").strip().upper()
+        if want:
+            acc = next((a for a in accs if str(a.get("name", "")).upper() == want), None)
+            if not acc:
+                raise BrokerError(f"Konto „{self.tcfg.get('account')}“ nicht gefunden. Vorhanden: " + ", ".join(str(a.get("name")) for a in accs))
+        else:
+            tradable = [a for a in accs if a.get("canTrade")]
+            if len(tradable) != 1:
+                raise BrokerError("Bitte den Kontonamen eintragen. Vorhanden: " + ", ".join(str(a.get("name")) for a in accs))
+            acc = tradable[0]
+        if not acc.get("canTrade"):
+            raise BrokerError(f"Konto {acc.get('name')} darf gerade nicht handeln (gesperrt oder Verlustgrenze erreicht)")
+        self.account_id, self.account_name = acc["id"], acc.get("name")
+
+    def connect(self):
+        self.token = None
+        self._ensure_token()
+        return f"Verbunden mit Topstep, Konto {self.account_name}"
+
+    def account_names(self):
+        return [{"name": a.get("name"), "can_trade": bool(a.get("canTrade")), "balance": a.get("balance")} for a in self.accounts]
+
+    # Kontrakte
+    def _search(self, text):
+        out = []
+        for live in (False, True):
+            try:
+                res = self._req("/Contract/search", {"searchText": text, "live": live})
+            except BrokerError:
+                continue
+            out += [c for c in (res.get("contracts") or []) if isinstance(c, dict) and c.get("id")]
+            if out:
+                break
+        return out
+
+    def contract_name(self, root):
+        override = (self.cfg.get("contracts") or {}).get(root, "").strip()
+        if override:
+            return override
+        hit = self._front.get(root)
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1]
+        name = front_month(root)
+        try:
+            pat = re.compile(rf"^{re.escape(root)}[FGHJKMNQUVXZ]\d{{1,2}}$")
+            cands = [c for c in self._search(root) if pat.match(str(c.get("name", "")))]
+            act = [c for c in cands if c.get("activeContract")]
+            if act or cands:
+                c = (act or cands)[0]
+                name = c["name"]
+                self._contracts[name] = {"id": c["id"], "tick": float(c.get("tickSize") or 0.25)}
+        except BrokerError:
+            pass
+        self._front[root] = (time.time(), name)
+        return name
+
+    def _contract(self, name):
+        if name not in self._contracts:
+            hit = next((c for c in self._search(name) if str(c.get("name", "")).upper() == name.upper()), None)
+            if not hit:
+                raise BrokerError(f"Kontrakt {name} bei Topstep nicht gefunden")
+            self._contracts[name] = {"id": hit["id"], "tick": float(hit.get("tickSize") or 0.25)}
+        return self._contracts[name]
+
+    # Orders
+    def _place(self, contract_id, otype, side, qty, limit=None, stop=None, tag=None):
+        body = {"accountId": self.account_id, "contractId": contract_id, "type": otype, "side": side, "size": int(qty),
+                "limitPrice": limit, "stopPrice": stop, "trailPrice": None}
+        if tag:
+            body["customTag"] = tag
+        res = self._req("/Order/place", body)
+        oid = res.get("orderId") if isinstance(res, dict) else None
+        if not oid:
+            raise BrokerError(f"Order abgelehnt: {res}")
+        return oid
+
+    def _cancel(self, order_id):
+        if not order_id:
+            return
+        try:
+            self._req("/Order/cancel", {"accountId": self.account_id, "orderId": order_id})
+        except BrokerError:
+            pass   # schon ausgeführt oder storniert
+
+    def _orders(self, hours=72):
+        end = dt.datetime.now(dt.timezone.utc)
+        res = self._req("/Order/search", {"accountId": self.account_id,
+                                          "startTimestamp": (end - dt.timedelta(hours=hours)).isoformat(),
+                                          "endTimestamp": end.isoformat()})
+        return {o["id"]: o for o in (res.get("orders") or []) if isinstance(o, dict) and "id" in o}
+
+    def _open_orders(self):
+        res = self._req("/Order/searchOpen", {"accountId": self.account_id})
+        return {o["id"]: o for o in (res.get("orders") or []) if isinstance(o, dict) and "id" in o}
+
+    def _fill_of(self, order_id, tries=6):
+        for _ in range(tries):
+            o = self._orders(hours=2).get(order_id)
+            if o and o.get("status") == TSX_FILLED and o.get("filledPrice"):
+                return float(o["filledPrice"])
+            if o and o.get("status") in (3, 4, 5):
+                return None
+            time.sleep(0.4)
+        return None
+
+    def open(self, contract, side, qty, price, sl, tp, tick):
+        self._ensure_token()
+        con = self._contract(contract)
+        cid = con["id"]
+        entry_side, exit_side = (TSX_BUY, TSX_SELL) if side == "long" else (TSX_SELL, TSX_BUY)
+        tag = "fvg-" + uuid.uuid4().hex[:12]
+        oid = self._place(cid, TSX_MARKET, entry_side, qty, tag=tag)
+        fill = self._fill_of(oid)
+        if fill is None:
+            o = self._orders(hours=2).get(oid) or {}
+            if o.get("status") in (3, 4, 5):
+                raise BrokerError("Topstep hat die Einstiegs-Order nicht ausgeführt (abgelehnt oder storniert)")
+            fill = price   # Ausführung noch nicht gemeldet: mit Signalpreis weiter, Stop wird trotzdem gesetzt
+        ref = {"orderId": oid, "contractId": cid, "contract": contract, "tag": tag, "stopId": None, "tpId": None}
+        try:
+            ref["stopId"] = self._place(cid, TSX_STOP, exit_side, qty, stop=sl)
+        except BrokerError as e:
+            try:   # ohne Stop keine offene Position
+                self._place(cid, TSX_MARKET, exit_side, qty)
+            except BrokerError as e2:
+                raise BrokerError(f"Stop konnte nicht gesetzt werden ({e}) UND Schließen schlug fehl ({e2}). Position sofort in TopstepX prüfen!")
+            raise BrokerError(f"Stop konnte nicht gesetzt werden, Position wurde sofort wieder geschlossen: {e}")
+        if tp:
+            try:
+                ref["tpId"] = self._place(cid, TSX_LIMIT, exit_side, qty, limit=tp)
+            except BrokerError:
+                ref["tpId"] = None   # Stop sitzt, Ziel fehlt: der Bot schließt beim Erreichen des Ziels selbst
+        return fill, ref
+
+    def close(self, pos, price, tick):
+        ref = pos["broker_ref"]
+        exit_side = TSX_SELL if pos["side"] == "long" else TSX_BUY
+        open_ = self._open_orders()
+        stop_open = ref.get("stopId") in open_
+        if not stop_open and ref.get("stopId"):
+            st = self._orders().get(ref["stopId"]) or {}
+            if st.get("status") == TSX_FILLED:   # Stop war schneller: nichts mehr zu schließen
+                self._cancel(ref.get("tpId"))
+                return float(st.get("filledPrice") or pos["sl"])
+        oid = self._place(ref["contractId"], TSX_MARKET, exit_side, pos["qty"])
+        self._cancel(ref.get("stopId"))
+        self._cancel(ref.get("tpId"))
+        return self._fill_of(oid) or price
+
+    def modify_stop(self, pos, new_sl):
+        ref = pos["broker_ref"]
+        if not ref.get("stopId"):
+            raise BrokerError("Stop-Order-ID unbekannt")
+        self._req("/Order/modify", {"accountId": self.account_id, "orderId": ref["stopId"], "stopPrice": new_sl})
+        return True
+
+    def modify_target(self, pos, new_tp):
+        ref = pos["broker_ref"]
+        if new_tp is None:
+            self._cancel(ref.get("tpId"))
+            ref["tpId"] = None
+            return True
+        if not ref.get("tpId"):
+            raise BrokerError("Diese Position hat beim Broker keine Ziel-Order, das Ziel kann nicht nachträglich gesetzt werden")
+        self._req("/Order/modify", {"accountId": self.account_id, "orderId": ref["tpId"], "limitPrice": new_tp})
+        return True
+
+    def sync(self, positions):
+        """Erkennt Positionen, die beim Broker durch Stop oder Ziel geschlossen wurden, und storniert die übrige Schutz-Order."""
+        if not positions:
+            return []
+        open_ = self._open_orders()
+        missing = [p for p in positions if p["broker_ref"].get("stopId") not in open_
+                   or (p["broker_ref"].get("tpId") and p["broker_ref"].get("tpId") not in open_)]
+        if not missing:
+            return []
+        hist = self._orders()
+        net = {}
+        for p in (self._req("/Position/searchOpen", {"accountId": self.account_id}).get("positions") or []):
+            if isinstance(p, dict):
+                net[p.get("contractId")] = net.get(p.get("contractId"), 0) + int(p.get("size") or 0)
+        closed, warn = [], []
+        for pos in missing:
+            ref = pos["broker_ref"]
+            st, tp = hist.get(ref.get("stopId")) or {}, hist.get(ref.get("tpId")) or {}
+            if st.get("status") == TSX_FILLED:
+                self._cancel(ref.get("tpId"))
+                closed.append((pos, float(st.get("filledPrice") or pos["sl"])))
+            elif tp.get("status") == TSX_FILLED:
+                self._cancel(ref.get("stopId"))
+                closed.append((pos, float(tp.get("filledPrice") or pos["tp"])))
+            elif not net.get(ref.get("contractId")):
+                # von Hand in TopstepX geschlossen: übrige Orders aufräumen
+                self._cancel(ref.get("stopId"))
+                self._cancel(ref.get("tpId"))
+                closed.append((pos, self._last_exit(pos)))
+            elif ref.get("stopId") not in open_ and st.get("status") in (3, 4, 5):
+                warn.append(pos["contract"])
+        if warn and not closed:
+            raise BrokerError("Achtung: Stop-Order für " + ", ".join(warn) + " wurde storniert, Position ist ohne Schutz. Bitte in TopstepX prüfen!")
+        return closed
+
+    def _last_exit(self, pos):
+        """Preis des letzten schließenden Fills auf dem Kontrakt seit Eröffnung der Position."""
+        try:
+            start = dt.datetime.fromtimestamp(pos.get("opened") or time.time() - 86400, dt.timezone.utc)
+            res = self._req("/Trade/search", {"accountId": self.account_id, "startTimestamp": start.isoformat(),
+                                              "endTimestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
+        except BrokerError:
+            return None
+        exit_side = TSX_SELL if pos["side"] == "long" else TSX_BUY
+        fills = [t for t in (res.get("trades") or []) if isinstance(t, dict) and not t.get("voided")
+                 and t.get("contractId") == pos["broker_ref"].get("contractId") and t.get("side") == exit_side
+                 and t.get("profitAndLoss") is not None]
+        fills.sort(key=lambda t: str(t.get("creationTimestamp", "")))
+        return float(fills[-1]["price"]) if fills else None
+
+    def balance(self):
+        self._ensure_token()
+        res = self._req("/Account/search", {"onlyActiveAccounts": True})
+        acc = next((a for a in (res.get("accounts") or []) if a.get("id") == self.account_id), None)
+        return float(acc["balance"]) if acc and acc.get("balance") is not None else None
+
+
+BROKERS = {"paper": PaperBroker, "tradovate": TradovateBroker, "topstep": TopstepBroker}

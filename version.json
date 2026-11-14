@@ -1,6 +1,6 @@
 {
-  "version": "3.2.5",
-  "file": "releases/FVG-Trader-3.2.5.cmd",
-  "sha256": "c56ba296ed471ce25c6f69ab930bb53d73bc735ebea946154d713c7277ed8f16",
-  "notes": "Kontostand bearbeiten: Stift neben „Kontostand“ im Cockpit setzt das Gesamtguthaben des Paper-Kontos auf einen eigenen Betrag."
+  "version": "3.2.6",
+  "file": "releases/FVG-Trader-3.2.6.cmd",
+  "sha256": "78dbf928045e8f83cf8a7bdbd3493dc9cf93c92d391219e2eb34746482a75ad1",
+  "notes": "Neu: Topstep-Anbindung. Der Bot kann selbst auf einem Topstep-Konto handeln (Einstellungen → Konten & Broker → Topstep). Mit Stop-Schutz: ohne Stop bleibt keine Position offen."
 }

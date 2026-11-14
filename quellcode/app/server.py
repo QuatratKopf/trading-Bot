@@ -863,6 +863,11 @@ def own_sync(h):
     h._send(200, engine.own_sync())
 
 
+@route("POST", r"/api/topstep/test")
+def topstep_test(h):
+    h._send(200, engine.test_topstep())
+
+
 @route("POST", r"/api/tradovate/test")
 def tradovate_test(h):
     h._send(200, engine.test_tradovate())

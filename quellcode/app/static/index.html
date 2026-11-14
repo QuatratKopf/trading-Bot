@@ -1317,12 +1317,13 @@ function header() {
   $("#pTv").innerHTML = `<span class="dot ${tvState[0]}"></span>${tvState[1]}`;
   $("#pDot").className = "dot " + tvState[0]; $("#pDot").title = tvState[1];
   $("#pVer").textContent = "Version " + S.version;
-  $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "tradovate" ? " " + (c.tradovate.env === "live" ? "LIVE" : "Demo") : ""}`;
+  $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "tradovate" ? " " + (c.tradovate.env === "live" ? "LIVE" : "Demo") : ""}${S.broker.name === "topstep" && c.topstep && c.topstep.account ? " " + esc(c.topstep.account) : ""}`;
   $("#pBroker").title = S.broker.status;
   $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? esc(S.session_name) : "keine Session"}`;
   $("#autoT").setAttribute("aria-checked", c.auto_mode);
   $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
     : (S.broker.name === "tradovate" && c.tradovate.env === "live" ? `<div class="banner">LIVE-Konto aktiv: Orders gehen mit echtem Geld an Tradovate.</div>` : "")
+    + (S.broker.name === "topstep" ? `<div class="banner">Topstep-Konto aktiv: Der Bot schickt Orders an ${esc((c.topstep || {}).account || "dein Topstep-Konto")}. Die App muss auf deinem eigenen PC laufen, nicht auf einem gemieteten Server.</div>` : "")
     + (c.hook_confirmed && S.hook_url && !S.hook_confirmed ? `<div class="banner">Deine Webhook-Adresse hat sich nach dem Neustart geändert. Bitte im TradingView-Alert ersetzen:
         <div class="copyrow" style="margin-top:8px"><div class="code" id="newHook">${esc(S.hook_url)}</div><button class="btn" id="cpNew">Kopieren</button><button class="btn primary" id="okNew">Erledigt</button></div></div>` : "")
     + (S.remote && S.remote.limit && S.remote.n > S.remote.limit * 0.8 ? `<div class="banner">ngrok-Kontingent fast aufgebraucht: ${S.remote.n.toLocaleString("de-DE")} von ${S.remote.limit.toLocaleString("de-DE")} Anfragen diesen Monat. Ist es leer, kommen keine Signale mehr an. App am Handy seltener offen lassen; mehr dazu unter Einstellungen → TradingView.</div>` : "")
@@ -1632,8 +1633,9 @@ async function cvLoad(reset) {
   if (d) {
     $("#cvDay").value = d.day; if (d.first) { $("#cvDay").min = d.first; $("#cvDay").max = d.last; }
     $("#cvFam").innerHTML = d.fams.map(f => `<option ${d.fam === f ? "selected" : ""}>${f}</option>`).join("");
-    const ev = Object.entries(d.counts).filter(([k]) => !["zigzag", "sessions"].includes(k)).reduce((a, [, v]) => a + v, 0);
-    $("#cvInfo").innerHTML = `<b>${d.real}</b> ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}-Kerzen · <b>${ev}</b> Ereignisse · <b class="${d.counts.trades ? "acc" : ""}">${d.counts.trades}</b> Trades${d.live ? ` · <span class="live">● live${d.live_px ? " · Kurs vor " + Math.max(1, Math.round((Date.now() - d.live_px.ts) / 1000)) + " s" : ""}</span>` : ""}`;
+    const cnt = d.counts || {};
+    const ev = Object.entries(cnt).filter(([k]) => !["zigzag", "sessions"].includes(k)).reduce((a, [, v]) => a + v, 0);
+    $("#cvInfo").innerHTML = `<b>${d.real}</b> ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}-Kerzen · <b>${ev}</b> Ereignisse · <b class="${cnt.trades ? "acc" : ""}">${cnt.trades || 0}</b> Trades${d.live ? ` · <span class="live">● live${d.live_px ? " · Kurs vor " + Math.max(1, Math.round((Date.now() - d.live_px.ts) / 1000)) + " s" : ""}</span>` : ""}`;
     document.querySelectorAll("[data-tf]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.tf === d.tf));
   }
   const msg = $("#cvMsg");
@@ -3673,7 +3675,10 @@ function settings() {
   const cfg0 = c.confluence || {enabled: true, min: 3, use: {}};
   const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}${r.max_open > 1 ? ` · bis zu ${r.max_open} Positionen gleichzeitig` : ""}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
-  const accChip = t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
+  const ts = c.topstep || {};
+  const accChip = c.broker === "topstep" ? `<span class="chip ${S.broker.ok ? "good" : "bad"}">Topstep</span>`
+    : t.username && t.cid ? (S.own_sync.error ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">Tradovate</span>') : '<span class="chip mute">nicht verbunden</span>';
+  const brokerLabel = {tradovate: "Tradovate", topstep: "Topstep"}[c.broker] || "Paper-Trading";
   $("#main").innerHTML = `<div class="settings-wrap">
   ${sec("app", "App & Updates", `Version ${esc(S.version)}${S.autostart ? " · startet mit Windows" : ""} · Handy · Protokoll`, updState, `
     <div class="row"><label>Installierte Version<small>${S.update.checked ? "Zuletzt geprüft: " + dtm(S.update.checked) : "Die App prüft bei jedem Start und alle 6 Stunden."}</small></label>
@@ -3782,7 +3787,7 @@ function settings() {
     <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button><button class="btn" id="tNet">Webhook über Internet testen</button></div>
     ${intro("„Test-Signal senden“ prüft nur die App selbst. „Webhook über Internet testen“ schickt eine Nachricht über ngrok an die Webhook-Adresse – genau den Weg, den TradingView nimmt.")}`)}
 
-  ${sec("acc", "Konten & Broker", `Bot handelt über ${c.broker === "tradovate" ? "Tradovate" : "Paper-Trading"}${c.own_sync && c.own_sync.tradovate ? " · eigene Trades werden übernommen" : ""}`, accChip, `
+  ${sec("acc", "Konten & Broker", `Bot handelt über ${brokerLabel}${c.own_sync && c.own_sync.tradovate ? " · eigene Trades werden übernommen" : ""}`, accChip, `
     ${intro("Einmal verbinden: Deine eigenen Trades kommen dann automatisch in den Kalender.")}
     <div class="row"><label>TradingView<small>TradingView hat keine Schnittstelle für deine Trades. Handelst du in TradingView über Tradovate, kommen die Trades über die Tradovate-Verknüpfung unten.</small></label>
       <div class="inline"><span class="chip mute">über Tradovate</span></div></div>
@@ -3796,8 +3801,15 @@ function settings() {
     ${S.own_sync.enabled ? `<div class="row"><label>Letzter Abruf<small>${S.own_sync.error ? `<span class="neg">${esc(S.own_sync.error)}</span>` : S.own_sync.last ? `${S.own_sync.added} neue Trades` : "läuft gleich"}</small></label>
       <div class="inline"><span class="mono">${S.own_sync.last ? dtm(S.own_sync.last) : "–"}</span></div></div>` : ""}
     <div class="inline wrap-gap"><button class="btn" id="tvTest">Verbindung testen</button>${S.own_sync.enabled ? '<button class="btn" id="syncNow">Eigene Trades jetzt abrufen</button>' : ""}</div>
+    <span class="lbl">Topstep ${ts.username && ts.api_key ? (c.broker === "topstep" && !S.broker.ok ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">hinterlegt</span>') : '<span class="chip mute">nicht verbunden</span>'}</span>
+    <p class="hint" style="margin:0 0 6px">Für Fremdkapital-Konten von Topstep. Den API-Schlüssel bekommst du in TopstepX unter Einstellungen → API (kostenpflichtiges Zusatzpaket von Topstep).</p>
+    ${field("tsu", "TopstepX-Benutzername", ts.username, {type: "text", attrs: {autocomplete: "off"}, help: "Der Benutzername aus TopstepX, nicht die E-Mail-Adresse"})}
+    ${field("tsk", "API-Schlüssel", ts.api_key, {type: "password"})}
+    ${field("tsa", "Kontoname", ts.account, {type: "text", attrs: {autocomplete: "off"}, help: "Genau das Konto, auf dem der Bot handeln soll. „Verbindung testen“ zeigt alle deine Konten."})}
+    <div class="inline wrap-gap"><button class="btn" id="tsTest">Topstep-Verbindung testen</button></div>
+    <div id="tsAccs"></div>
     <span class="lbl">Bot-Orders</span>
-    ${field("bk", "Der Bot handelt über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["tradovate", "Tradovate-Konto oben"]], help: c.broker === "tradovate" ? `Status: ${esc(S.broker.status || "–")}` : "Empfohlen, bis der Bot sich bewährt hat"})}
+    ${field("bk", "Der Bot handelt über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["tradovate", "Tradovate-Konto oben"], ["topstep", "Topstep-Konto oben"]], help: c.broker !== "paper" ? `Status: ${esc(S.broker.status || "–")}` : "Empfohlen, bis der Bot sich bewährt hat"})}
     <div id="ppd" class="sub" ${c.broker === "paper" ? "" : "hidden"}>
       ${field("pb", "Startkapital Paper ($)", c.paper.start_balance, {attrs: {min: 1000, step: 1000}})}
       <div class="inline wrap-gap"><button class="btn ghost-danger" id="pr">Paper-Konto zurücksetzen</button></div>
@@ -3860,6 +3872,7 @@ function settings() {
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       tradovate: {env: v("tenv"), username: v("tu"), password: v("tpw"), cid: v("tcid"), secret: v("tsec"), account: v("tacc")},
+      topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       own_sync: {tradovate: v("osync")},
@@ -3876,6 +3889,17 @@ function settings() {
   $("#tvTest").onclick = async () => {
     try { if (settingsDirty) await doSave(); const r = await api("/api/tradovate/test", {}); toast(r.ok ? r.status : "Fehler: " + r.status); await refresh(true); }
     catch (e) { toast(e.message); }
+  };
+  $("#tsTest").onclick = async () => {
+    const box = $("#tsAccs");
+    try {
+      if (settingsDirty) await doSave();
+      const r = await api("/api/topstep/test", {});
+      toast(r.ok ? r.status : "Fehler: " + r.status);
+      box.innerHTML = (r.ok ? "" : `<p class="err-msg">${esc(r.status)}</p>`)
+        + (r.accounts && r.accounts.length ? `<div style="margin-top:8px">${r.accounts.map(a => `<div class="row"><label>${esc(a.name)}<small>${a.can_trade ? "darf handeln" : "gesperrt"}${a.balance != null ? " · " + usd(a.balance) : ""}</small></label><button type="button" class="btn tsPick" data-n="${esc(a.name)}">Dieses Konto nehmen</button></div>`).join("")}</div>` : "");
+      box.querySelectorAll(".tsPick").forEach(b => b.onclick = () => { $("#tsa").value = b.dataset.n; dirty(); toast("Konto eingetragen. Bitte speichern."); });
+    } catch (e) { toast(e.message); }
   };
   const sn = $("#syncNow"); if (sn) sn.onclick = async () => {
     sn.disabled = true; sn.textContent = "Rufe ab …";
