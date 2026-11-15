@@ -179,6 +179,27 @@ class TopstepBroker:
         self._ensure_token()
         return f"Verbunden mit Topstep, Konto {self.account_name}"
 
+    def day_summary(self, since_ts):
+        """Tagesergebnisse seit since_ts (Handelstag endet 18 Uhr New York): [{day, pnl, cash, n}]."""
+        self._ensure_token()
+        start = dt.datetime.fromtimestamp(since_ts, dt.timezone.utc)
+        res = self._req("/Trade/search", {"accountId": self.account_id, "startTimestamp": start.isoformat(),
+                                          "endTimestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
+        days = {}
+        for t in res.get("trades") or []:
+            if not isinstance(t, dict) or t.get("voided"):
+                continue
+            try:
+                ts = dt.datetime.fromisoformat(str(t.get("creationTimestamp")).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+            # Topstep-Handelstag: ab 18 Uhr New York zählt der nächste Tag (6 Stunden Versatz, Winterzeit genügt)
+            day = (dt.datetime.fromtimestamp(ts, dt.timezone.utc) - dt.timedelta(hours=5) + dt.timedelta(hours=6)).date().isoformat()
+            d = days.setdefault(day, {"day": day, "pnl": 0.0, "cash": 0.0, "n": 0})
+            d["pnl"] += float(t.get("profitAndLoss") or 0) - float(t.get("fees") or 0)
+            d["n"] += 1 if t.get("profitAndLoss") is not None else 0
+        return sorted(days.values(), key=lambda d: d["day"])
+
     def account_names(self):
         return [{"name": a.get("name"), "can_trade": bool(a.get("canTrade")), "balance": a.get("balance")} for a in self.accounts]
 
@@ -447,7 +468,7 @@ class Mt5Link:
             return d
 
     def _parse(self, raw):
-        a = {"positions": [], "symbols": {}, "deals": []}
+        a = {"positions": [], "symbols": {}, "deals": [], "days": []}
         for line in raw.splitlines():
             k, _, v = line.strip().partition("=")
             if not _:
@@ -467,6 +488,11 @@ class Mt5Link:
                                           "vol_min": self._num(f[7]), "vol_step": self._num(f[8]), "vol_max": self._num(f[9])}
                 elif f:
                     a["symbols"].setdefault(f[0], None)
+            elif k == "dsum":
+                f = v.split("|")
+                if len(f) >= 4:
+                    a["days"].append({"day": f[0].replace(".", "-"), "pnl": self._num(f[1]), "cash": self._num(f[2]),
+                                      "n": int(self._num(f[3]))})
             elif k == "deal":
                 f = v.split("|")
                 if len(f) >= 8:

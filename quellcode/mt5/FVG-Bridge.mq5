@@ -15,20 +15,23 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "1.00"
+#property version   "2.00"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
 
 input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
+input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "1"
+#define BRIDGE_VERSION "2"
 
 CTrade   trade;
 string   DIR = "FVG\\";
 long     g_login = 0;
 int      g_tick = 0;
+string   g_dsum = "";
+datetime g_dsum_at = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -326,6 +329,68 @@ string DoModify(string &keys[], string &vals[])
   }
 
 //+------------------------------------------------------------------+
+//| Tagesergebnisse (alle 30 Sekunden neu): Tag|Trading-P&L|Ein-/Auszahlungen|Trades |
+//+------------------------------------------------------------------+
+string DaySummary()
+  {
+   datetime now = TimeCurrent();
+   if(g_dsum != "" && now - g_dsum_at < 30)
+      return(g_dsum);
+   g_dsum_at = now;
+   if(!HistorySelect(now - InpHistDays * 86400, now + 86400))
+      return(g_dsum);
+   string days[];
+   double pnl[];
+   double cash[];
+   int    cnt[];
+   int    n = 0;
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0)
+         continue;
+      long type = HistoryDealGetInteger(d, DEAL_TYPE);
+      long entry = HistoryDealGetInteger(d, DEAL_ENTRY);
+      string day = TimeToString((datetime)HistoryDealGetInteger(d, DEAL_TIME), TIME_DATE);
+      double v = HistoryDealGetDouble(d, DEAL_PROFIT) + HistoryDealGetDouble(d, DEAL_COMMISSION) + HistoryDealGetDouble(d, DEAL_SWAP);
+      int k = -1;
+      for(int j = 0; j < n; j++)
+         if(days[j] == day)
+           {
+            k = j;
+            break;
+           }
+      if(k < 0)
+        {
+         ArrayResize(days, n + 1);
+         ArrayResize(pnl, n + 1);
+         ArrayResize(cash, n + 1);
+         ArrayResize(cnt, n + 1);
+         days[n] = day;
+         pnl[n] = 0;
+         cash[n] = 0;
+         cnt[n] = 0;
+         k = n;
+         n++;
+        }
+      if(type == DEAL_TYPE_BUY || type == DEAL_TYPE_SELL)
+        {
+         pnl[k] += v;
+         if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+            cnt[k]++;
+        }
+      else
+         cash[k] += v;   // Einzahlung, Auszahlung, Korrektur
+     }
+   string s = "";
+   for(int j = 0; j < n; j++)
+      s += "dsum=" + days[j] + "|" + DoubleToString(pnl[j], 2) + "|" + DoubleToString(cash[j], 2) + "|" + IntegerToString(cnt[j]) + "\r\n";
+   g_dsum = s;
+   return(s);
+  }
+
+//+------------------------------------------------------------------+
 //| Statusmeldung (jede Sekunde)                                      |
 //+------------------------------------------------------------------+
 string SymLine(string sym)
@@ -434,6 +499,8 @@ void WriteStatus()
               DoubleToString(HistoryDealGetDouble(d, DEAL_VOLUME), 2) + "\r\n";
         }
      }
+   s += "today=" + TimeToString(TimeTradeServer(), TIME_DATE) + "\r\n";
+   s += DaySummary();
    WriteAtomic("status_" + IntegerToString(g_login) + ".txt", s);
   }
 //+------------------------------------------------------------------+

@@ -120,6 +120,8 @@ DEFAULT_CONFIG = {
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25, "commission_micro": 0.75},
     "topstep": {"username": "", "api_key": "", "account": "", "api_url": ""},   # TopstepX-API (Topstep-Konten)
     # MetaTrader 5: Konten melden sich über den EA FVG-Bridge. Je Konto: bot = Bot handelt hier, copy = empfängt Kopien, factor = Größe
+    # Meine Konten: Fremdkapital-Konten mit echter Datenquelle (MT5-Konto, Topstep oder eigene Trades)
+    "tracked": [],
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
@@ -151,6 +153,9 @@ PROP_PRESETS = {
     "ftmo": {
         "name": "FTMO", "checked": "November 2026", "site": "ftmo.com",
         "note": "Tageswechsel bei FTMO: Mitternacht Prager Zeit. Tagesverlust zählt offene Positionen mit.",
+        "payout": {"kind": "calendar_days", "n": 14, "cap_pct": 100, "min": 0, "split": 80, "split_1s": 90,
+                   "text": "Erste Auszahlung 14 Tage nach dem ersten Trade im FTMO-Konto, danach alle 14 Tage. Konto muss im Plus sein, "
+                           "alle Positionen geschlossen. Anteil 80 % (2-Step) bzw. 90 % (1-Step)."},
         "info": {
             "markets": "CFDs (US100, US500, Forex, Gold …) und seit 2026 auch Futures",
             "platforms": "MT5, cTrader, DXtrade; Futures über Tradovate, NinjaTrader, TradingView",
@@ -167,16 +172,20 @@ PROP_PRESETS = {
             "2s2": {"label": "2-Step · Phase 2 (Verifizierung)", "phase": "Phase 2", "sizes": _FTMO_SIZES,
                     "pct": {"target": 5, "daily": 5, "dd": 10}, "dd_type": "static", "min_days": 4, "cons": 0},
             "2sf": {"label": "2-Step · FTMO-Konto (Funded)", "phase": "Funded", "sizes": _FTMO_SIZES,
-                    "pct": {"target": 0, "daily": 5, "dd": 10}, "dd_type": "static", "min_days": 0, "cons": 0},
+                    "pct": {"target": 0, "daily": 5, "dd": 10}, "funded": True, "dd_type": "static", "min_days": 0, "cons": 0},
             "1s": {"label": "1-Step · Challenge", "phase": "Challenge", "sizes": _FTMO_SIZES,
                    "pct": {"target": 10, "daily": 3, "dd": 10}, "dd_type": "eod", "min_days": 0, "cons": 50},
             "1sf": {"label": "1-Step · FTMO-Konto (Funded)", "phase": "Funded", "sizes": _FTMO_SIZES,
-                    "pct": {"target": 0, "daily": 3, "dd": 10}, "dd_type": "eod", "min_days": 0, "cons": 0},
+                    "pct": {"target": 0, "daily": 3, "dd": 10}, "funded": True, "dd_type": "eod", "min_days": 0, "cons": 0},
         },
     },
     "topstep": {
         "name": "Topstep", "checked": "November 2026", "site": "topstep.com",
         "note": "Tageslimit und Mindesttage haben sich bei Topstep öfter geändert.",
+        "payout": {"kind": "win_days", "n": 5, "win_min": 150, "cap_pct": 50, "cap_usd": {50000: 2000, 100000: 3000, 150000: 5000},
+                   "min": 125, "split": 90,
+                   "text": "Express Funded: 5 Gewinntage mit je mindestens 150 $ seit der letzten Auszahlung. Pro Auszahlung höchstens 50 % "
+                           "des Gewinns, bei 50K/100K/150K höchstens 2.000/3.000/5.000 $, mindestens 125 $. Anteil 90 %."},
         "info": {
             "markets": "Futures (NQ, ES, MNQ, MES …)",
             "platforms": "TopstepX (eigene Plattform), dazu NinjaTrader und weitere",
@@ -196,6 +205,10 @@ PROP_PRESETS = {
     "iq": {
         "name": "IQ Capital", "checked": "November 2026", "site": "iqcapital.io",
         "note": "Die Angaben zu IQ Capital widersprechen sich in den Quellen teilweise. Bitte unbedingt auf iqcapital.io prüfen.",
+        "payout": {"kind": "active_days", "n": 10, "cap_pct": 50, "cap_default": 1500, "min": 250, "split": 90,
+                   "text": "Erste Auszahlung nach 10 aktiven Handelstagen im Funded-Konto, danach wieder nach 10 neuen Handelstagen. "
+                           "Pro Auszahlung höchstens 50 % des Gewinns, anfangs höchstens 1.500 $ (steigt mit der Zahl der Auszahlungen), "
+                           "mindestens 250 $. Konsistenz 30 %. Anteil laut Quellen 80–90 %."},
         "info": {
             "markets": "Futures sowie CFDs und Krypto",
             "platforms": "CFD/Krypto: MetaTrader 5 und Volumetrica. Futures: Tradovate, NinjaTrader, TradingView, Quantower, ATAS, Deepcharts",
@@ -219,6 +232,8 @@ PROP_PRESETS = {
                    "funded": True, "dd_type": "eod", "min_days": 0, "cons": 30},
             "cfd": {"label": "CFD/Krypto · Challenge (MT5)", "phase": "Challenge", "sizes": [10000, 25000, 50000, 100000, 200000],
                     "pct": {"target": 8, "daily": 0, "dd": 6}, "dd_type": "eod", "min_days": 0, "cons": 0, "max_risk": 1.0},
+            "cfdf": {"label": "CFD/Krypto · Funded (MT5)", "phase": "Funded", "sizes": [10000, 25000, 50000, 100000, 200000],
+                     "pct": {"target": 0, "daily": 0, "dd": 6}, "funded": True, "dd_type": "eod", "min_days": 0, "cons": 30, "max_risk": 0.5},
         },
     },
 }
@@ -526,6 +541,7 @@ class Engine:
         except Exception as e:  # noqa: BLE001
             self.db.log(f"Doppelte Einträge konnten nicht aufgeräumt werden: {e}", "warn")
         self.mt5_link = Mt5Link(self.cfg)
+        self._ts_cache = {"at": 0}
         self.mt5_copier = Mt5Copier(self.cfg, os.path.join(self.data_dir, "mt5-copytrading.json"))
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._copy_loop, daemon=True).start()
@@ -692,6 +708,24 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
+        tr = []
+        for t in c.get("tracked") or []:
+            if not isinstance(t, dict):
+                continue
+            f = PROP_PRESETS.get(t.get("firm"))
+            if not f or t.get("program") not in f["programs"] or int(t.get("size") or 0) not in f["programs"][t["program"]]["sizes"]:
+                raise ValueError("Meine Konten: Firma, Programm oder Größe ungültig")
+            src = str(t.get("source") or "eigen")
+            if not (src in ("eigen", "topstep") or re.match(r"^mt5:\d+$", src)):
+                raise ValueError("Meine Konten: unbekannte Datenquelle")
+            for k in ("start_day", "last_payout"):
+                if t.get(k) and not re.match(r"^\d{4}-\d{2}-\d{2}$", str(t[k])):
+                    raise ValueError("Meine Konten: Datum als JJJJ-MM-TT")
+            tr.append({"id": str(t.get("id") or uuid.uuid4().hex[:8])[:12], "firm": t["firm"], "program": t["program"],
+                       "size": int(t["size"]), "source": src, "start_day": str(t.get("start_day") or ""),
+                       "last_payout": str(t.get("last_payout") or ""), "payouts": int(t.get("payouts") or 0),
+                       "label": str(t.get("label") or "")[:40]})
+        c["tracked"] = tr
         m5 = c.setdefault("mt5", {})
         for fam, dflt in (("NQ", "US100.cash"), ("ES", "US500.cash")):
             m5["sym_" + fam] = str(m5.get("sym_" + fam) or dflt).strip()[:40]
@@ -2166,6 +2200,16 @@ class Engine:
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
+            if any(t["source"] == "topstep" for t in self.cfg.get("tracked") or []) and time.time() - self._ts_cache.get("at", 0) > 60:
+                self._ts_cache["at"] = time.time()
+                try:
+                    b = BROKERS["topstep"](self.cfg)
+                    b.connect()
+                    since = min([dt.datetime.fromisoformat(t["start_day"]).timestamp() for t in self.cfg["tracked"]
+                                 if t["source"] == "topstep" and t["start_day"]] or [time.time() - 120 * 86400])
+                    self._ts_cache.update(ok=True, error="", balance=b.balance(), days=b.day_summary(since - 86400), seen=time.time())
+                except BrokerError as e:
+                    self._ts_cache.update(ok=False, error=str(e))
 
     def mt5_view(self):
         accs = self.mt5_link.accounts()
@@ -2852,6 +2896,169 @@ class Engine:
             changes.append(f"Paper-Konto auf {size:,.0f} $ gesetzt".replace(",", "."))
         self.db.log(f"Fremdkapital: {rules['name']} {rules['phase']} gewählt · " + " · ".join(changes))
         return {"ok": True, "rules": rules, "changes": changes}
+
+    # ───────── Meine Konten: echte Daten, Challenge-Stand, Auszahlung ─────────
+    def _track_source(self, t):
+        """Daten der verknüpften Quelle: Kontostand, Equity, Tagesergebnisse, heutiger Tag."""
+        src = t["source"]
+        if src.startswith("mt5:"):
+            a = self.mt5_link.accounts().get(src[4:])
+            if not a:
+                return {"ok": False, "error": "MT5-Konto meldet sich nicht (MT5 offen? FVG-Bridge auf dem Chart?)"}
+            if int(self.mt5_link._num(a.get("version"), 1)) < 2:
+                return {"ok": False, "error": "FVG-Bridge ist veraltet: in den Einstellungen „In MT5 installieren“ drücken und den EA neu auf den Chart ziehen"}
+            return {"ok": True, "online": a["online"], "balance": a.get("balance"), "equity": a.get("equity"),
+                    "days": a.get("days") or [], "today": str(a.get("today") or ny_date()).replace(".", "-"), "seen": a.get("seen")}
+        if src == "topstep":
+            c = self._ts_cache
+            if not c.get("ok"):
+                return {"ok": False, "error": c.get("error") or "Topstep-Daten werden geladen …"}
+            return {"ok": True, "online": time.time() - c.get("seen", 0) < 180, "balance": c.get("balance"),
+                    "equity": c.get("balance"), "days": c.get("days") or [], "today": str(ny_date()), "seen": c.get("seen")}
+        days = {}
+        for x in self._calendar_trades():
+            if x["source"] != "eigen":
+                continue
+            d = days.setdefault(x["day"], {"day": x["day"], "pnl": 0.0, "cash": 0.0, "n": 0})
+            d["pnl"] += x["pnl"] or 0
+            d["n"] += 1
+        rows = sorted(days.values(), key=lambda d: d["day"])
+        bal = t["size"] + sum(d["pnl"] for d in rows if not t["start_day"] or d["day"] >= t["start_day"])
+        return {"ok": True, "online": True, "balance": bal, "equity": bal, "days": rows, "today": str(ny_date()), "seen": time.time()}
+
+    def track_eval(self, t):
+        f = PROP_PRESETS[t["firm"]]
+        p = f["programs"][t["program"]]
+        size = float(t["size"])
+        r = self.prop_program_rules(p, int(size))
+        out = {"id": t["id"], "firm": f["name"], "firm_key": t["firm"], "program": p["label"], "phase": p["phase"],
+               "size": size, "source": t["source"], "start_day": t["start_day"], "label": t["label"],
+               "funded": bool(p.get("funded")), "rules": dict(r, dd_type=p["dd_type"], min_days=p["min_days"], cons=p["cons"]),
+               "no_bot": bool(p.get("no_bot"))}
+        src = self._track_source(t)
+        out["online"] = bool(src.get("online"))
+        if not src.get("ok") or src.get("balance") is None:
+            out["error"] = src.get("error") or "Noch keine Daten"
+            return out
+        bal, eq, today = float(src["balance"]), float(src.get("equity") or src["balance"]), src["today"]
+        days = sorted(src["days"], key=lambda d: d["day"])
+        # Tagesend-Stände rückwärts aus dem aktuellen Kontostand
+        later, eod = 0.0, {}
+        for d in reversed(days):
+            eod[d["day"]] = bal - later
+            later += d["pnl"] + d["cash"]
+        mine = [d for d in days if not t["start_day"] or d["day"] >= t["start_day"]]
+        profit = bal - size
+        if p["dd_type"] == "static":
+            thr = size - r["dd"]
+        else:
+            peak = max([size] + [eod[d["day"]] for d in mine if d["day"] < today])
+            thr = min(peak - r["dd"], size)
+        buffer = eq - thr
+        today_pnl = sum(d["pnl"] for d in days if d["day"] == today) + (eq - bal)
+        daily_left = r["daily"] + today_pnl if r["daily"] > 0 else None
+        traded = [d for d in mine if d["n"] > 0]
+        win = [d["pnl"] for d in mine if d["pnl"] > 0]
+        best = max(win) if win else 0.0
+        cons = None
+        if p["cons"]:
+            share = best / profit * 100 if profit > 0 else None
+            cons = {"pct": p["cons"], "best": round(best, 2), "share": round(share, 1) if share is not None else None,
+                    "ok": profit > 0 and best <= profit * p["cons"] / 100 + 1e-9,
+                    "need": round(max(0.0, best / (p["cons"] / 100) - profit), 2) if best else 0.0}
+        to_target = max(0.0, r["target"] - profit) if r["target"] > 0 else None
+        breached = buffer <= 0
+        out.update(balance=round(bal, 2), equity=round(eq, 2), profit=round(profit, 2), threshold=round(thr, 2),
+                   buffer=round(buffer, 2), today_pnl=round(today_pnl, 2),
+                   daily_left=round(daily_left, 2) if daily_left is not None else None,
+                   can_lose=round(min(buffer, daily_left) if daily_left is not None else buffer, 2),
+                   to_target=round(to_target, 2) if to_target is not None else None, days_traded=len(traded),
+                   consistency=cons, breached=breached, daily_hit=daily_left is not None and daily_left <= 0,
+                   seen=src.get("seen"), today=today,
+                   days=[{"day": d["day"], "pnl": round(d["pnl"], 2), "n": d["n"], "eod": round(eod[d["day"]], 2)} for d in mine][-30:])
+        if not p.get("funded"):
+            out["passed"] = (not breached and to_target == 0 and len(traded) >= p["min_days"] and (cons is None or cons["ok"]))
+            return out
+        out["payout"] = self._payout(f, t, p, size, profit, mine, cons)
+        return out
+
+    def _payout(self, f, t, p, size, profit, mine, cons):
+        po = f["payout"]
+        since = t["last_payout"]
+        period = [d for d in mine if not since or d["day"] > since]
+        need, prog, ready_at = [], "", None
+        if po["kind"] == "calendar_days":
+            first = since or next((d["day"] for d in mine if d["n"] > 0), "")
+            if not first:
+                need.append("noch kein Trade im Funded-Konto")
+            else:
+                ready_at = (dt.date.fromisoformat(first) + dt.timedelta(days=po["n"])).isoformat()
+                left = (dt.date.fromisoformat(ready_at) - ny_date()).days
+                prog = f"ab {dt.date.fromisoformat(ready_at).strftime('%d.%m.%Y')}"
+                if left > 0:
+                    need.append(f"noch {left} {'Tag' if left == 1 else 'Tage'} (ab {dt.date.fromisoformat(ready_at).strftime('%d.%m.')})")
+        elif po["kind"] == "win_days":
+            n = sum(1 for d in period if d["pnl"] >= po["win_min"])
+            prog = f"{n} von {po['n']} Gewinntagen (ab {po['win_min']:,.0f} $)".replace(",", ".")
+            if n < po["n"]:
+                need.append(f"noch {po['n'] - n} Gewinntag{'' if po['n'] - n == 1 else 'e'} mit mindestens {po['win_min']:,.0f} $".replace(",", "."))
+        else:
+            n = sum(1 for d in period if d["n"] > 0)
+            prog = f"{n} von {po['n']} Handelstagen"
+            if n < po["n"]:
+                need.append(f"noch {po['n'] - n} Handelstag{'' if po['n'] - n == 1 else 'e'}")
+        if profit <= 0:
+            need.append("Konto muss im Gewinn sein")
+        if cons and not cons["ok"] and profit > 0:
+            need.append(f"Konsistenz: bester Tag zu groß, noch etwa {cons['need']:,.0f} $ Gewinn nötig".replace(",", "."))
+        caps = po.get("cap_usd") or {}
+        cap = caps.get(int(size)) or caps.get(str(int(size))) or po.get("cap_default")
+        amount = max(0.0, profit) * po["cap_pct"] / 100
+        if cap:
+            amount = min(amount, cap)
+        if 0 < amount < po["min"]:
+            need.append(f"mindestens {po['min']:,.0f} $ auszahlbar nötig (jetzt {amount:,.0f} $)".replace(",", "."))
+        split = po.get("split_1s") if t["program"].startswith("1s") and po.get("split_1s") else po["split"]
+        return {"ready": not need, "need": need, "progress": prog, "amount": round(amount, 2),
+                "net": round(amount * split / 100, 2), "split": split, "cap": cap, "last": since, "payouts": t["payouts"],
+                "rule": po["text"]}
+
+    def tracked_view(self):
+        out = []
+        for t in self.cfg.get("tracked") or []:
+            try:
+                out.append(self.track_eval(t))
+            except (KeyError, ValueError, TypeError) as e:
+                out.append({"id": t.get("id"), "firm": t.get("firm"), "program": t.get("program"), "error": f"Fehler: {e}"})
+        return out
+
+    def tracked_action(self, b):
+        act = str(b.get("action") or "")
+        lst = [dict(x) for x in self.cfg.get("tracked") or []]
+        if act == "add":
+            if len(lst) >= 20:
+                raise ValueError("Höchstens 20 Konten")
+            lst.append({"id": uuid.uuid4().hex[:8], "firm": b.get("firm"), "program": b.get("program"), "size": int(b.get("size") or 0),
+                        "source": b.get("source") or "eigen", "start_day": b.get("start_day") or "", "label": b.get("label") or ""})
+            self.update_cfg({"tracked": lst})
+            self.db.log("Meine Konten: Konto hinzugefügt")
+            return {"ok": True}
+        t = next((x for x in lst if x["id"] == b.get("id")), None)
+        if not t:
+            raise ValueError("Konto nicht gefunden")
+        if act == "remove":
+            lst.remove(t)
+        elif act == "payout":
+            t["last_payout"] = str(ny_date())
+            t["payouts"] = int(t.get("payouts") or 0) + 1
+        elif act == "edit":
+            for k in ("start_day", "label", "source", "program"):
+                if k in b:
+                    t[k] = b[k]
+        else:
+            raise ValueError("Unbekannte Aktion")
+        self.update_cfg({"tracked": lst})
+        return {"ok": True}
 
     # ───────── Topstep ─────────
     def test_topstep(self):
@@ -4709,7 +4916,7 @@ class Engine:
                 "daily": self.daily(),
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
-                "prop_presets": PROP_PRESETS, "prop_risk": PROP_RISK,
+                "prop_presets": PROP_PRESETS, "prop_risk": PROP_RISK, "tracked": self.tracked_view(),
                 "news_pause": self.news_block(),
                 "old_script": self.old_script,
                 "summary": self.summary(),

@@ -538,6 +538,31 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.trk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+@media (max-width:480px){.trk-grid{grid-template-columns:1fr}}
+.tk{display:flex;flex-direction:column;gap:10px;min-width:0}
+.tk-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.tk-h > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.tk-h .l{font-size:11.5px;color:var(--muted)}
+.tk-h b{font-size:17px}
+.tk-src{display:flex;align-items:center;gap:6px}
+.tk-n{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tk-n > div{display:flex;flex-direction:column;gap:2px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.tk-n .l{font-size:11.5px;color:var(--muted)}
+.tk-n b{font-size:19px}
+.tk-n small{font-size:12px}
+.tk-p{display:flex;flex-direction:column;gap:4px}
+.tk-p small{font-size:12.5px;color:var(--muted)}
+.tk-rules{display:flex;flex-direction:column;gap:2px}
+.tk-r{display:grid;grid-template-columns:18px 1fr auto;gap:6px;align-items:center;font-size:13px;padding:3px 0}
+.tk-r.ok > span:first-child{color:var(--pos)}
+.tk-r.no > span:first-child,.tk-r.no b{color:var(--neg)}
+.tk-po{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--sunk)}
+.tk-po.ok{border-color:var(--pos)}
+.tk-po.ok > b{color:var(--pos)}
+.tk-po small{font-size:12.5px;line-height:1.5}
+.tk-po .btn{align-self:flex-start;margin-top:4px}
+.tk-rule summary{font-size:12px;color:var(--muted);cursor:pointer}
 .cp-warn{margin:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--sunk);font-size:13px;line-height:1.5;color:var(--fg)}
 .ch-view{align-self:flex-start;margin-bottom:4px}
 .pr-intro h2,.pr-h h3{margin:0;font-size:17px;text-transform:none;letter-spacing:0;color:var(--fg)}
@@ -2521,8 +2546,9 @@ function chChart(c) {
 function challenge(full) {
   const c = S.challenge, cfg = (S.config.challenge || {});
   if (full !== false || !$("#chWrap")) {
-    $("#main").innerHTML = `<div class="seg ch-view" role="group" aria-label="Ansicht"><button type="button" data-chv="konto" aria-pressed="${CHV === "konto"}">Mein Konto</button><button type="button" data-chv="regeln" aria-pressed="${CHV === "regeln"}">Regeln der Firmen</button></div>
+    $("#main").innerHTML = `<div class="seg ch-view" role="group" aria-label="Ansicht"><button type="button" data-chv="konten" aria-pressed="${CHV === "konten"}">Meine Konten</button><button type="button" data-chv="konto" aria-pressed="${CHV === "konto"}">Bot-Challenge</button><button type="button" data-chv="regeln" aria-pressed="${CHV === "regeln"}">Regeln der Firmen</button></div>
       <div id="chRules" style="display:${CHV === "regeln" ? "contents" : "none"}"></div>
+      <div id="trkWrap" style="display:${CHV === "konten" ? "contents" : "none"}"><div id="trkList" style="display:contents"></div><details class="set-sec" id="trkAdd" ${(S.tracked || []).length ? "" : "open"}><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>Konto hinzufügen</b><span class="hint">Firma, Programm, Größe und woher die Daten kommen</span></span><span></span></summary><div class="set-b" id="trkForm"></div></details></div>
       <div id="chWrap" style="display:${CHV === "konto" ? "contents" : "none"}"><section class="panel cp" id="chPick"></section><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
       <details class="set-sec ch-form" id="chForm"><summary><span class="s-ic">${icon('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>')}</span>
         <span class="s-t"><b>Feineinstellungen</b><span class="hint">${c ? `${esc(cfg.name || "Konto")} · ${mUsd(cfg.start_balance)} · Ziel ${mUsd(cfg.profit_target)} · Drawdown ${mUsd(cfg.max_dd)} ${DDT[cfg.dd_type].split(" ")[0]}` : "Einmal eintragen, dann rechnet die App live mit"}</span></span><span></span></summary>
@@ -2530,9 +2556,11 @@ function challenge(full) {
     chForm();
     chPick();
     $("#chRules").innerHTML = chRulesPage();
+    trkForm();
     document.querySelectorAll("[data-chv]").forEach(b => b.onclick = () => { CHV = b.dataset.chv; try { localStorage.setItem("fvg-chv", CHV); } catch (e) { /* egal */ } challenge(true); });
     document.querySelectorAll("[data-prpick]").forEach(b => b.onclick = () => { CHV = "konto"; CP.firm = b.dataset.prpick; CP.program = null; CP.risk = CP.risk || "normal"; CP.open = true; try { localStorage.setItem("fvg-chv", CHV); } catch (e) { /* egal */ } challenge(true); window.scrollTo(0, 0); });
   }
+  trkList();
   const live = $("#chLive");
   if (!c) { live.innerHTML = ""; $("#mcBox").hidden = true; return; }
   const [st, txt] = chStatus(c), tgt = c.cfg.profit_target, prog = tgt > 0 ? Math.max(0, Math.min(100, c.profit / tgt * 100)) : 0;
@@ -2576,8 +2604,8 @@ function propRules(p, size) {   // wie Engine.prop_program_rules
   return {target: t, dd, daily, dd_type: p.dd_type, min_days: p.min_days, cons: p.cons};
 }
 // Übersicht: Regeln aller Firmen nebeneinander
-let CHV = "konto";
-try { CHV = localStorage.getItem("fvg-chv") || "konto"; } catch (e) { /* ohne Speicher */ }
+let CHV = "konten";
+try { CHV = localStorage.getItem("fvg-chv") || "konten"; } catch (e) { /* ohne Speicher */ }
 function chRulesPage() {
   const P = S.prop_presets || {}, kk = v => (v / 1000).toLocaleString("de-DE") + "K";
   const dd = {static: "fest ab Start", eod: "zieht zum Tagesende nach", intraday: "zieht sofort nach"};
@@ -2660,6 +2688,85 @@ function chPick() {
       toast(r.changes && r.changes.length ? "Übernommen: " + r.changes[0] : "Übernommen");
       CP.open = false; S = await api("/api/state"); MC.data = null; challenge(true);
     } catch (e) { toast(e.message); btn.disabled = false; }
+  };
+}
+// ───────── Meine Konten: echte Daten je Fremdkapital-Konto ─────────
+const TF = {firm: "ftmo", program: "2s1", size: 100000};
+function trkSrcName(src) {
+  if (src === "eigen") return "Eigene Trades (eingetragen / CSV)";
+  if (src === "topstep") return "Topstep-Konto";
+  const a = ((S.mt5 || {}).accounts || []).find(x => "mt5:" + x.login === src);
+  return "MT5 " + src.slice(4) + (a && a.company ? " · " + a.company : "");
+}
+function trkList() {
+  const box = $("#trkList"); if (!box) return;
+  const L = S.tracked || [];
+  if (!L.length) { box.innerHTML = `<section class="panel"><h2 style="font-size:17px;margin:0 0 6px;text-transform:none;letter-spacing:0;color:var(--fg)">Meine Konten</h2><p class="hint" style="margin:0;line-height:1.6">Füge unten deine Fremdkapital-Konten hinzu. Ist ein Konto mit MetaTrader 5 verbunden (FVG-Bridge läuft), nimmt die App Kontostand und Trades direkt von dort und zeigt dir live, wie weit du in der Challenge bist und wann deine Auszahlung möglich ist.</p></section>`; return; }
+  const key = JSON.stringify(L.map(t => Object.assign({}, t, {seen: 0})));
+  if (box.dataset.k === key || (ARMED.key && String(ARMED.key).startsWith("trk") && armed(ARMED.key))) return;
+  box.dataset.k = key;
+  box.innerHTML = `<div class="trk-grid">${L.map(trkCard).join("")}</div>`;
+  box.querySelectorAll("[data-trkpay]").forEach(b => b.onclick = () => confirmBtn(b, "Wirklich ausgezahlt?", async () => { try { await api("/api/tracked", {action: "payout", id: b.dataset.trkpay}); toast("Auszahlung vermerkt, neuer Zeitraum beginnt"); S = await api("/api/state"); box.dataset.k = ""; trkList(); } catch (e) { toast(e.message); } }));
+  box.querySelectorAll("[data-trkdel]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => { try { await api("/api/tracked", {action: "remove", id: b.dataset.trkdel}); toast("Konto entfernt (Trades bleiben erhalten)"); S = await api("/api/state"); box.dataset.k = ""; trkList(); } catch (e) { toast(e.message); } }));
+}
+function trkCard(t) {
+  const head = `<div class="tk-h"><div><span class="l">${esc(t.phase || "")}${t.label ? " · " + esc(t.label) : ""}</span><b>${esc(t.firm)} ${t.size ? (t.size / 1000).toLocaleString("de-DE") + "K" : ""}</b><small class="hint">${esc(t.program || "")}</small></div>`;
+  const srcLine = `<small class="hint tk-src"><span class="dot ${t.online ? "ok" : "bad"}"></span>${esc(trkSrcName(t.source || ""))}${t.seen ? " · Stand " + new Date(t.seen * 1000).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"}) : ""}</small>`;
+  const del = `<button type="button" class="btn ghost-danger tk-del" data-trkdel="${esc(t.id)}" data-key="trkdel-${esc(t.id)}" data-orig="Entfernen">Entfernen</button>`;
+  if (t.error) return `<article class="panel tk">${head}<span class="chip bad">keine Daten</span></div>${srcLine}<p class="cp-warn">${esc(t.error)}</p><div class="inline wrap-gap">${del}</div></article>`;
+  const r = t.rules, po = t.payout;
+  const st = t.breached ? ["bad", "Grenze verletzt"] : t.funded ? (po && po.ready ? ["good", "Auszahlung möglich"] : ["", "Funded"]) : t.passed ? ["good", "Bestanden"] : ["", "Läuft"];
+  const prog = r.target > 0 ? Math.max(0, Math.min(100, t.profit / r.target * 100)) : 0;
+  const rl = (ok, txt, val) => `<div class="tk-r ${ok === true ? "ok" : ok === false ? "no" : ""}"><span>${ok === true ? "✓" : ok === false ? "!" : "·"}</span><span>${txt}</span><b class="mono">${val}</b></div>`;
+  return `<article class="panel tk">${head}<span class="chip ${st[0]}">${st[1]}</span></div>${srcLine}
+    <div class="tk-n">
+      <div><span class="l">Kontostand</span><b>${mUsd(t.equity)}</b><small class="${cls(t.profit)}">${sUsd(t.profit)} seit Start</small></div>
+      <div><span class="l">Darfst noch verlieren</span><b class="${t.can_lose <= 0 ? "neg" : ""}">${mUsd(Math.max(0, t.can_lose))}</b><small>${t.daily_left != null && t.daily_left < t.buffer ? "Tageslimit" : "bis Grenze " + mUsd(t.threshold)}</small></div>
+    </div>
+    ${r.target > 0 ? `<div class="tk-p"><div class="prog"><i style="width:${prog}%"></i></div><small>${t.to_target > 0 ? `noch ${mUsd(t.to_target)} bis zum Ziel (${mUsd(r.target)})` : "Gewinnziel erreicht"}</small></div>` : ""}
+    <div class="tk-rules">
+      ${r.daily ? rl(!t.daily_hit, "Tageslimit heute", mUsd(Math.max(0, t.daily_left))) : ""}
+      ${rl(!t.breached, "Puffer bis Gesamtgrenze", mUsd(t.buffer))}
+      ${r.min_days ? rl(t.days_traded >= r.min_days, "Handelstage", `${t.days_traded} / ${r.min_days}`) : rl(null, "Handelstage", t.days_traded)}
+      ${t.consistency ? rl(t.consistency.ok, `Konsistenz ${t.consistency.pct} %`, t.consistency.share != null ? t.consistency.share.toFixed(0) + " %" : "–") : ""}
+    </div>
+    ${po ? `<div class="tk-po ${po.ready ? "ok" : ""}">
+      <b>${po.ready ? `Auszahlung möglich: bis zu ${mUsd(po.amount)}` : "Auszahlung noch nicht möglich"}</b>
+      <small>${po.ready ? `Du bekommst davon etwa ${mUsd(po.net)} (${po.split} %)` : esc(po.need.join(" · "))}</small>
+      ${po.progress ? `<small class="hint">${esc(po.progress)}${po.last ? " · letzte Auszahlung " + po.last.split("-").reverse().join(".") : ""}</small>` : ""}
+      <details class="tk-rule"><summary>Regel</summary><small class="hint">${esc(po.rule)}</small></details>
+      ${po.ready ? `<button type="button" class="btn" data-trkpay="${esc(t.id)}" data-key="trkpay-${esc(t.id)}" data-orig="Auszahlung erhalten">Auszahlung erhalten</button>` : ""}
+    </div>` : ""}
+    <div class="inline wrap-gap">${del}${t.no_bot ? '<span class="hint">Bot handelt hier nicht (Tradovate)</span>' : ""}</div>
+  </article>`;
+}
+function trkForm() {
+  const box = $("#trkForm"); if (!box) return;
+  const P = S.prop_presets || {}, f = P[TF.firm] || P.ftmo;
+  if (!f.programs[TF.program]) TF.program = Object.keys(f.programs)[0];
+  const pg = f.programs[TF.program];
+  if (!pg.sizes.includes(+TF.size)) TF.size = pg.sizes.includes(100000) ? 100000 : pg.sizes[0];
+  const accs = (S.mt5 || {}).accounts || [];
+  const srcs = [...accs.map(a => ["mt5:" + a.login, `MT5 ${a.login}${a.company ? " · " + a.company : ""}${a.online ? "" : " (gerade offline)"}`]),
+    ...((S.config.topstep || {}).username ? [["topstep", "Topstep-Konto (Einstellungen → Konten & Broker)"]] : []), ["eigen", "Eigene Trades (eintragen oder CSV-Import)"]];
+  const sel = (id, items, cur) => `<select id="${id}">${items.map(([k, l]) => `<option value="${esc(k)}" ${String(k) === String(cur) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  box.innerHTML = `
+    <div class="row"><label for="tfF">Firma</label>${sel("tfF", Object.entries(P).map(([k, x]) => [k, x.name]), TF.firm)}</div>
+    <div class="row"><label for="tfP">Programm</label>${sel("tfP", Object.entries(f.programs).map(([k, x]) => [k, x.label]), TF.program)}</div>
+    <div class="row"><label for="tfS">Kontogröße</label>${sel("tfS", pg.sizes.map(v => [v, (v / 1000).toLocaleString("de-DE") + "K"]), TF.size)}</div>
+    <div class="row"><label for="tfQ">Daten kommen von<small>MT5: Konto muss in einem MT5-Fenster mit FVG-Bridge laufen. Dann sind Kontostand und Trades immer aktuell.</small></label>${sel("tfQ", srcs, srcs[0][0])}</div>
+    <div class="row"><label for="tfD">Start dieses Kontos<small>Ab wann zählen Trades (z. B. Tag des Kaufs oder Beginn des Funded-Kontos). Leer = alle</small></label><input id="tfD" type="date"></div>
+    <div class="row"><label for="tfN">Name (optional)</label><input id="tfN" type="text" maxlength="40" placeholder="z. B. FTMO Konto 2"></div>
+    ${pg.no_bot ? '<p class="cp-warn">Bei diesem Programm gibt es keine Verbindung zum Konto (läuft über Tradovate). Wähle „Eigene Trades“ und trag deine Trades ein oder lies sie per CSV ein.</p>' : ""}
+    <div class="inline wrap-gap"><button class="btn primary" id="tfGo">Konto hinzufügen</button></div>`;
+  $("#tfF").onchange = () => { TF.firm = $("#tfF").value; TF.program = null; trkForm(); };
+  $("#tfP").onchange = () => { TF.program = $("#tfP").value; trkForm(); };
+  $("#tfS").onchange = () => { TF.size = +$("#tfS").value; };
+  $("#tfGo").onclick = async () => {
+    try {
+      await api("/api/tracked", {action: "add", firm: TF.firm, program: TF.program, size: +$("#tfS").value, source: $("#tfQ").value, start_day: $("#tfD").value, label: $("#tfN").value.trim()});
+      toast("Konto hinzugefügt"); S = await api("/api/state"); $("#trkAdd").open = false; $("#trkList").dataset.k = ""; trkList();
+    } catch (e) { toast(e.message); }
   };
 }
 function chForm() {

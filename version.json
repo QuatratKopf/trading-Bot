@@ -1,6 +1,6 @@
 {
-  "version": "3.5.0",
-  "file": "releases/FVG-Trader-3.5.0.cmd",
-  "sha256": "979824c417af07f9a2e833a3b883af2253c84656a5b29477a71c48858a360206",
-  "notes": "Neu: Chart-Vorlage FVG-Chart für MetaTrader 5 (FVGs, Sessions wie im Bot, Vortageshoch/-tief, Mitternachts-Open, dunkles Design). Einstellungen → MetaTrader 5 → In MT5 installieren."
+  "version": "3.6.0",
+  "file": "releases/FVG-Trader-3.6.0.cmd",
+  "sha256": "a4a3b438a4d6341051502e3fcd2c3c9d785c36ec96acdd478c07bce28e3a8667",
+  "notes": "Neu: Meine Konten im Fremdkapital-Tab. Echte Kontodaten aus MT5 oder Topstep, Challenge-Stand und wann deine Auszahlung möglich ist. Wichtig: In den Einstellungen „In MT5 installieren“ drücken und FVG-Bridge neu auf den Chart ziehen."
 }
