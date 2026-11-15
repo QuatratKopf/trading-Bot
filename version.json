@@ -1,6 +1,6 @@
 {
-  "version": "3.8.0",
-  "file": "releases/FVG-Trader-3.8.0.cmd",
-  "sha256": "7c9aaf02c5c45a3abdbddb99ef2ed7ef2ee43a8c8fba94a70a537e8c948d45fc",
-  "notes": "Neu: Konten-Filter in Cockpit (Knopf neben dem Stift) und Kalender: alle, ein oder mehrere MT5-Konten. Echter Gewinn je Konto aus MT5. Bot-Challenge zählt nur die gewählten Konten. Kalender ohne Bot/Eigene-Umschalter."
+  "version": "3.8.1",
+  "file": "releases/FVG-Trader-3.8.1.cmd",
+  "sha256": "0af85e6a030e5e0cbf933dd611bc2ddde168242a5eb9237d09b61c7d89e488f2",
+  "notes": "Cockpit: Filter-Knopf beim Kontostand bleibt immer in einer Zeile, langer Kontoname wird gekürzt."
 }

@@ -890,6 +890,8 @@ svg text{fill:var(--muted);font-family:var(--f-body);font-size:11px}
 .hc-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .hc-top span{font-size:13.5px;color:var(--fg);font-weight:500}
 .hc-top small{font-size:12px;color:var(--muted)}
+.hero-card .hc-top > span{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;flex:none}
+.hero-card .hc-top > small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
 .bal{font:600 clamp(30px,3.2vw,40px)/1.05 var(--f-display);letter-spacing:-.04em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .delta{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .delta b{font-size:11.5px;padding:2px 8px;border-radius:999px;font-weight:600}
@@ -1504,7 +1506,7 @@ function heroHtml() {
   const wr = s.n ? Math.round(s.wins / s.n * 100) : null;
   return `
   <div class="hero-card">
-    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small>${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.length === 1 ? "Konto " + S.view_accounts[0] : S.view_accounts.length + " Konten") : (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
+    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small title="${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.join(", ")) : ""}">${(S.view_accounts || []).length ? esc(S.view_accounts.length === 1 ? "Konto " + S.view_accounts[0] : S.view_accounts.length + " Konten") : esc(S.broker.label) + (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
     <div><div class="bal mono" ${bal == null ? "" : cu(bal, "usd2")}>${bal == null ? "–" : usd2(bal)}</div>
       <div class="delta"><b class="${total > 0 ? "pos" : total < 0 ? "neg" : "zero"}">${total > 0 ? "↗" : total < 0 ? "↘" : "→"} ${base ? (dp >= 0 ? "+" : "") + dp.toFixed(2).replace(".", ",") + " %" : "0 %"}</b>heute</div></div>
     <div class="hb-act">
