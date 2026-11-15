@@ -538,6 +538,13 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.cp-accs{display:flex;flex-wrap:wrap;gap:6px 16px}
+.ib.sm.on,.btn.on{color:var(--accent)}
+#calAcc{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#calAcc svg{width:15px;height:15px;flex:none}
+.acc-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.acc-row > span:nth-child(2){display:flex;flex-direction:column;gap:1px;min-width:0}
+.acc-list{display:flex;flex-direction:column}
 .trk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
 @media (max-width:480px){.trk-grid{grid-template-columns:1fr}}
 .tk{display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -1277,6 +1284,7 @@ const I = {
   log: '<path d="M6 4h9l4 4v12H6z"/><path d="M15 4v4h4M9 12h7M9 16h5"/>',
   reload: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
   pause: '<rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/>',
   play: '<path d="M8 5l11 7-11 7z"/>',
   candle: '<path d="M7 4v16M17 4v16"/><rect x="5" y="8" width="4" height="7" rx="1"/><rect x="15" y="6" width="4" height="9" rx="1"/>',
@@ -1496,7 +1504,7 @@ function heroHtml() {
   const wr = s.n ? Math.round(s.wins / s.n * 100) : null;
   return `
   <div class="hero-card">
-    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button></span><small>${esc(S.broker.label)}</small></div>
+    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small>${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.length === 1 ? "Konto " + S.view_accounts[0] : S.view_accounts.length + " Konten") : (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
     <div><div class="bal mono" ${bal == null ? "" : cu(bal, "usd2")}>${bal == null ? "–" : usd2(bal)}</div>
       <div class="delta"><b class="${total > 0 ? "pos" : total < 0 ? "neg" : "zero"}">${total > 0 ? "↗" : total < 0 ? "↘" : "→"} ${base ? (dp >= 0 ? "+" : "") + dp.toFixed(2).replace(".", ",") + " %" : "0 %"}</b>heute</div></div>
     <div class="hb-act">
@@ -1516,7 +1524,7 @@ function heroHtml() {
     ${tile("", "Ergebnis in R", I.trend, s.r, "r", s.n ? `<em>Ø ${num2(s.r / s.n)} R</em>pro Trade` : "Risiko-Einheiten")}
   </div>
   <div class="hero-card">
-    <div class="hc-top"><span>Tagesergebnisse</span><small>Bot + eigene Trades</small></div>
+    <div class="hc-top"><span>Tagesergebnisse</span><small>${(S.mt5 && S.mt5.accounts.length) ? esc(accLabel()) : "alle Trades"}</small></div>
     ${heroBars()}
   </div>`;
 }
@@ -1529,6 +1537,7 @@ function heroRender(full) {
   if (full) { box.classList.add("fresh"); clearTimeout(heroRender._t); heroRender._t = setTimeout(() => box.classList.remove("fresh"), 2200); countUp(box); }
   $("#hPause").onclick = () => act(() => api("/api/config", {paused: !S.config.paused}), S.config.paused ? "Handel fortgesetzt" : "Handel pausiert: keine neuen Trades");
   $("#hBal").onclick = balanceDialog;
+  if ($("#hAcc")) $("#hAcc").onclick = accountsDialog;
   $("#hChart").onclick = () => { TAB = "chart"; setHash(TAB); window.scrollTo({top: 0}); render(true); };
 }
 function countUp(root) {
@@ -2637,7 +2646,8 @@ const CP = {firm: null, program: null, size: null, risk: null, open: false};
 function chPick() {
   const box = $("#chPick"); if (!box) return;
   const P = S.prop_presets || {}, RK = S.prop_risk || {}, cf = S.config.challenge || {}, pre = cf.enabled && cf.preset ? cf.preset : null;
-  if (CP.firm === null) Object.assign(CP, pre ? {firm: pre.firm, program: pre.program, size: pre.size, risk: pre.risk || "normal"} : {firm: "ftmo", program: "2s1", size: 100000, risk: "normal"}, {open: !cf.enabled});
+  if (CP.firm === null) Object.assign(CP, pre ? {firm: pre.firm, program: pre.program, size: pre.size, risk: pre.risk || "normal"} : {firm: "ftmo", program: "2s1", size: 100000, risk: "normal"}, {open: !cf.enabled},
+    {accounts: (cf.enabled && (cf.accounts || []).length) ? cf.accounts.slice() : ((S.mt5 || {}).accounts || []).filter(a => a.bot).map(a => a.login)});
   const f = P[CP.firm];
   if (f && !f.programs[CP.program]) CP.program = Object.keys(f.programs)[0];
   const pg = f ? f.programs[CP.program] : null;
@@ -2649,7 +2659,7 @@ function chPick() {
   const active = pre ? `${esc((P[pre.firm] || {}).name || "")} · ${esc(((P[pre.firm] || {}).programs || {})[pre.program] ? P[pre.firm].programs[pre.program].label : "")} · ${kk(pre.size)}`
     : cf.enabled ? `${esc(cf.name || "Eigene Regeln")} · ${mUsd(cf.start_balance)}` : "";
   if (cf.enabled && !CP.open) {
-    box.innerHTML = `<div class="cp-bar"><div><span class="l">Dein Konto</span><b>${active}</b>${pre ? `<small class="hint">Risiko ${esc(pre.risk || "normal")} · ${mUsd(Math.round(pre.size * (RK[pre.risk] || 0.5) / 100))} pro Trade</small>` : ""}</div>
+    box.innerHTML = `<div class="cp-bar"><div><span class="l">Dein Konto</span><b>${active}</b>${pre ? `<small class="hint">Risiko ${esc(pre.risk || "normal")} · ${mUsd(Math.round(pre.size * (RK[pre.risk] || 0.5) / 100))} pro Trade${(cf.accounts || []).length ? " · zählt nur Konto " + esc(cf.accounts.join(", ")) : ""}</small>` : ""}</div>
       <button type="button" class="btn" id="cpOpen">Konto ändern</button></div>`;
     $("#cpOpen").onclick = () => { CP.open = true; chPick(); };
     return;
@@ -2672,6 +2682,7 @@ function chPick() {
     <div class="cp-r"><span class="l">Risiko pro Trade</span>${seg("data-cpk", Object.entries(RK).filter(([, v]) => !pg.max_risk || v <= pg.max_risk).map(([k, v]) => [k, `${k[0].toUpperCase() + k.slice(1)} · ${String(v).replace(".", ",")} %`]), CP.risk)}</div>
     ${pg.no_bot ? '<p class="cp-warn">Bei diesem Programm kann der Bot nicht selbst handeln (läuft über Tradovate). Die App überwacht die Challenge mit deinen eigenen Trades.</p>' : f.info && !f.info.app_ok ? `<p class="cp-warn">${esc(f.info.app)}</p>` : ""}
     <p class="hint cp-what">Beim Übernehmen stellt die App den Bot passend ein: <b>${mUsd(riskUsd)} Risiko pro Trade</b>, Tages-Stopp bei <b>−${mUsd(Math.round((rules.daily || rules.dd * 0.5) * 0.8))}</b> (vor dem Limit der Firma)${rules.cons && rules.target ? `, Tages-Gewinnstopp bei <b>+${mUsd(Math.round(rules.target * rules.cons / 100 * 0.8))}</b> wegen der Konsistenzregel` : ""} und Bot-Schutz an. ${esc(f.note)}</p>
+    ${((S.mt5 || {}).accounts || []).length ? `<div class="cp-r"><span class="l">Zählt für Konto</span><div class="cp-accs">${S.mt5.accounts.map(a => `<label class="m5-c"><input type="checkbox" class="chk" data-cpa="${esc(a.login)}" ${(CP.accounts || []).includes(a.login) ? "checked" : ""}> <b class="mono">${esc(a.login)}</b> <small class="hint">${esc(a.company || "")}</small></label>`).join("")}</div><small class="hint">Nur Bot-Trades auf diesen Konten zählen für die Challenge. Nichts angehakt = alle.</small></div>` : ""}
     <label class="m5-c"><input type="checkbox" class="chk" id="cpAdapt" checked> Bot-Einstellungen anpassen</label>
     ${S.broker.name === "paper" ? `<label class="m5-c"><input type="checkbox" class="chk" id="cpPaper" checked> Paper-Konto auf ${mUsd(+CP.size)} setzen (zum Üben)</label>` : ""}
     <div class="inline wrap-gap"><button class="btn primary" id="cpGo">${cf.enabled ? "Übernehmen" : "Challenge starten"}</button><span class="hint">Werte bitte einmal mit den Regeln auf der Seite von ${esc(f.name)} vergleichen.</span></div>`
@@ -2680,12 +2691,13 @@ function chPick() {
   box.querySelectorAll("[data-cpp]").forEach(b => b.onclick = () => { CP.program = b.dataset.cpp; chPick(); });
   box.querySelectorAll("[data-cps]").forEach(b => b.onclick = () => { CP.size = +b.dataset.cps; chPick(); });
   box.querySelectorAll("[data-cpk]").forEach(b => b.onclick = () => { CP.risk = b.dataset.cpk; chPick(); });
+  box.querySelectorAll("[data-cpa]").forEach(b => b.onchange = () => { CP.accounts = [...box.querySelectorAll("[data-cpa]")].filter(x => x.checked).map(x => x.dataset.cpa); });
   if ($("#cpClose")) $("#cpClose").onclick = () => { CP.open = false; chPick(); };
   if ($("#cpGo")) $("#cpGo").onclick = async () => {
     const btn = $("#cpGo"); btn.disabled = true;
     try {
       const r = await api("/api/challenge/preset", {firm: CP.firm, program: CP.program, size: CP.size, risk: CP.risk,
-        adapt: $("#cpAdapt").checked, paper_balance: !!($("#cpPaper") && $("#cpPaper").checked)});
+        adapt: $("#cpAdapt").checked, paper_balance: !!($("#cpPaper") && $("#cpPaper").checked), accounts: CP.accounts || []});
       toast(r.changes && r.changes.length ? "Übernommen: " + r.changes[0] : "Übernommen");
       CP.open = false; S = await api("/api/state"); MC.data = null; challenge(true);
     } catch (e) { toast(e.message); btn.disabled = false; }
@@ -3183,8 +3195,8 @@ function equitySvg(curve) {
 }
 
 /* ───────── Kalender ───────── */
-const CAL = {y: null, m: null, sel: null, detail: null, filter: "alle"};
-try { CAL.filter = localStorage.getItem("fvg-cal-filter") || "alle"; } catch (e) {}
+const CAL = {y: null, m: null, sel: null, detail: null, filter: "alle"};   // Bot + eigene immer zusammen; gefiltert wird nach Konten
+const accLabel = () => { const v = S.view_accounts || []; return v.length ? (v.length === 1 ? "Konto " + v[0] : v.length + " Konten") : "Alle Konten"; };
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const kUsd = v => { const a = Math.abs(v); return (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + (a >= 1000 ? (a / 1000).toFixed(a >= 10000 ? 0 : 1).replace(".", ",") + "k" : Math.round(a)); };
@@ -3252,7 +3264,7 @@ function calendar() {
           <button class="ibtn" id="calPrev" aria-label="Vorheriger Monat">${icon(IC_L)}</button><button class="ibtn" id="calNext" aria-label="Nächster Monat">${icon(IC_R)}</button>
           <button class="btn" id="calToday" style="padding:6px 12px">Heute</button></div>
         <div class="cal-act">
-          <div class="seg" role="group" aria-label="Trades filtern">${[["alle", "Alle"], ["bot", "Bot"], ["eigen", "Eigene"]].map(([k, l]) => `<button type="button" data-f="${k}" aria-pressed="${CAL.filter === k}">${l}</button>`).join("")}</div>
+          ${(S.mt5 && S.mt5.accounts.length) ? `<button class="btn ${(S.view_accounts || []).length ? "on" : ""}" id="calAcc" type="button" title="Welche Konten der Kalender zeigt">${icon(I.filter)}${esc(accLabel())}</button>` : ""}
           <label class="btn" style="cursor:pointer">Importieren<input type="file" id="ownCsv" accept=".csv,.txt" hidden></label>
           <button class="btn" id="calClr" title="Alle Tage vor heute ausblenden">Leeren</button>
           <button class="btn primary" id="ownAdd">+ Trade eintragen</button>
@@ -3260,7 +3272,7 @@ function calendar() {
       </div>
       <div class="strip">
         <div><span class="l">Monat</span><span class="v big ${cls(mPnl)}">${sUsd(mPnl)}</span>
-          <span class="s">${CAL.filter === "alle" ? `Bot <b class="${cls(mBot)}">${sUsd(mBot)}</b> · Eigene <b class="${cls(mOwn)}">${sUsd(mOwn)}</b>` : CAL.filter === "bot" ? "nur Bot-Trades" : "nur eigene Trades"}</span></div>
+          <span class="s">${(S.mt5 && S.mt5.accounts.length) ? esc(accLabel()) : "&nbsp;"}${mOwn ? ` · davon eingetragen <b class="${cls(mOwn)}">${sUsd(mOwn)}</b>` : ""}</span></div>
         <div><span class="l">Gewinntage</span><span class="v">${mDays.length ? Math.round(wr * 100) + " %" : "–"}</span>
           <div class="wl"><i style="width:${wr * 100}%;background:var(--pos)"></i><i style="width:${mDays.length ? losses.length / mDays.length * 100 : 0}%;background:var(--neg)"></i></div>
           <span class="s">${wins.length} grün · ${losses.length} rot</span></div>
@@ -3277,8 +3289,7 @@ function calendar() {
   $("#calToday").onclick = () => { CAL.y = now.getFullYear(); CAL.m = now.getMonth(); calendar(); };
   $("#calClr").onclick = calClearDialog;
   if ($("#calAll")) $("#calAll").onclick = async () => { try { await api("/api/calendar/clear", {restore: true}); toast("Kalender zeigt wieder alle Trades"); await refresh(); } catch (e) { toast(e.message); } };
-  document.querySelectorAll(".seg [data-f]").forEach(b => b.onclick = () => { CAL.filter = b.dataset.f; try { localStorage.setItem("fvg-cal-filter", CAL.filter); } catch (e) {}
-    calendar(); if (CAL.sel && $("#dayDrw")) drawDay(); });
+  if ($("#calAcc")) $("#calAcc").onclick = accountsDialog;
   document.querySelectorAll(".cal button.day").forEach(b => b.onclick = () => openDay(b.dataset.day));
   $("#ownAdd").onclick = () => ownTradeDialog(CAL.sel || todayIso);
   $("#ownCsv").onchange = e => { const f = e.target.files[0]; if (f) importDialog(f); e.target.value = ""; };
@@ -3324,7 +3335,7 @@ function drawDay() {
       ${CAL.dayErr ? `<p class="err-msg">${esc(CAL.dayErr)}</p>` : ""}
       <div class="drw-pl"><span class="l">Netto${CAL.filter !== "alle" ? (CAL.filter === "bot" ? " · Bot" : " · Eigene") : ""}</span>
         <b class="${cls(pnl)}">${list.length ? sUsd(pnl) : "–"}</b>
-        ${list.length && CAL.filter === "alle" ? `<span class="hint">Bot <b class="${cls(bot.reduce((a, t) => a + t.pnl, 0))}">${sUsd(bot.reduce((a, t) => a + t.pnl, 0))}</b> · Eigene <b class="${cls(own.reduce((a, t) => a + t.pnl, 0))}">${sUsd(own.reduce((a, t) => a + t.pnl, 0))}</b></span>` : ""}</div>
+        ${list.length && own.length ? `<span class="hint">Bot <b class="${cls(bot.reduce((a, t) => a + t.pnl, 0))}">${sUsd(bot.reduce((a, t) => a + t.pnl, 0))}</b> · Eigene <b class="${cls(own.reduce((a, t) => a + t.pnl, 0))}">${sUsd(own.reduce((a, t) => a + t.pnl, 0))}</b></span>` : ""}</div>
       ${list.length ? `<div class="drw-st">
         ${st("Trades", `${list.length}`)}
         ${st("Trefferquote", Math.round(w.length / list.length * 100) + " %", w.length >= l.length ? "pos" : "neg")}
@@ -3393,6 +3404,27 @@ function modal(html) {
   $("#mdl").addEventListener("click", e => { if (e.target.id === "mdl") close(); });
   document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
   return close;
+}
+// Konten-Filter: welche MT5-Konten im Cockpit, Kalender und in der Statistik zählen
+function accountsDialog() {
+  const accs = (S.mt5 || {}).accounts || [], sel = new Set(S.view_accounts || []);
+  const row = a => `<label class="acc-row"><input type="checkbox" class="chk" data-acc="${esc(a.login)}" ${sel.has(a.login) ? "checked" : ""}>
+    <span><b class="mono">${esc(a.login)}</b><small class="hint">${esc(a.company || "")}${a.balance != null ? " · " + usd2(a.balance) : ""}${a.bot ? " · Bot handelt hier" : ""}</small></span>
+    <span class="dot ${a.online ? "ok" : "bad"}" title="${a.online ? "verbunden" : "nicht verbunden"}"></span></label>`;
+  const close = modal(`<h2 style="font-size:18px">Welche Konten zählen?</h2>
+    <p class="hint" style="margin:6px 0 12px;line-height:1.5">Gilt für Kontostand, Tages-Ergebnis, Statistik und Kalender. Der Bot selbst (Positionsgröße, Tageslimit) rechnet davon unabhängig.</p>
+    <label class="acc-row"><input type="checkbox" class="chk" id="accAll" ${sel.size ? "" : "checked"}><span><b>Alle Konten</b><small class="hint">Summe aller verbundenen MT5-Konten</small></span></label>
+    <div class="acc-list">${accs.map(row).join("")}</div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="accNo">Abbrechen</button><button class="btn primary" id="accOk">Übernehmen</button></div>`);
+  const boxes = () => [...document.querySelectorAll("[data-acc]")];
+  $("#accAll").onchange = () => { if ($("#accAll").checked) boxes().forEach(b => b.checked = false); };
+  boxes().forEach(b => b.onchange = () => { $("#accAll").checked = !boxes().some(x => x.checked); });
+  $("#accNo").onclick = close;
+  $("#accOk").onclick = async () => {
+    const pick = $("#accAll").checked ? [] : boxes().filter(b => b.checked).map(b => b.dataset.acc);
+    try { await api("/api/config", {view_accounts: pick}); close(); toast(pick.length ? `Zeigt ${pick.length === 1 ? "Konto " + pick[0] : pick.length + " Konten"}` : "Zeigt alle Konten"); await refresh(true); }
+    catch (e) { toast(e.message); }
+  };
 }
 function balanceDialog() {
   if (S.broker.name !== "paper") {

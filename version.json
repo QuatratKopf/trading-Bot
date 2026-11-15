@@ -1,6 +1,6 @@
 {
-  "version": "3.7.0",
-  "file": "releases/FVG-Trader-3.7.0.cmd",
-  "sha256": "af8fb453f7f9fb93ec5eda6a128cecf3fb560ad03e65e563125af6c6de2b7618",
-  "notes": "Neu: Eigener Symbolname je MT5-Konto (z. B. NAS100.gbe bei IQ Capital, US100.cash bei FTMO) mit Prüfung, ob MT5 das Symbol kennt. Copytrading zwischen verschiedenen Firmen rechnet Lotgröße und Kurs um."
+  "version": "3.8.0",
+  "file": "releases/FVG-Trader-3.8.0.cmd",
+  "sha256": "7c9aaf02c5c45a3abdbddb99ef2ed7ef2ee43a8c8fba94a70a537e8c948d45fc",
+  "notes": "Neu: Konten-Filter in Cockpit (Knopf neben dem Stift) und Kalender: alle, ein oder mehrere MT5-Konten. Echter Gewinn je Konto aus MT5. Bot-Challenge zählt nur die gewählten Konten. Kalender ohne Bot/Eigene-Umschalter."
 }

@@ -116,12 +116,14 @@ DEFAULT_CONFIG = {
         "profit_target": 3000.0, "max_dd": 2000.0, "dd_type": "eod", "lock_at_start": True,
         "daily_loss": 1000.0, "consistency_pct": 0.0, "min_days": 0, "source": "alle",
         "guard": True, "guard_buffer": 250.0,
+        "accounts": [],        # nur Bot-Trades dieser MT5-Konten zählen (leer = alle)
     },
     "paper": {"start_balance": 50000.0, "slippage_ticks": 1, "commission": 2.25, "commission_micro": 0.75},
     "topstep": {"username": "", "api_key": "", "account": "", "api_url": ""},   # TopstepX-API (Topstep-Konten)
     # MetaTrader 5: Konten melden sich über den EA FVG-Bridge. Je Konto: bot = Bot handelt hier, copy = empfängt Kopien, factor = Größe
     # Meine Konten: Fremdkapital-Konten mit echter Datenquelle (MT5-Konto, Topstep oder eigene Trades)
     "tracked": [],
+    "view_accounts": [],       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
@@ -708,6 +710,8 @@ class Engine:
                 raise ValueError("Der ngrok-Authtoken sieht unvollständig aus. Bitte im ngrok-Dashboard unter „Your Authtoken“ komplett kopieren.")
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
+        c["view_accounts"] = [str(x) for x in (c.get("view_accounts") or []) if str(x).isdigit()][:20]
+        c["challenge"]["accounts"] = [str(x) for x in (c["challenge"].get("accounts") or []) if str(x).isdigit()][:20]
         tr = []
         for t in c.get("tracked") or []:
             if not isinstance(t, dict):
@@ -2206,6 +2210,11 @@ class Engine:
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
+            if self.broker.name == "mt5":
+                try:
+                    self.mt5_fill_pnl()
+                except Exception as e:   # nur Anzeige, darf den Loop nicht stoppen
+                    cp.status["error"] = cp.status.get("error") or f"Gewinn je Konto: {e}"
             if any(t["source"] == "topstep" for t in self.cfg.get("tracked") or []) and time.time() - self._ts_cache.get("at", 0) > 60:
                 self._ts_cache["at"] = time.time()
                 try:
@@ -2344,8 +2353,9 @@ class Engine:
 
     # ───────── Statistik & Zustand ─────────
     def stats(self, include_tests=False):
-        trades = [p for p in self.db.closed_positions()
-                  if p["broker"] == self.broker.name and (include_tests or not p["is_test"]) and self._shown(p)]
+        sel = self._view()
+        trades = [dict(p, pnl=self._acc_pnl(p, sel)) for p in self.db.closed_positions()
+                  if p["broker"] == self.broker.name and (include_tests or not p["is_test"]) and self._shown(p) and self._acc_ok(p, sel)]
         wins = [t for t in trades if t["pnl"] > 0]
         losses = [t for t in trades if t["pnl"] <= 0]
         gp = sum(t["pnl"] for t in wins)
@@ -2682,6 +2692,60 @@ class Engine:
         return {"found": found[:20], "watch": watch[:6], "tests": tests, "signals": len(rows),
                 "setups": {s: len(v) for s, v in by.items()}, "min_scope": min_scope, "active": active}
 
+    # ───────── Konten-Filter (MT5) ─────────
+    @staticmethod
+    def _acc_of(p):
+        """MT5-Konten, auf denen dieser Bot-Trade lief."""
+        if p.get("broker") != "mt5":
+            return []
+        return list(((p.get("broker_ref") or {}).get("accounts") or {}).keys())
+
+    def _acc_ok(self, p, sel):
+        if not sel or p.get("broker") != "mt5":
+            return True
+        return any(a in sel for a in self._acc_of(p))
+
+    def _acc_pnl(self, p, sel):
+        """Echter Gewinn/Verlust der gewählten Konten (aus MT5), sonst der rechnerische Wert des Bots."""
+        if p.get("broker") != "mt5":
+            return p["pnl"]
+        accs = (p.get("broker_ref") or {}).get("accounts") or {}
+        vals = [a["pnl"] for lg, a in accs.items() if (not sel or lg in sel) and a.get("pnl") is not None]
+        return round(sum(vals), 2) if vals else p["pnl"]
+
+    def _view(self):
+        return [str(x) for x in self.cfg.get("view_accounts") or []]
+
+    def balance_view(self):
+        """Kontostand fürs Cockpit: bei MT5 die Summe der gewählten Konten, sonst wie gehabt."""
+        if self.broker.name != "mt5":
+            return self.balance()
+        accs = self.mt5_link.accounts()
+        sel = self._view() or [lg for lg, a in accs.items() if a.get("online")]
+        vals = [accs[lg]["balance"] for lg in sel if lg in accs and accs[lg].get("balance") is not None]
+        return round(sum(vals), 2) if vals else self.balance()
+
+    def mt5_fill_pnl(self):
+        """Echten Gewinn je Konto aus den MT5-Deals nachtragen (für Trades der letzten 3 Tage)."""
+        since = time.time() - 3 * 86400
+        accs = None
+        rows = self.db.rows("SELECT * FROM positions WHERE broker='mt5' AND status='geschlossen' AND closed>=?", (since,))
+        for p in (self.db._decode_pos(r) for r in rows):
+            ref = p.get("broker_ref") or {}
+            todo = [lg for lg, a in (ref.get("accounts") or {}).items() if a.get("pnl") is None]
+            if not todo:
+                continue
+            accs = accs if accs is not None else self.mt5_link.accounts()
+            changed = False
+            for lg in todo:
+                a = ref["accounts"][lg]
+                deals = [d for d in (accs.get(lg) or {}).get("deals", []) if d["position"] == a.get("ticket")]
+                if deals:
+                    a["pnl"] = round(sum(d["pnl"] for d in deals), 2)
+                    changed = True
+            if changed:
+                self.db.update_position(p["id"], broker_ref=ref)
+
     # ───────── Kalender: Bot-Trades + eigene Trades ─────────
     def _shown(self, p):
         """Zählt der Trade für Kalender und Statistik? (ältere können ausgeblendet sein – sie bleiben gespeichert)"""
@@ -2704,15 +2768,18 @@ class Engine:
                         f"Tagen vor dem {today} ausgeblendet (bleiben gespeichert, Kontostand unverändert)")
             return {"ok": True, "from": today, "hidden": len(hidden)}
 
-    def _calendar_trades(self, include_tests=False):
+    def _calendar_trades(self, include_tests=False, accounts=None):
+        """Abgeschlossene Trades für Kalender/Statistik. accounts: MT5-Konten-Filter (None = Cockpit-Filter)."""
+        sel = self._view() if accounts is None else [str(x) for x in accounts]
         out = []
         for t in self.db.closed_positions():
             if not self._shown(t):
                 continue
             if t["broker"] == "eigen":
                 t["source"] = "eigen"
-            elif t["broker"] == self.broker.name and (include_tests or not t["is_test"]):
+            elif t["broker"] == self.broker.name and (include_tests or not t["is_test"]) and self._acc_ok(t, sel):
                 t["source"] = "bot"
+                t["pnl"] = self._acc_pnl(t, sel)
             else:
                 continue
             t["day"] = t.get("trade_day") or str(ny_date(t["closed"]))
@@ -2724,13 +2791,14 @@ class Engine:
         ch = self.cfg["challenge"]
         start, dd = float(ch["start_balance"]), float(ch["max_dd"])
         today = str(ny_date())
-        trades = [t for t in self._calendar_trades()
+        csel = [str(x) for x in ch.get("accounts") or []]
+        trades = [t for t in self._calendar_trades(accounts=csel)
                   if (ch["source"] == "alle" or t["source"] == ch["source"]) and (not ch["start_day"] or t["day"] >= ch["start_day"])]
         trades.sort(key=lambda t: (t["day"], t["closed"] or 0))
         upnl = 0.0
         if ch["source"] != "eigen":
             upnl = sum(self._unrealized(p) for p in self.db.open_positions()
-                       if p["broker"] == self.broker.name and not p["is_test"])
+                       if p["broker"] == self.broker.name and not p["is_test"] and self._acc_ok(p, csel))
 
         def thr(hwm):
             if ch["dd_type"] == "static":
@@ -2880,7 +2948,8 @@ class Engine:
         risk_usd = round(size * PROP_RISK[risk_key] / 100, 0)
         daily = rules["daily_loss"]
         buffer = round(max(100.0, min(daily * 0.15 if daily else rules["max_dd"] * 0.1, risk_usd)), 0)
-        patch = {"challenge": dict(rules, enabled=True, start_day=start_day, guard=True, guard_buffer=buffer,
+        accs = [str(x) for x in b.get("accounts") or [] if str(x).isdigit()]
+        patch = {"challenge": dict(rules, enabled=True, start_day=start_day, guard=True, guard_buffer=buffer, accounts=accs,
                                    preset={"firm": firm, "program": prog, "size": int(size), "risk": risk_key})}
         changes = []
         if b.get("adapt", True):
@@ -4435,9 +4504,10 @@ class Engine:
 
     def summary(self):
         start = self._ny_day_start()
-        closed = self._bot_closed(start)
+        sel = self._view()
+        closed = [dict(p, pnl=self._acc_pnl(p, sel)) for p in self._bot_closed(start) if self._acc_ok(p, sel)]
         rs = [x for x in (self._r_of(p) for p in closed) if x is not None]
-        opens = [p for p in self.db.open_positions() if p["broker"] == self.broker.name]
+        opens = [p for p in self.db.open_positions() if p["broker"] == self.broker.name and self._acc_ok(p, sel)]
         sigs = [s for s in self.db.rows("SELECT status, reason, is_test FROM signals WHERE ts>=?", (start,)) if not s["is_test"]]
         blocked = {}
         for s in sigs:
@@ -4914,7 +4984,8 @@ class Engine:
                        "last_bar": {k: v for k, v in self.last_bar.items()}},
                 "broker": {"name": self.broker.name, "label": self.broker.label, "ok": self.broker_ok,
                            "status": self.broker_status},
-                "balance": self.balance(),
+                "balance": self.balance_view(),
+                "view_accounts": self._view(),
                 "today": {"pnl": round(self.today_pnl(), 2), "trades": len(self._today_trades()),
                           "max_trades": r["max_trades_day"], "max_loss": r["max_daily_loss"]},
                 "pending": self.db.pending(),
