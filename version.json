@@ -1,6 +1,6 @@
 {
-  "version": "3.6.2",
-  "file": "releases/FVG-Trader-3.6.2.cmd",
-  "sha256": "940d55c8557d8f829425569e9f0e87929c505c93339a416c71571b4da03aeee6",
-  "notes": "Chart-Vorlage FVG-Chart 1.01: Session-Kästen werden jetzt gezeichnet, am Wochenende steht „Markt geschlossen“. In MT5 neu installieren (Einstellungen → MetaTrader 5 → In MT5 installieren)."
+  "version": "3.6.3",
+  "file": "releases/FVG-Trader-3.6.3.cmd",
+  "sha256": "64de2a2130c614756b01c9b7344dc15539c8f65a74335b98dc68d78fb7351deb",
+  "notes": "Chart-Vorlage FVG-Chart 1.02: Uhrzeit und Session-Anzeige stimmen jetzt auch am Wochenende. In MT5 neu installieren (Einstellungen → MetaTrader 5 → In MT5 installieren)."
 }

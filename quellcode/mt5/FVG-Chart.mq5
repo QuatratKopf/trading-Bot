@@ -9,7 +9,7 @@
 //| Einrichten: Indikator auf den Chart ziehen. Fertig.               |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "1.01"
+#property version   "1.02"
 #property description "FVGs, Sessions und Key Levels wie in der App FVG Trader."
 #property indicator_chart_window
 #property indicator_plots 0
@@ -71,10 +71,49 @@ datetime FromNy(datetime ny)
    return(g + g_srv_off);
   }
 
+// Zeitverschiebung des Servers. Kommt ein neuer Kurs an, wird sie in diesem Moment gemessen und gemerkt.
+// Am Wochenende liefert MT5 keine verlaessliche Serverzeit: dann der gemerkte Wert,
+// sonst die uebliche Regel der Prop-Firmen (Server-Mitternacht = 17 Uhr New York).
+long     g_tick_srv = 0;      // Serverzeit des zuletzt gesehenen Kurses
+int      g_tick_off = 0;      // daraus gemessene Verschiebung
+datetime g_tick_seen = 0;     // wann (GMT) der letzte neue Kurs ankam
+
+void SeeTick()
+  {
+   long t = SymbolInfoInteger(_Symbol, SYMBOL_TIME);
+   if(t <= 0)
+      return;
+   if(g_tick_srv == 0)
+     {
+      g_tick_srv = t;          // Startwert: alter Kurs, zaehlt nicht als live
+      return;
+     }
+   if(t != g_tick_srv)
+     {
+      g_tick_srv = t;
+      g_tick_seen = TimeGMT();
+      g_tick_off = (int)(MathRound((t - (long)g_tick_seen) / 1800.0) * 1800);
+     }
+  }
+
 void UpdateServerOffset()
   {
-   long d = (long)TimeTradeServer() - (long)TimeGMT();
-   g_srv_off = (int)(MathRound(d / 1800.0) * 1800);
+   string gv = "FVGC_srv_off_" + AccountInfoString(ACCOUNT_SERVER);
+   if(g_tick_seen > 0 && TimeGMT() - g_tick_seen < 600)
+     {
+      g_srv_off = g_tick_off;
+      GlobalVariableSet(gv, g_srv_off);
+     }
+   else
+      if(GlobalVariableCheck(gv))
+         g_srv_off = (int)GlobalVariableGet(gv);
+      else
+         g_srv_off = NyOffset(TimeGMT()) + 7 * 3600;
+  }
+
+datetime NowServer()
+  {
+   return(TimeGMT() + g_srv_off);
   }
 
 //+------------------------------------------------------------------+
@@ -363,6 +402,7 @@ int OnInit()
   {
    if(InpTheme)
       ApplyTheme();
+   SeeTick();
    UpdateServerOffset();
    EventSetTimer(30);
    return(INIT_SUCCEEDED);
@@ -378,7 +418,7 @@ void OnDeinit(const int reason)
 void OnTimer()
   {
    UpdateServerOffset();
-   DrawInfo(TimeTradeServer());
+   DrawInfo(NowServer());
    ChartRedraw();
   }
 
@@ -392,7 +432,9 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
    ArraySetAsSeries(high, false);
    ArraySetAsSeries(low, false);
    datetime last = time[rates_total - 1];
-   datetime now_srv = TimeTradeServer();
+   SeeTick();
+   UpdateServerOffset();
+   datetime now_srv = NowServer();
    if(prev_calculated == 0 || last != g_last_bar || now_srv - g_last_draw >= 60)
      {
       g_last_bar = last;
