@@ -2,8 +2,8 @@
 // Multi-Strategie Futures-Bot für NQ & ES (auch MNQ / MES)
 // Strategien: FVG, inverse FVG, Silver Bullet (FVG 10–11 NY), Opening Range Breakout, Liquidity Sweep (Vortag), VWAP-Reclaim
 // Verbindung zur FVG-Trader-App: Alert mit „Orderausführungen und alert()-Aufrufe“, Webhook = App-URL
-// Script-Version 2.12 (Signal-Kerze wird sofort gesendet, damit die App ihre Bestätigungen aktuell prüfen kann)
-// Chart: NQ1! oder ES1!, Timeframe 5m (empfohlen) oder 1m/3m
+// Script-Version 2.13 (Tick-Einstellungen gelten auf CFD-Charts wie US100/NAS100 genauso wie auf NQ: mindestens 0,25 Punkte pro Tick)
+// Chart: NQ1! oder ES1! (Futures) bzw. US100/NAS100 oder US500 (CFDs, z. B. für MT5), Timeframe 5m (empfohlen) oder 1m/3m
 // Auto-Trading: Alert auf diese Strategie, Nachricht = {{strategy.order.alert_message}}, Webhook-URL deines Brokers/Connectors
 //@version=6
 strategy("FVG Bot · Multi-Strategie [NQ·ES]", shorttitle = "FVG Bot", overlay = true,
@@ -39,6 +39,8 @@ grpRisk = "② Risiko"
 rr          = input.float(2.0,  "Ziel (R-Vielfaches)", minval = 0.5, step = 0.25, group = grpRisk)
 slBufTicks  = input.int(4,      "Stop-Puffer (Ticks)", minval = 0,        group = grpRisk)
 minRiskTk   = input.int(8,      "Min. Stop-Abstand (Ticks)", minval = 1,  group = grpRisk)
+// Ein „Tick“ für die Einstellungen oben: wie bei NQ/ES 0,25 Punkte, auch auf CFD-Charts mit feinerem Kursschritt
+float tkU = math.max(syminfo.mintick, 0.25)
 maxRiskAtr  = input.float(3.0,  "Max. Stop-Abstand (× ATR)", minval = 0.5, step = 0.25, group = grpRisk)
 sizing      = input.string("Feste Kontrakte", "Positionsgröße", options = ["Feste Kontrakte", "Risiko in $"], group = grpRisk)
 fixedQty    = input.int(1,      "Kontrakte (fest)", minval = 1,           group = grpRisk)
@@ -207,7 +209,7 @@ addZone(float t, float b, int d) =>
         closeBox(zones.shift())
 
 // Neue Gaps erkennen (Kerzen [2] und [0] überlappen nicht)
-minGap = math.max(minGapAtr * atr, syminfo.mintick * 2)
+minGap = math.max(minGapAtr * atr, tkU * 2)
 if bar_index > 2
     if low > high[2] and low - high[2] >= minGap
         addZone(low, high[2], 1)
@@ -293,8 +295,8 @@ bool   sigLong = false
 float  sigSL   = na
 string sigName = ""
 float  maxRisk = maxRiskAtr * atr
-float  minRisk = minRiskTk * syminfo.mintick
-float  buf     = slBufTicks * syminfo.mintick
+float  minRisk = minRiskTk * tkU
+float  buf     = slBufTicks * tkU
 
 if canTrade and zones.size() > 0
     for i = zones.size() - 1 to 0
@@ -413,7 +415,7 @@ if sendBars and barstate.isrealtime and barstate.isconfirmed
     bool flush = sigOn or strategy.position_size != 0 or nBuf + 1 >= bundleN or hour(time_close, "America/New_York") == 17 or
          dayofweek(time_close, "America/New_York") == dayofweek.friday and hour(time_close, "America/New_York") >= 16
     if flush
-        alert('{"type":"bar","sv":212,"ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
+        alert('{"type":"bar","sv":213,"ticker":"' + sym + '","time":' + str.tostring(time) + ',"tf":' + str.tostring(timeframe.in_seconds() * 1000) +
              ',"open":' + str.tostring(open, format.mintick) + ',"high":' + str.tostring(high, format.mintick) +
              ',"low":' + str.tostring(low, format.mintick) + ',"close":' + str.tostring(close, format.mintick) +
              ',"bars":[' + barBuf + '],"m1":[' + m1Buf + (m1Buf != "" and m1s != "" ? "," : "") + m1s + ']}', alert.freq_once_per_bar_close)
@@ -434,7 +436,7 @@ if tickMode != "Aus" and barstate.isrealtime and not barstate.isconfirmed and st
     float dist  = math.abs(strategy.position_avg_price - tSL)
     float moved = na(lastTickPx) ? dist : math.abs(close - lastTickPx)
     bool  near  = (not na(tSL) and math.abs(close - tSL) <= dist * 0.3) or (not na(tTP) and math.abs(close - tTP) <= dist * 0.3)
-    bool  go    = tickMode == "Normal" or moved >= math.max(syminfo.mintick * 8, dist * 0.15) or near
+    bool  go    = tickMode == "Normal" or moved >= math.max(tkU * 8, dist * 0.15) or near
     if go and timenow - lastTick >= gap
         lastTick := timenow
         lastTickPx := close

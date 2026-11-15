@@ -1,6 +1,6 @@
 {
-  "version": "3.6.0",
-  "file": "releases/FVG-Trader-3.6.0.cmd",
-  "sha256": "a4a3b438a4d6341051502e3fcd2c3c9d785c36ec96acdd478c07bce28e3a8667",
-  "notes": "Neu: Meine Konten im Fremdkapital-Tab. Echte Kontodaten aus MT5 oder Topstep, Challenge-Stand und wann deine Auszahlung möglich ist. Wichtig: In den Einstellungen „In MT5 installieren“ drücken und FVG-Bridge neu auf den Chart ziehen."
+  "version": "3.6.1",
+  "file": "releases/FVG-Trader-3.6.1.cmd",
+  "sha256": "6a7bf45796d6fabba5bdf4c227056f7d45e110e91dcdcf050c3ae4b2b55b2094",
+  "notes": "TradingView-Script 2.13: läuft jetzt auch sauber auf CFD-Charts (US100/NAS100, US500) für MT5. Nur nötig, wenn du auf einen CFD-Chart wechselst."
 }
