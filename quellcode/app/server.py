@@ -1318,7 +1318,8 @@ def balance_set(h):
 
 @route("POST", r"/api/calendar/clear")
 def calendar_clear(h):
-    h._send(200, engine.calendar_clear(restore=bool((h._json() or {}).get("restore"))))
+    b = h._json() or {}
+    h._send(200, engine.calendar_clear(restore=bool(b.get("restore")), everything=bool(b.get("all"))))
 
 
 @route("GET", r"/api/confluence")

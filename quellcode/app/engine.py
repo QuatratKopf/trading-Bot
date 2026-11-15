@@ -142,6 +142,7 @@ DEFAULT_CONFIG = {
     # Bias: Tagesrichtung, zu Beginn jeder Session neu bestimmt. streng = nicht gegen den Bias handeln, hinweis = nur anzeigen
     "bias": {"mode": "streng"},
     "calendar_from": "",       # Kalender/Statistik zeigen Trades erst ab diesem Handelstag (JJJJ-MM-TT); leer = alle
+    "calendar_from_ts": 0,     # … und erst Trades, die nach diesem Zeitpunkt geschlossen wurden (Kalender ganz leeren); 0 = aus
     "tunnel": {"ngrok_token": ""},      # mit Schlüssel: feste Adresse über ngrok
 }
 
@@ -2750,12 +2751,26 @@ class Engine:
     def _shown(self, p):
         """Zählt der Trade für Kalender und Statistik? (ältere können ausgeblendet sein – sie bleiben gespeichert)"""
         cut = self.cfg.get("calendar_from") or ""
+        ts = float(self.cfg.get("calendar_from_ts") or 0)
+        if ts and (p.get("closed") or 0) < ts:
+            return False
         return not cut or (p.get("trade_day") or str(ny_date(p["closed"]))) >= cut
 
-    def calendar_clear(self, restore=False):
-        """Kalender leeren: alle Tage vor heute ausblenden (nichts wird gelöscht). restore=True zeigt wieder alles."""
+    def calendar_clear(self, restore=False, everything=False):
+        """Kalender leeren: alle Tage vor heute ausblenden (nichts wird gelöscht). everything=True blendet auch heute aus
+        (alle bis jetzt geschlossenen Trades). restore=True zeigt wieder alles."""
         with self.lock:
+            if everything and not restore:
+                now = time.time()
+                hidden = [p for p in self.db.closed_positions() if (p["closed"] or 0) < now]
+                self.cfg["calendar_from_ts"] = now
+                self.cfg["calendar_from"] = str(ny_date())
+                self._write_cfg(self.cfg)
+                self.db.log(f"Kalender komplett geleert: {len(hidden)} Trades ausgeblendet, auch die von heute "
+                            "(bleiben gespeichert, Kontostand unverändert)")
+                return {"ok": True, "from": self.cfg["calendar_from"], "hidden": len(hidden)}
             if restore:
+                self.cfg["calendar_from_ts"] = 0
                 self.cfg["calendar_from"] = ""
                 self._write_cfg(self.cfg)
                 self.db.log("Kalender zeigt wieder alle Trades")
@@ -2763,6 +2778,7 @@ class Engine:
             today = str(ny_date())
             hidden = [p for p in self.db.closed_positions() if (p.get("trade_day") or str(ny_date(p["closed"]))) < today]
             self.cfg["calendar_from"] = today
+            self.cfg["calendar_from_ts"] = 0
             self._write_cfg(self.cfg)
             self.db.log(f"Kalender geleert: {len(hidden)} Trades an {len({p.get('trade_day') or str(ny_date(p['closed'])) for p in hidden})} "
                         f"Tagen vor dem {today} ausgeblendet (bleiben gespeichert, Kontostand unverändert)")

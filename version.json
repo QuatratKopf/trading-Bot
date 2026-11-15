@@ -1,6 +1,6 @@
 {
-  "version": "3.8.1",
-  "file": "releases/FVG-Trader-3.8.1.cmd",
-  "sha256": "0af85e6a030e5e0cbf933dd611bc2ddde168242a5eb9237d09b61c7d89e488f2",
-  "notes": "Cockpit: Filter-Knopf beim Kontostand bleibt immer in einer Zeile, langer Kontoname wird gekürzt."
+  "version": "3.8.2",
+  "file": "releases/FVG-Trader-3.8.2.cmd",
+  "sha256": "4f6ac4a1f11d5fe7d2a562559fe03d471bf3cc29e5e03065c5f7eecc0692208f",
+  "notes": "Kalender: auch Samstag und Sonntag (anklickbar). Neu beim Leeren: „Alles ausblenden“ blendet auch heute aus. Gelöscht wird nichts."
 }
