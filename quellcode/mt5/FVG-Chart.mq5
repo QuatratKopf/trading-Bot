@@ -9,7 +9,7 @@
 //| Einrichten: Indikator auf den Chart ziehen. Fertig.               |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "1.00"
+#property version   "1.01"
 #property description "FVGs, Sessions und Key Levels wie in der App FVG Trader."
 #property indicator_chart_window
 #property indicator_plots 0
@@ -173,15 +173,30 @@ void VLine(string name, datetime t, color c)
 
 bool RangeHL(datetime a, datetime b, double &hi, double &lo)
   {
+   // Hoch und Tief aller Kerzen mit Startzeit in [a, b)
    if(b <= a)
       return(false);
-   double h[], l[];
-   int n = CopyHigh(_Symbol, _Period, a, b - 1, h);
-   if(n <= 0 || CopyLow(_Symbol, _Period, a, b - 1, l) <= 0)
+   int first = iBarShift(_Symbol, _Period, a, false);   // Kerze zum Startzeitpunkt (oder die davor)
+   if(first < 0)
       return(false);
-   hi = h[ArrayMaximum(h)];
-   lo = l[ArrayMinimum(l)];
-   return(true);
+   hi = 0;
+   lo = 0;
+   bool any = false;
+   for(int i = first; i >= 0; i--)
+     {
+      datetime t = iTime(_Symbol, _Period, i);
+      if(t <= 0 || t >= b)
+         break;
+      if(t < a)
+         continue;
+      double h = iHigh(_Symbol, _Period, i), l = iLow(_Symbol, _Period, i);
+      if(!any || h > hi)
+         hi = h;
+      if(!any || l < lo)
+         lo = l;
+      any = true;
+     }
+   return(any);
   }
 
 //+------------------------------------------------------------------+
@@ -319,12 +334,16 @@ void DrawInfo(datetime now_srv)
    TimeToStruct(ny, d);
    int m = d.hour * 60 + d.min;
    string ses = "keine Session";
-   for(int s = 0; s < 5; s++)
+   // Wochenende: Freitag ab 17 Uhr bis Sonntag 18 Uhr New Yorker Zeit
+   bool closed = d.day_of_week == 6 || (d.day_of_week == 5 && m >= 17 * 60) || (d.day_of_week == 0 && m < 18 * 60);
+   for(int s = 0; s < 5 && !closed; s++)
      {
       int a = SS[s], b = SE[s];
       if((a < 0 && (m >= 1440 + a || m < b)) || (a >= 0 && m >= a && m < b))
          ses = SN[s];
      }
+   if(closed)
+      ses = "Markt geschlossen";
    string name = PFX + "info";
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
