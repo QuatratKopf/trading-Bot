@@ -739,7 +739,13 @@ class Engine:
                 raise ValueError(f"MT5-Konto {lg}: Faktor als Zahl eingeben")
             if not 0.01 <= f <= 100:
                 raise ValueError(f"MT5-Konto {lg}: Faktor zwischen 0,01 und 100")
-            accs[str(lg)] = {"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f}
+            syms = {}
+            for fam in ("NQ", "ES"):
+                v = str(a.get("sym_" + fam) or "").strip()
+                if v and not re.match(r"^[A-Za-z0-9._#\-+!$]{1,40}$", v):
+                    raise ValueError(f"MT5-Konto {lg}: Symbolname „{v}“ enthält ungültige Zeichen")
+                syms["sym_" + fam] = v
+            accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f}, **syms)
         m5["accounts"] = accs
         cc = m5.setdefault("copy", {})
         cc["enabled"], cc["master"] = bool(cc.get("enabled")), str(cc.get("master") or "")
@@ -2222,6 +2228,10 @@ class Engine:
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
                          "factor": float(c.get("factor") or 1.0),
+                         "sym_NQ": c.get("sym_NQ") or "", "sym_ES": c.get("sym_ES") or "",
+                         "eff": {fam: {"name": self.mt5_link.sym_for(lg, fam),
+                                       "found": bool((a.get("symbols") or {}).get(self.mt5_link.sym_for(lg, fam))) if a else None}
+                                 for fam in ("NQ", "ES")},
                          "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()}})
         st = self.mt5_copier.status
         return {"dir": self.mt5_link.dir, "accounts": rows,

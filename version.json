@@ -1,6 +1,6 @@
 {
-  "version": "3.6.3",
-  "file": "releases/FVG-Trader-3.6.3.cmd",
-  "sha256": "64de2a2130c614756b01c9b7344dc15539c8f65a74335b98dc68d78fb7351deb",
-  "notes": "Chart-Vorlage FVG-Chart 1.02: Uhrzeit und Session-Anzeige stimmen jetzt auch am Wochenende. In MT5 neu installieren (Einstellungen → MetaTrader 5 → In MT5 installieren)."
+  "version": "3.7.0",
+  "file": "releases/FVG-Trader-3.7.0.cmd",
+  "sha256": "af8fb453f7f9fb93ec5eda6a128cecf3fb560ad03e65e563125af6c6de2b7618",
+  "notes": "Neu: Eigener Symbolname je MT5-Konto (z. B. NAS100.gbe bei IQ Capital, US100.cash bei FTMO) mit Prüfung, ob MT5 das Symbol kennt. Copytrading zwischen verschiedenen Firmen rechnet Lotgröße und Kurs um."
 }

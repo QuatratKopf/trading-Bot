@@ -444,8 +444,22 @@ class Mt5Link:
         except OSError as e:
             raise BrokerError(f"MT5-Ordner nicht beschreibbar: {e}")
 
+    def sym_for(self, login, fam):
+        """Symbolname für Nasdaq (NQ) bzw. S&P 500 (ES) auf diesem Konto: eigener Name oder der allgemeine."""
+        c = (self.mcfg.get("accounts") or {}).get(str(login)) or {}
+        return (str(c.get("sym_" + fam) or "").strip() or str(self.mcfg.get("sym_" + fam) or "").strip()
+                or ("US500.cash" if fam == "ES" else "US100.cash"))
+
+    def fam_of(self, login, symbol):
+        for fam in ("NQ", "ES"):
+            if symbol == self.sym_for(login, fam):
+                return fam
+        return None
+
     def write_symbols(self, extra=()):
         names = [self.mcfg.get("sym_NQ") or "US100.cash", self.mcfg.get("sym_ES") or "US500.cash", *extra]
+        for c in (self.mcfg.get("accounts") or {}).values():
+            names += [c.get("sym_NQ") or "", c.get("sym_ES") or ""]
         txt = "\r\n".join(dict.fromkeys(n.strip() for n in names if n and n.strip())) + "\r\n"
         path = os.path.join(self.dir, "symbols.txt")
         try:
@@ -646,9 +660,10 @@ class Mt5Broker:
             if not a["can_trade"]:
                 warnings.append(f"MT5-Konto {login}: Algo Trading ist aus, Trade dort ausgelassen")
                 continue
-            spec = a["symbols"].get(sym)
+            sym_a = self.link.sym_for(login, mt5_family(root))
+            spec = a["symbols"].get(sym_a)
             if not spec:
-                warnings.append(f"MT5-Konto {login}: Symbol {sym} nicht gefunden, Trade dort ausgelassen")
+                warnings.append(f"MT5-Konto {login}: Symbol {sym_a} nicht gefunden (Name prüfen unter Einstellungen → MetaTrader 5), Trade dort ausgelassen")
                 continue
             lots = self.lots_for(spec, usd_pp, float(c.get("factor") or 1.0))
             if lots <= 0:
@@ -656,7 +671,7 @@ class Mt5Broker:
                 continue
             mid = (spec["bid"] + spec["ask"]) / 2
             if mid <= 0:
-                warnings.append(f"MT5-Konto {login}: kein Kurs für {sym}, Trade dort ausgelassen")
+                warnings.append(f"MT5-Konto {login}: kein Kurs für {sym_a}, Trade dort ausgelassen")
                 continue
             off = mid - price
             d = spec["digits"]
@@ -665,8 +680,8 @@ class Mt5Broker:
             if (side == "long" and sl_c >= spec["bid"]) or (side == "short" and sl_c <= spec["ask"]):
                 warnings.append(f"MT5-Konto {login}: Stop läge schon hinter dem Kurs, Trade dort ausgelassen")
                 continue
-            plan[login] = {"offset": off, "lots": lots}
-            jobs.append((login, {"action": "open", "symbol": sym, "side": "buy" if side == "long" else "sell",
+            plan[login] = {"offset": off, "lots": lots, "symbol": sym_a}
+            jobs.append((login, {"action": "open", "symbol": sym_a, "side": "buy" if side == "long" else "sell",
                                  "volume": f"{lots:.2f}", "sl": sl_c, "tp": tp_c, "magic": MT5_BOT_MAGIC,
                                  "comment": "FVG " + root}))
         if not jobs:
@@ -679,7 +694,7 @@ class Mt5Broker:
                 p = plan[lg]
                 entry = self.link._num(r.get("price"), 0) or None
                 ref["accounts"][lg] = {"ticket": int(r["ticket"]), "offset": p["offset"], "lots": self.link._num(r.get("volume"), p["lots"]),
-                                       "entry": entry, "open": True}
+                                       "entry": entry, "open": True, "symbol": p["symbol"]}
                 if fill is None and entry:
                     fill = entry - p["offset"]
             else:
@@ -831,26 +846,38 @@ class Mt5Copier:
                 st = accs.get(lg)
                 if not st or not st["online"] or not st["can_trade"]:
                     continue
-                spec = st["symbols"].get(p["symbol"])
+                fam = self.link.fam_of(master, p["symbol"])
+                fsym = self.link.sym_for(lg, fam) if fam else p["symbol"]
+                spec = st["symbols"].get(fsym)
                 if not spec:
                     entry.setdefault("failed", {})[lg] = "Symbol fehlt"
-                    self._say(f"Copytrading: Konto {lg} kennt {p['symbol']} nicht, Kopie ausgelassen", "warn")
+                    self._say(f"Copytrading: Konto {lg} kennt {fsym} nicht, Kopie ausgelassen", "warn")
                     continue
+                mspec = m["symbols"].get(p["symbol"]) or {}
                 step = spec["vol_step"] or 0.01
-                lots = math.floor(p["volume"] * float(c.get("factor") or 1.0) / step + 1e-9) * step
+                ratio = 1.0
+                if fsym != p["symbol"] and mspec.get("tick_size") and spec["tick_size"] and spec["tick_value"]:
+                    ratio = (mspec["tick_value"] / mspec["tick_size"]) / (spec["tick_value"] / spec["tick_size"])
+                lots = math.floor(p["volume"] * ratio * float(c.get("factor") or 1.0) / step + 1e-9) * step
+                off = 0.0
+                if fsym != p["symbol"] and mspec.get("bid") and spec["bid"]:
+                    off = (spec["bid"] + spec["ask"]) / 2 - (mspec["bid"] + mspec["ask"]) / 2
+                d = spec["digits"]
                 if lots < (spec["vol_min"] or step) - 1e-9:
                     entry.setdefault("failed", {})[lg] = "zu klein"
                     self._say(f"Copytrading: Kopie für Konto {lg} wäre kleiner als die Mindest-Lotgröße", "warn")
                     continue
-                jobs.append((lg, {"action": "open", "symbol": p["symbol"], "side": "buy" if p["side"] == "long" else "sell",
-                                  "volume": f"{lots:.2f}", "sl": p["sl"], "tp": p["tp"], "magic": MT5_COPY_MAGIC,
-                                  "comment": f"Kopie {t}"}))
-                meta.append(("open", str(t), lg, round(lots, 2)))
+                jobs.append((lg, {"action": "open", "symbol": fsym, "side": "buy" if p["side"] == "long" else "sell",
+                                  "volume": f"{lots:.2f}", "sl": round(p["sl"] + off, d), "tp": round(p["tp"] + off, d) if p["tp"] else 0,
+                                  "magic": MT5_COPY_MAGIC, "comment": f"Kopie {t}"}))
+                meta.append(("open", str(t), lg, (round(lots, 2), off)))
             # Stop/Ziel nachziehen
             if entry["copies"] and (entry.get("sl") != p["sl"] or entry.get("tp") != p["tp"]):
                 for lg, cp in entry["copies"].items():
                     if p["sl"] > 0:
-                        jobs.append((lg, {"action": "modify", "ticket": cp["ticket"], "sl": p["sl"], "tp": p["tp"]}))
+                        o = cp.get("off", 0.0)
+                        jobs.append((lg, {"action": "modify", "ticket": cp["ticket"], "sl": f"{p['sl'] + o:.5f}",
+                                          "tp": f"{p['tp'] + o:.5f}" if p["tp"] else 0}))
                         meta.append(("modify", str(t), lg, None))
             # Teilschließung
             if entry["copies"] and entry.get("vol") and p["volume"] < entry["vol"] - 1e-9:
@@ -877,7 +904,7 @@ class Mt5Copier:
                     continue
                 if kind == "open":
                     if r.get("ok") and r.get("ticket") not in (None, "", "0"):
-                        entry["copies"][lg] = {"ticket": int(r["ticket"]), "lots": self.link._num(r.get("volume"), extra)}
+                        entry["copies"][lg] = {"ticket": int(r["ticket"]), "lots": self.link._num(r.get("volume"), extra[0]), "off": extra[1]}
                         self.status["copies"] += 1
                         self._say(f"Copytrading: Trade {t} auf Konto {lg} kopiert ({entry['copies'][lg]['lots']:g} Lot)")
                     elif not r.get("unclear"):
