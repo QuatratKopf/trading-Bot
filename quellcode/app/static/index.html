@@ -3411,6 +3411,8 @@ function modal(html) {
   document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
   return close;
 }
+// Google-Apps-Script für Sicherungen in Google Drive (wird vom Nutzer in seinem Google-Konto angelegt)
+const DRIVE_SCRIPT = "// FVG Trader: Sicherungen in Google Drive (Ordner \"FVG-Sicherung\")\nvar FOLDER = \"FVG-Sicherung\";\nfunction doPost(e) {\n  var out;\n  try {\n    var b = JSON.parse(e.postData.contents);\n    var it = DriveApp.getFoldersByName(FOLDER);\n    var f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER);\n    if (b.ping) {\n      out = {ok: true, folder: f.getUrl()};\n    } else {\n      if (!/^FVG-Sicherung-[0-9_-]+\\.zip$/.test(b.name)) throw new Error(\"ungueltiger Dateiname\");\n      f.createFile(Utilities.newBlob(Utilities.base64Decode(b.data), \"application/zip\", b.name));\n      var files = [], fi = f.getFiles();\n      while (fi.hasNext()) { var x = fi.next(); if (/^FVG-Sicherung-.*\\.zip$/.test(x.getName())) files.push(x); }\n      files.sort(function (a, c) { return a.getName() < c.getName() ? 1 : -1; });\n      for (var i = (b.keep || 17); i < files.length; i++) files[i].setTrashed(true);\n      out = {ok: true, name: b.name, folder: f.getUrl()};\n    }\n  } catch (err) {\n    out = {ok: false, error: String(err)};\n  }\n  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);\n}\n";
 // Konten-Filter: welche MT5-Konten im Cockpit, Kalender und in der Statistik zählen
 function accountsDialog() {
   const accs = (S.mt5 || {}).accounts || [], sel = new Set(S.view_accounts || []);
@@ -4022,6 +4024,16 @@ function settings() {
       ${B.list.length ? `<div class="bk-list">${B.list.slice(0, 6).map(x => `<div><span class="mono">${esc(new Date(x.ts * 1000).toLocaleString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}))}</span><small class="hint">${mb(x.size)}</small></div>`).join("")}${B.list.length > 6 ? `<small class="hint">und ${B.list.length - 6} ältere</small>` : ""}</div>` : ""}
       <div class="inline wrap-gap"><button class="btn primary" id="bkNow" ${B.busy ? "disabled" : ""}>${B.busy ? "Sichert …" : "Jetzt sichern"}</button><button class="btn" id="bkFolder">Sicherungsordner öffnen</button></div>
       ${field("bkX", "Zusätzlich kopieren nach", bk.extra_dir || "", {type: "text", attrs: {placeholder: "leer = nur im Datenordner", autocomplete: "off"}, help: "Ein vorhandener Ordner, dann übersteht die Sicherung auch einen PC-Defekt. Google Drive: „Google Drive für Desktop“ installieren und z. B. G:\\Meine Ablage\\FVG-Sicherung eintragen. Genauso mit OneDrive oder einem USB-Stick."})}
+      <span class="lbl">Google Drive über Link (ohne App)</span>
+      <ol class="m5-steps">
+        <li><b>script.google.com</b> öffnen (mit deinem Google-Konto) → <b>Neues Projekt</b>.</li>
+        <li>Den vorhandenen Text löschen, unten <b>„Script kopieren“</b> drücken und dort einfügen → Speichern (Strg+S).</li>
+        <li>Oben rechts <b>Bereitstellen → Neue Bereitstellung</b> → Zahnrad → <b>Web-App</b>. „Ausführen als“: <b>Ich</b>, „Zugriff“: <b>Jeder</b> → <b>Bereitstellen</b> → Zugriff erlauben (Google fragt einmal nach, ob das Script deinen Drive nutzen darf).</li>
+        <li>Die <b>Web-App-URL</b> kopieren (endet auf /exec), unten einfügen → <b>Speichern</b> → <b>Verbindung testen</b>.</li>
+      </ol>
+      ${field("bkG", "Google-Drive-Link", bk.drive_url || "", {type: "password", attrs: {placeholder: "https://script.google.com/macros/s/…/exec", autocomplete: "off"}, help: B.drive_on ? (B.drive && B.drive.last ? "Zuletzt hochgeladen: " + dtm(B.drive.last) : "eingetragen, noch nichts hochgeladen") : "Wie ein Schlüssel behandeln: nicht weitergeben"})}
+      <div class="inline wrap-gap"><button class="btn" id="bkScript">Script kopieren</button>${B.drive_on ? '<button class="btn" id="bkDrive">Verbindung testen</button>' : ""}${B.drive && B.drive.folder ? `<a class="btn" href="${esc(B.drive.folder)}" target="_blank" rel="noopener">Ordner in Drive öffnen</a>` : ""}</div>
+      <span class="lbl">Aufbewahren</span>
       ${field("bkD", "Tägliche aufheben", bk.keep_daily ?? 7, {attrs: {min: 1, max: 60, step: 1}})}
       ${field("bkW", "Wöchentliche aufheben", bk.keep_weekly ?? 4, {attrs: {min: 0, max: 52, step: 1}})}
       ${field("bkM", "Monatliche aufheben", bk.keep_monthly ?? 6, {attrs: {min: 0, max: 36, step: 1}, help: "Ältere Sicherungen werden automatisch weggeräumt. Deine eigentlichen Daten bleiben dabei immer unberührt."})}
@@ -4212,7 +4224,7 @@ function settings() {
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
-      backup: {enabled: v("bkE"), extra_dir: (v("bkX") || "").trim(), keep_daily: parseInt(v("bkD")), keep_weekly: parseInt(v("bkW")), keep_monthly: parseInt(v("bkM"))},
+      backup: {enabled: v("bkE"), extra_dir: (v("bkX") || "").trim(), drive_url: (v("bkG") || "").trim(), keep_daily: parseInt(v("bkD")), keep_weekly: parseInt(v("bkW")), keep_monthly: parseInt(v("bkM"))},
       discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
         daystop: v("dcD"), daily: v("dcA"), weekly: v("dcW"), learn: v("dcL")},
     };
@@ -4247,6 +4259,13 @@ function settings() {
   $("#bkNow").onclick = async () => {
     const b = $("#bkNow"); b.disabled = true; b.textContent = "Sichert …";
     try { const r = await api("/api/backup/now", {}); toast("Gesichert" + (r.error ? " · " + r.error : "")); }
+    catch (e) { toast(e.message); }
+    await refresh(true);
+  };
+  $("#bkScript").onclick = async () => { try { await navigator.clipboard.writeText(DRIVE_SCRIPT); toast("Script kopiert. Jetzt bei script.google.com einfügen."); } catch (e) { modal(`<h2 style="font-size:18px">Script</h2><textarea style="width:100%;height:320px;font-family:var(--f-mono);font-size:12px" readonly>${esc(DRIVE_SCRIPT)}</textarea>`); } };
+  if ($("#bkDrive")) $("#bkDrive").onclick = async () => {
+    const b = $("#bkDrive"); b.disabled = true; b.textContent = "Teste …";
+    try { if (settingsDirty) await doSave(); const r = await api("/api/backup/drive-test", {}); toast("Google Drive verbunden. Sicherungen landen im Ordner FVG-Sicherung."); }
     catch (e) { toast(e.message); }
     await refresh(true);
   };

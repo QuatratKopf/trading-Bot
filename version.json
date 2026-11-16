@@ -1,6 +1,6 @@
 {
-  "version": "3.9.0",
-  "file": "releases/FVG-Trader-3.9.0.cmd",
-  "sha256": "effe0d50137b6d7cb23340a9ad7c88921232948f3b6094e16d0fd785342a9291",
-  "notes": "Neu: Automatische Sicherungen (täglich, 7 Tage + 4 Wochen + 6 Monate), „Jetzt sichern“ und optional Kopie in einen zweiten Ordner, z. B. Google Drive oder OneDrive. Einstellungen → App & Updates → Sicherungen."
+  "version": "3.9.1",
+  "file": "releases/FVG-Trader-3.9.1.cmd",
+  "sha256": "6fbb08d71f76057df779ea83eac68e18f98b0b7aaa09e8482be7371848ea43b1",
+  "notes": "Neu: Sicherungen auch direkt in Google Drive, ohne Drive-App, über einen eigenen Link (Google Apps Script). Einstellungen → App & Updates → Sicherungen."
 }

@@ -125,7 +125,8 @@ DEFAULT_CONFIG = {
     "tracked": [],
     "view_accounts": [],
     # Automatische Sicherungen: täglich, aufbewahrt 7 Tage + 4 Wochen + 6 Monate; optional Kopie in einen zweiten Ordner
-    "backup": {"enabled": True, "extra_dir": "", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 6},       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
+    "backup": {"enabled": True, "extra_dir": "", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 6,
+               "drive_url": ""},  # Google-Apps-Script-Link: jede Sicherung zusätzlich in Google Drive       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
@@ -248,7 +249,7 @@ PROP_RISK = {"vorsichtig": 0.25, "normal": 0.5, "offensiv": 1.0}
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
-SECRET_PATHS = (("topstep", "api_key"), ("tunnel", "ngrok_token"), ("discord", "url"))
+SECRET_PATHS = (("topstep", "api_key"), ("backup", "drive_url"), ("tunnel", "ngrok_token"), ("discord", "url"))
 MASK = "••••••••"
 
 
@@ -719,6 +720,9 @@ class Engine:
         bk = c.setdefault("backup", {})
         bk["enabled"] = bool(bk.get("enabled", True))
         bk["extra_dir"] = str(bk.get("extra_dir") or "").strip().strip('"')
+        bk["drive_url"] = str(bk.get("drive_url") or "").strip()
+        if bk["drive_url"] and not re.match(r"^https://script\.google\.com/macros/s/[\w-]+/exec$", bk["drive_url"]):
+            raise ValueError("Google Drive: Bitte die Web-App-URL einfügen. Sie beginnt mit https://script.google.com/macros/s/ und endet mit /exec.")
         if bk["extra_dir"] and not os.path.isdir(bk["extra_dir"]):
             raise ValueError(f"Sicherung: Ordner „{bk['extra_dir']}“ nicht gefunden. Bitte einen vorhandenen Ordner angeben, z. B. aus OneDrive oder einem USB-Stick.")
         for k, lo, hi in (("keep_daily", 1, 60), ("keep_weekly", 0, 52), ("keep_monthly", 0, 36)):
@@ -2772,6 +2776,11 @@ class Engine:
                 except OSError as e:
                     extra_err = f"Kopie in {extra} fehlgeschlagen: {e}"
             self._backup_prune(self.backup_dir)
+            if (self.cfg.get("backup") or {}).get("drive_url"):
+                try:
+                    self.drive_upload(path)
+                except ValueError as e:
+                    extra_err = (extra_err + " · " if extra_err else "") + str(e)
             size = os.path.getsize(path)
             st.update(last=time.time(), error=extra_err, name=name)
             self.db.log(f"Sicherung erstellt ({reason}): {name}, {size / 1e6:.1f} MB" + (f". {extra_err}" if extra_err else ""),
@@ -2783,6 +2792,47 @@ class Engine:
             raise ValueError(f"Sicherung fehlgeschlagen: {e}")
         finally:
             self._backup_busy = False
+
+    def _drive_post(self, body, timeout=120):
+        """Schickt JSON an das Google-Apps-Script des Nutzers (folgt der Weiterleitung von Google)."""
+        import urllib.error
+        import urllib.request
+        url = (self.cfg.get("backup") or {}).get("drive_url") or ""
+        if not url:
+            raise ValueError("Kein Google-Drive-Link eingetragen")
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            raise ValueError(f"Google Drive: Fehler {e.code}. Ist die Web-App mit Zugriff „Jeder“ bereitgestellt?")
+        except (urllib.error.URLError, OSError) as e:
+            raise ValueError(f"Google Drive nicht erreichbar: {getattr(e, 'reason', e)}")
+        try:
+            res = json.loads(raw)
+        except ValueError:
+            raise ValueError("Google Drive: unerwartete Antwort. Meist fehlt die Freigabe „Zugriff: Jeder“ oder das Script wurde nicht neu bereitgestellt.")
+        if not res.get("ok"):
+            raise ValueError("Google Drive: " + str(res.get("error") or "abgelehnt"))
+        return res
+
+    def drive_upload(self, path):
+        import base64
+        size = os.path.getsize(path)
+        if size > 35_000_000:
+            raise ValueError(f"Google Drive: Sicherung zu groß für den Link ({size / 1e6:.0f} MB, höchstens 35 MB). Bitte Ordner-Kopie nutzen.")
+        bk = self.cfg.get("backup") or {}
+        keep = int(bk.get("keep_daily", 7)) + int(bk.get("keep_weekly", 4)) + int(bk.get("keep_monthly", 6))
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+        res = self._drive_post({"name": os.path.basename(path), "data": data, "keep": keep})
+        self.backup_state["drive"] = {"last": time.time(), "folder": res.get("folder", "")}
+        return res
+
+    def drive_test(self):
+        res = self._drive_post({"ping": True}, timeout=30)
+        self.backup_state["drive"] = dict(self.backup_state.get("drive") or {}, folder=res.get("folder", ""), tested=time.time())
+        return {"ok": True, "folder": res.get("folder", "")}
 
     def _backup_prune(self, folder):
         """Behält die neuesten X täglichen, je eine pro Woche (Y Wochen) und je eine pro Monat (Z Monate). Nur eigene Sicherungsdateien."""
@@ -2826,7 +2876,8 @@ class Engine:
         st = self.backup_state
         return {"enabled": (self.cfg.get("backup") or {}).get("enabled", True), "folder": self.backup_dir, "list": out[:20],
                 "count": len(out), "total": sum(x["size"] for x in out), "last": st.get("last") or (out[0]["ts"] if out else None),
-                "error": st.get("error", ""), "busy": bool(getattr(self, "_backup_busy", False))}
+                "error": st.get("error", ""), "busy": bool(getattr(self, "_backup_busy", False)),
+                "drive": st.get("drive") or {}, "drive_on": bool((self.cfg.get("backup") or {}).get("drive_url"))}
 
     def backup_due(self):
         """Einmal am Tag: Ist die neueste Sicherung älter als 23 Stunden, wird eine neue gemacht."""

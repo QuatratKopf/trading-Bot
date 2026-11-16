@@ -942,6 +942,11 @@ def open_folder(h):
     h._send(200, {"ok": True, "folder": folder})
 
 
+@route("POST", r"/api/backup/drive-test")
+def backup_drive_test(h):
+    h._send(200, engine.drive_test())
+
+
 @route("POST", r"/api/backup/now")
 def backup_now(h):
     h._send(200, engine.backup_run("von Hand"))
