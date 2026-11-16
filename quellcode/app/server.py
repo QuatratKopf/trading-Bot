@@ -123,6 +123,36 @@ _logf.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} Start =====\n")
 sys.stdout = _Tee(sys.stdout, _logf)
 sys.stderr = _Tee(sys.stderr, _logf)
 
+def apply_pending_restore(data):
+    """Setzt eine bereitgelegte Sicherung ein, bevor die Datenbank geöffnet wird. Nichts wird gelöscht:
+    der bisherige Stand wandert in einen Ordner „vor-wiederherstellung-…“."""
+    import shutil
+    stage = os.path.join(data, "wiederherstellen")
+    flag = os.path.join(stage, "bereit.json")
+    if not os.path.exists(flag):
+        return
+    try:
+        with open(flag, encoding="utf-8") as f:
+            info = json.load(f)
+        old = os.path.join(data, "vor-wiederherstellung-" + time.strftime("%Y-%m-%d_%H%M%S"))
+        os.makedirs(old)
+        movable = ["trader.db", "trader.db-wal", "trader.db-shm", "config.json", "learning.json", "strategien.json",
+                   "mt5-copytrading.json", "backtest.json", "screenshots"]
+        for n in movable:
+            if os.path.exists(os.path.join(data, n)):
+                shutil.move(os.path.join(data, n), os.path.join(old, n))
+        for n in os.listdir(stage):
+            if n != "bereit.json":
+                shutil.move(os.path.join(stage, n), os.path.join(data, n))
+        shutil.rmtree(stage, ignore_errors=True)
+        with open(os.path.join(data, "wiederhergestellt.json"), "w", encoding="utf-8") as f:
+            json.dump({"from": info.get("from"), "old": os.path.basename(old)}, f)
+        print(f"Sicherung {info.get('from')} eingesetzt, alter Stand in {old}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"Sicherung konnte nicht eingesetzt werden: {e}", flush=True)
+
+
+apply_pending_restore(DATA)
 engine = Engine(DATA)
 engine.news_source = lambda: NEWS["events"]
 tunnel = Tunnel(DATA, PORT, engine.db.log, get_token=lambda: (engine.cfg.get("tunnel") or {}).get("ngrok_token", ""))
@@ -940,6 +970,42 @@ def open_folder(h):
     else:
         subprocess.Popen(["xdg-open", folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     h._send(200, {"ok": True, "folder": folder})
+
+
+@route("POST", r"/api/backup/restore")
+def backup_restore(h):
+    r = engine.restore_prepare(name=(h._json() or {}).get("name"))
+    h._send(200, r)
+    threading.Timer(1.0, restart).start()
+
+
+@route("POST", r"/api/backup/upload")
+def backup_upload(h):
+    """Sicherungsdatei (ZIP) hochladen und laden. Die Datei wird direkt auf die Festplatte geschrieben."""
+    n = int(h.headers.get("Content-Length") or 0)
+    if not 0 < n <= 500_000_000:
+        raise ValueError("Datei leer oder größer als 500 MB")
+    os.makedirs(engine.backup_dir, exist_ok=True)
+    path = os.path.join(engine.backup_dir, "hochgeladen.zip")
+    left = n
+    with open(path, "wb") as f:
+        while left > 0:
+            chunk = h.rfile.read(min(1 << 20, left))
+            if not chunk:
+                break
+            f.write(chunk)
+            left -= len(chunk)
+    if left:
+        raise ValueError("Hochladen abgebrochen")
+    try:
+        r = engine.restore_prepare(zip_path=path)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    h._send(200, r)
+    threading.Timer(1.0, restart).start()
 
 
 @route("POST", r"/api/backup/drive-test")

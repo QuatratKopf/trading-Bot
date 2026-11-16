@@ -550,6 +550,16 @@ class Engine:
         self._ts_cache = {"at": 0}
         self.backup_state = {"last": None, "error": ""}
         self._started = time.time()
+        done = os.path.join(self.data_dir, "wiederhergestellt.json")
+        if os.path.exists(done):
+            try:
+                with open(done, encoding="utf-8") as f:
+                    info = json.load(f)
+                self.db.log(f"Sicherung „{info.get('from')}“ geladen. Der vorherige Stand liegt im Ordner {info.get('old')} "
+                            "und als Sicherung in der Liste.", "warn")
+                os.remove(done)
+            except (OSError, ValueError):
+                pass
         self.mt5_copier = Mt5Copier(self.cfg, os.path.join(self.data_dir, "mt5-copytrading.json"))
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._copy_loop, daemon=True).start()
@@ -2793,6 +2803,60 @@ class Engine:
         finally:
             self._backup_busy = False
 
+    # ───────── Sicherung laden ─────────
+    RESTORE_FILES = ("config.json", "learning.json", "strategien.json", "mt5-copytrading.json", "backtest.json")
+
+    def restore_prepare(self, name=None, zip_path=None):
+        """Prüft eine Sicherung und legt sie bereit. Eingesetzt wird sie beim nächsten Start (vorher wird der jetzige Stand gesichert)."""
+        import shutil
+        import sqlite3
+        import zipfile
+        if any(p["broker"] != "eigen" for p in self.db.open_positions()):
+            raise ValueError("Erst alle offenen Positionen schließen. Sonst wüsste der Bot nach dem Laden nichts mehr von ihnen.")
+        if name:
+            if not self.BACKUP_RX.match(name):
+                raise ValueError("Unbekannte Sicherung")
+            zip_path = os.path.join(self.backup_dir, name)
+        if not zip_path or not os.path.isfile(zip_path):
+            raise ValueError("Sicherung nicht gefunden")
+        stage = os.path.join(self.data_dir, "wiederherstellen")
+        shutil.rmtree(stage, ignore_errors=True)
+        os.makedirs(stage)
+        try:
+            with zipfile.ZipFile(zip_path) as z:
+                names = z.namelist()
+                if "trader.db" not in names:
+                    raise ValueError("Das ist keine FVG-Trader-Sicherung (trader.db fehlt)")
+                if z.testzip() is not None:
+                    raise ValueError("Die Sicherungsdatei ist beschädigt")
+                for n in names:
+                    # nur bekannte Dateien, keine Pfade nach außen
+                    if n == "trader.db" or n in self.RESTORE_FILES or (n.startswith("screenshots/") and "/" not in n[12:] and ".." not in n and n[12:]):
+                        target = os.path.join(stage, *n.split("/"))
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with z.open(n) as src, open(target, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+            con = sqlite3.connect(os.path.join(stage, "trader.db"))
+            try:
+                ok = con.execute("PRAGMA integrity_check").fetchone()[0]
+                n_pos = con.execute("SELECT COUNT(*) FROM positions").fetchone()[0]
+            finally:
+                con.close()
+            if ok != "ok":
+                raise ValueError("Die Datenbank in der Sicherung ist beschädigt")
+        except zipfile.BadZipFile:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise ValueError("Das ist keine gültige ZIP-Datei")
+        except (ValueError, sqlite3.DatabaseError) as e:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise ValueError(str(e))
+        label = name or os.path.basename(zip_path)
+        self.backup_run("vor dem Laden einer Sicherung")   # jetziger Stand bleibt als Sicherung erhalten
+        with open(os.path.join(stage, "bereit.json"), "w", encoding="utf-8") as f:
+            json.dump({"from": label, "ts": time.time(), "trades": n_pos}, f)
+        self.db.log(f"Sicherung „{label}“ wird geladen ({n_pos} Trades). Die App startet dafür neu.", "warn")
+        return {"ok": True, "from": label, "trades": n_pos}
+
     def _drive_post(self, body, timeout=120):
         """Schickt JSON an das Google-Apps-Script des Nutzers (folgt der Weiterleitung von Google)."""
         import urllib.error
@@ -2835,7 +2899,8 @@ class Engine:
         return {"ok": True, "folder": res.get("folder", "")}
 
     def _backup_prune(self, folder):
-        """Behält die neuesten X täglichen, je eine pro Woche (Y Wochen) und je eine pro Monat (Z Monate). Nur eigene Sicherungsdateien."""
+        """Behält alles aus den letzten 48 Stunden, dazu die neuesten X täglichen, je eine pro Woche (Y Wochen)
+        und je eine pro Monat (Z Monate). Fasst nur eigene Sicherungsdateien an."""
         bk = self.cfg.get("backup") or {}
         files = []
         for fn in os.listdir(folder):
@@ -2856,8 +2921,9 @@ class Engine:
             if mo not in months and len(months) < int(bk.get("keep_monthly", 6)):
                 months.append(mo)
                 keep.add(fn)
-        for _, _, fn in files:
-            if fn not in keep:
+        recent = time.time() - 48 * 3600   # alles aus den letzten 48 Stunden bleibt immer (z. B. mehrere am selben Tag)
+        for key, _, fn in files:
+            if fn not in keep and dt.datetime.strptime(key, "%Y-%m-%d%H%M").timestamp() < recent:
                 try:
                     os.remove(os.path.join(folder, fn))
                 except OSError:

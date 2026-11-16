@@ -19,7 +19,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 | `FVG-Trader.cmd` | Die komplette App in einer Datei |
 | `version.json` | Versionsnummer und Prüfsumme für das Update-Popup |
 | `releases/` | Jede Version als eigene, unveränderliche Datei (Quelle für Updates) |
-| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.9.1 "Notiz"`) |
+| `quellcode/` | Quellcode, aus dem `FVG-Trader.cmd` gebaut wird (`python3 quellcode/build_onefile.py 3.9.2 "Notiz"`) |
 
 ## Funktionen
 
@@ -36,7 +36,7 @@ Beim Start prüft die App, ob hier eine neue Version liegt, und fragt **„Jetzt
 - Kalender mit Tages-, Wochen- und Monats-P&L, eigene Trades (eintragen oder CSV-Import), Filter Bot/Eigene, Statistiken
 - Reiter Fremdkapital: Meine Konten (echte Daten aus MT5/Topstep, Challenge-Stand, Auszahlung möglich?), Regeln der Firmen (FTMO, Topstep, IQ Capital), Prop-Firm-Challenge live (Verlustgrenze EOD/Intraday/statisch, Profitziel, Tageslimit, Konsistenz, Mindesttage, Bot-Schutz) plus Karte im Cockpit
 - Offene Positionen: Einstieg, Stop und Ziel mit Abstand in Punkten, Ticks und Geld; Stop und Ziel verschieben, Break-even, Schließen
-- Automatische Sicherungen: täglich als ZIP in FVG-Trader-Daten/sicherungen, optional zusätzlich in einen zweiten Ordner (z. B. Google Drive für Desktop) oder direkt in Google Drive über einen eigenen Apps-Script-Link
+- Automatische Sicherungen: täglich als ZIP in FVG-Trader-Daten/sicherungen, optional zusätzlich in einen zweiten Ordner (z. B. Google Drive für Desktop) oder direkt in Google Drive über einen eigenen Apps-Script-Link; Sicherung per Klick wieder laden (vorheriger Stand bleibt erhalten)
 - Dienst-Modus für Windows-Server: startet beim Hochfahren ohne Anmeldung (Einstellungen → App & Updates)
 - Key Levels im Cockpit: Vortageshoch/-tief/-schluss, Overnight, Asien, London, Midnight Open, Initial Balance, Gap
 - Edge-Check je Strategie: Trefferquote mit 95-%-Bereich, Breakeven, Edge, Note A–D, Vertrauen, Wochentage, Stunden

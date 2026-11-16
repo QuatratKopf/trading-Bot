@@ -1,6 +1,6 @@
 {
-  "version": "3.9.1",
-  "file": "releases/FVG-Trader-3.9.1.cmd",
-  "sha256": "6fbb08d71f76057df779ea83eac68e18f98b0b7aaa09e8482be7371848ea43b1",
-  "notes": "Neu: Sicherungen auch direkt in Google Drive, ohne Drive-App, über einen eigenen Link (Google Apps Script). Einstellungen → App & Updates → Sicherungen."
+  "version": "3.9.2",
+  "file": "releases/FVG-Trader-3.9.2.cmd",
+  "sha256": "60cd5047dcedf69ba994df443b844adc77e8ff9f326e5764ae742609cdb4f6e9",
+  "notes": "Neu: Sicherung laden. In Einstellungen → App & Updates → Sicherungen bei einer Sicherung auf „Laden“ (oder Datei hochladen). Der jetzige Stand wird vorher gesichert, die App startet kurz neu."
 }
