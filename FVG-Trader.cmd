@@ -7795,7 +7795,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.8.2"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.8.3"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
@@ -7961,6 +7961,10 @@ class Handler(BaseHTTPRequestHandler):
                     return fn(self, *mt.groups())
                 except (ValueError, KeyError, TypeError) as e:
                     return self._send(400, {"error": str(e)})
+                except ConnectionError:
+                    # Browser/Handy hat die Verbindung beendet, bevor die Antwort fertig war
+                    # (Tab geschlossen, neu geladen, Handy gesperrt). Harmlos, kein Fehler.
+                    return None
                 except Exception as e:   # noqa: BLE001
                     engine.db.log(f"Serverfehler: {e}", "error")
                     return self._send(500, {"error": "Interner Fehler: " + str(e)})
@@ -8750,6 +8754,11 @@ class AppServer(ThreadingHTTPServer):
     dann laufen unbemerkt alte Versionen weiter."""
     daemon_threads = True
     allow_reuse_address = not sys.platform.startswith("win")
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return   # Gegenstelle hat die Verbindung beendet: harmlos
+        super().handle_error(request, client_address)
 
     def server_bind(self):
         import socket

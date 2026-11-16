@@ -1,6 +1,6 @@
 {
-  "version": "3.8.2",
-  "file": "releases/FVG-Trader-3.8.2.cmd",
-  "sha256": "4f6ac4a1f11d5fe7d2a562559fe03d471bf3cc29e5e03065c5f7eecc0692208f",
-  "notes": "Kalender: auch Samstag und Sonntag (anklickbar). Neu beim Leeren: „Alles ausblenden“ blendet auch heute aus. Gelöscht wird nichts."
+  "version": "3.8.3",
+  "file": "releases/FVG-Trader-3.8.3.cmd",
+  "sha256": "52203040f59668f0f6d4fd09a0a958b4f9bd6e030c26ce9592be6ff1e5361a1e",
+  "notes": "Keine falschen Fehlermeldungen mehr („WinError 10053“), wenn Browser oder Handy die Verbindung zur App beenden."
 }
