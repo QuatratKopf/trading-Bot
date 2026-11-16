@@ -1,6 +1,6 @@
 {
-  "version": "3.9.5",
-  "file": "releases/FVG-Trader-3.9.5.cmd",
-  "sha256": "7e79e8eca8763b74ddf107f2230319ec76570d96edc65156448bf3ec64eaa9fe",
-  "notes": "FVG-Bridge 2.02: schreibt direkt, wenn das Umbenennen in MT5 scheitert, und meldet Schreibfehler mit Fehlercode im MT5-Reiter „Experten“. Bitte „In MT5 installieren“ drücken und die Bridge neu kompilieren."
+  "version": "3.9.6",
+  "file": "releases/FVG-Trader-3.9.6.cmd",
+  "sha256": "8b36f26b4adcbfa3619b0775ec459a0b151a9de1d261f0a06a899f97cfe0fe3e",
+  "notes": "FVG-Bridge 2.03: arbeitet auch, wenn der MT5-Timer auf dem Server nicht anspringt (zusätzlich bei jedem neuen Kurs), und meldet „Meldungen an die App laufen“."
 }

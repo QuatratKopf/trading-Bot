@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.02"
+#property version   "2.03"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.02"
+#define BRIDGE_VERSION "2.03"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -42,7 +42,13 @@ int OnInit()
       Print("FVG-Bridge: Ordner FVG anlegen meldet Fehler ", GetLastError(), " (kann harmlos sein, wenn er schon existiert)");
    trade.SetExpertMagicNumber((ulong)InpMagic);
    trade.SetDeviationInPoints((ulong)InpSlippage);
-   EventSetMillisecondTimer(250);
+   ResetLastError();
+   if(!EventSetMillisecondTimer(250))
+     {
+      Print("FVG-Bridge: schneller Timer nicht verfuegbar (Fehler ", GetLastError(), "), nutze 1-Sekunden-Timer");
+      if(!EventSetTimer(1))
+         Print("FVG-Bridge: auch 1-Sekunden-Timer nicht verfuegbar (Fehler ", GetLastError(), "). Meldungen nur bei neuen Kursen.");
+     }
    WriteStatus();
    Print("FVG-Bridge ", BRIDGE_VERSION, " gestartet fuer Konto ", g_login);
    Print("FVG-Bridge Austausch-Ordner: ", TerminalInfoString(TERMINAL_COMMONDATA_PATH), "\\Files\\FVG");
@@ -56,8 +62,22 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
+uint g_last_work = 0;
+int  g_writes = 0;
+
 void OnTimer()
   {
+   Work();
+  }
+
+// Arbeit: Auftraege abholen und regelmaessig den Stand melden. Laeuft per Timer und zusaetzlich bei jedem neuen Kurs.
+void Work()
+  {
+   uint now_ms = GetTickCount();
+   if(g_last_work != 0 && now_ms - g_last_work < 200)
+      return;
+   bool due = g_last_work == 0 || now_ms - g_last_work >= 900 || g_tick % 4 == 3;
+   g_last_work = now_ms;
    long login = AccountInfoInteger(ACCOUNT_LOGIN);
    if(login != g_login)
       g_login = login;   // Konto im selben Fenster gewechselt
@@ -65,13 +85,19 @@ void OnTimer()
       return;
    ProcessCommands();
    g_tick++;
-   if(g_tick % 4 == 0)
+   if(due)
+     {
       WriteStatus();
+      g_writes++;
+      if(g_writes == 10)
+         Print("FVG-Bridge: Meldungen an die App laufen (status_", g_login, ".txt wird regelmaessig aktualisiert)");
+     }
   }
 
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   Work();
   }
 
 //+------------------------------------------------------------------+
