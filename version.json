@@ -1,6 +1,6 @@
 {
-  "version": "3.9.2",
-  "file": "releases/FVG-Trader-3.9.2.cmd",
-  "sha256": "60cd5047dcedf69ba994df443b844adc77e8ff9f326e5764ae742609cdb4f6e9",
-  "notes": "Neu: Sicherung laden. In Einstellungen → App & Updates → Sicherungen bei einer Sicherung auf „Laden“ (oder Datei hochladen). Der jetzige Stand wird vorher gesichert, die App startet kurz neu."
+  "version": "3.9.3",
+  "file": "releases/FVG-Trader-3.9.3.cmd",
+  "sha256": "078d47e01b6561bd243ec9e29e79d98cfd0f7e1a379084a8a92ff9f1245166f1",
+  "notes": "Cockpit: Statt „–“ beim Kontostand steht jetzt, welches MT5-Konto nicht verbunden ist und was zu prüfen ist."
 }

@@ -540,6 +540,7 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.bal-note{font-size:12.5px;line-height:1.45;color:var(--neg);margin:4px 0 2px}
 .bk-list{display:flex;flex-direction:column;gap:2px;padding:4px 0}
 .bk-list > div{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;padding:3px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .bk-r{display:inline-flex;align-items:center;gap:10px}
@@ -1514,6 +1515,7 @@ function heroHtml() {
   <div class="hero-card">
     <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small title="${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.join(", ")) : ""}">${(S.view_accounts || []).length ? esc(S.view_accounts.length === 1 ? "Konto " + S.view_accounts[0] : S.view_accounts.length + " Konten") : esc(S.broker.label) + (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
     <div><div class="bal mono" ${bal == null ? "" : cu(bal, "usd2")}>${bal == null ? "–" : usd2(bal)}</div>
+      ${S.balance_note ? `<div class="bal-note">${esc(S.balance_note)}</div>` : ""}
       <div class="delta"><b class="${total > 0 ? "pos" : total < 0 ? "neg" : "zero"}">${total > 0 ? "↗" : total < 0 ? "↘" : "→"} ${base ? (dp >= 0 ? "+" : "") + dp.toFixed(2).replace(".", ",") + " %" : "0 %"}</b>heute</div></div>
     <div class="hb-act">
       <button class="btn primary" id="hPause" type="button">${icon(c.paused ? I.play : I.pause)}${c.paused ? "Fortsetzen" : "Pausieren"}</button>
@@ -1538,7 +1540,7 @@ function heroHtml() {
 }
 function heroRender(full) {
   const box = $("#hero"); if (!box) return;
-  const key = JSON.stringify([S.summary, S.balance, S.config.paused, S.config.risk.max_trades_day, S.broker.label, perfData("gesamt", "alle").days.slice(-12)]);
+  const key = JSON.stringify([S.summary, S.balance, S.balance_note, S.view_accounts, S.config.paused, S.config.risk.max_trades_day, S.broker.label, perfData("gesamt", "alle").days.slice(-12)]);
   if (key === heroRender._k && !full) return;
   heroRender._k = key;
   box.innerHTML = heroHtml();

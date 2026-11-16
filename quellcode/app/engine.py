@@ -2985,6 +2985,19 @@ class Engine:
         vals = [accs[lg]["balance"] for lg in sel if lg in accs and accs[lg].get("balance") is not None]
         return round(sum(vals), 2) if vals else self.balance()
 
+    def balance_note(self):
+        """Warum im Cockpit kein oder nur ein Teil-Kontostand steht (MT5-Konten ohne Verbindung)."""
+        if self.broker.name != "mt5":
+            return ""
+        accs = self.mt5_link.accounts()
+        sel = self._view() or [lg for lg, c in (self.cfg["mt5"].get("accounts") or {}).items() if c.get("bot")]
+        if not accs and not sel:
+            return "Noch kein MT5-Konto verbunden: MT5 öffnen, FVG-Bridge auf einen Chart ziehen, Algo-Handel an."
+        off = [lg for lg in sel if not (accs.get(lg) or {}).get("online")]
+        if not off:
+            return ""
+        return ("Konto " if len(off) == 1 else "Konten ") + ", ".join(off) + " nicht verbunden: MT5 offen? FVG-Bridge auf dem Chart, Algo-Handel an?"
+
     def mt5_fill_pnl(self):
         """Echten Gewinn je Konto aus den MT5-Deals nachtragen (für Trades der letzten 3 Tage)."""
         since = time.time() - 3 * 86400
@@ -5260,6 +5273,7 @@ class Engine:
                 "broker": {"name": self.broker.name, "label": self.broker.label, "ok": self.broker_ok,
                            "status": self.broker_status},
                 "balance": self.balance_view(),
+                "balance_note": self.balance_note(),
                 "view_accounts": self._view(),
                 "today": {"pnl": round(self.today_pnl(), 2), "trades": len(self._today_trades()),
                           "max_trades": r["max_trades_day"], "max_loss": r["max_daily_loss"]},
