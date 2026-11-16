@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.01"
+#property version   "2.02"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2"
+#define BRIDGE_VERSION "2.02"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -37,12 +37,14 @@ datetime g_dsum_at = 0;
 int OnInit()
   {
    g_login = AccountInfoInteger(ACCOUNT_LOGIN);
-   FolderCreate("FVG", FILE_COMMON);
+   ResetLastError();
+   if(!FolderCreate("FVG", FILE_COMMON) && GetLastError() != 0)
+      Print("FVG-Bridge: Ordner FVG anlegen meldet Fehler ", GetLastError(), " (kann harmlos sein, wenn er schon existiert)");
    trade.SetExpertMagicNumber((ulong)InpMagic);
    trade.SetDeviationInPoints((ulong)InpSlippage);
    EventSetMillisecondTimer(250);
    WriteStatus();
-   Print("FVG-Bridge gestartet fuer Konto ", g_login);
+   Print("FVG-Bridge ", BRIDGE_VERSION, " gestartet fuer Konto ", g_login);
    Print("FVG-Bridge Austausch-Ordner: ", TerminalInfoString(TERMINAL_COMMONDATA_PATH), "\\Files\\FVG");
    return(INIT_SUCCEEDED);
   }
@@ -125,16 +127,53 @@ bool ReadKV(string path, string &keys[], string &vals[])
    return(n > 0);
   }
 
-void WriteAtomic(string name, string content)
+datetime g_err_at = 0;
+
+void Complain(string what, string file)
   {
-   string tmp = DIR + "tmp_" + name;
-   int f = FileOpen(tmp, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
-   if(f == INVALID_HANDLE)
+   // Fehler hoechstens einmal pro Minute melden, mit Fehlercode
+   if(TimeLocal() - g_err_at < 60)
       return;
+   g_err_at = TimeLocal();
+   Print("FVG-Bridge: ", what, " fehlgeschlagen fuer ", file, " (Fehler ", GetLastError(), ")");
+  }
+
+bool WriteDirect(string name, string content)
+  {
+   ResetLastError();
+   int f = FileOpen(DIR + name, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(f == INVALID_HANDLE)
+     {
+      Complain("Schreiben", DIR + name);
+      return(false);
+     }
    FileWriteString(f, content);
    FileClose(f);
+   return(true);
+  }
+
+void WriteAtomic(string name, string content)
+  {
+   // erst in eine Hilfsdatei schreiben und dann umbenennen, damit die App nie eine halbe Datei liest.
+   // Klappt das Umbenennen nicht (manche Server), direkt schreiben.
+   string tmp = DIR + "tmp_" + name;
+   ResetLastError();
+   int f = FileOpen(tmp, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(f == INVALID_HANDLE)
+     {
+      Complain("Hilfsdatei anlegen", tmp);
+      WriteDirect(name, content);
+      return;
+     }
+   FileWriteString(f, content);
+   FileClose(f);
+   ResetLastError();
    if(!FileMove(tmp, FILE_COMMON, DIR + name, FILE_COMMON | FILE_REWRITE))
+     {
+      Complain("Umbenennen", tmp);
       FileDelete(tmp, FILE_COMMON);
+      WriteDirect(name, content);
+     }
   }
 
 double NormVol(string sym, double vol)

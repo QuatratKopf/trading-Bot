@@ -1,6 +1,6 @@
 {
-  "version": "3.9.4",
-  "file": "releases/FVG-Trader-3.9.4.cmd",
-  "sha256": "0e8b6e6c84e9bdb8277cad295dec17884cf958e3abaf9372c478defe05456941",
-  "notes": "MT5-Verbindung prüfen: Die App zeigt ihren Austausch-Ordner und ob FVG-Bridge-Meldungen ankommen. FVG-Bridge 2.01 schreibt ihren Ordner ins MT5-Protokoll. Ordner bei Bedarf von Hand eintragbar."
+  "version": "3.9.5",
+  "file": "releases/FVG-Trader-3.9.5.cmd",
+  "sha256": "7e79e8eca8763b74ddf107f2230319ec76570d96edc65156448bf3ec64eaa9fe",
+  "notes": "FVG-Bridge 2.02: schreibt direkt, wenn das Umbenennen in MT5 scheitert, und meldet Schreibfehler mit Fehlercode im MT5-Reiter „Experten“. Bitte „In MT5 installieren“ drücken und die Bridge neu kompilieren."
 }
