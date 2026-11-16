@@ -438,6 +438,20 @@ class Mt5Link:
     def dir(self):
         return os.environ.get("FVG_MT5_DIR") or self.mcfg.get("dir") or mt5_default_dir()
 
+    def diag(self):
+        """Was die App im Austausch-Ordner sieht: Anzahl Statusdateien und wie alt die neueste ist."""
+        try:
+            names = [n for n in os.listdir(self.dir) if n.startswith("status_") and n.endswith(".txt")]
+        except OSError:
+            return {"dir": self.dir, "exists": False, "files": 0, "age": None}
+        ages = []
+        for n in names:
+            try:
+                ages.append(time.time() - os.path.getmtime(os.path.join(self.dir, n)))
+            except OSError:
+                pass
+        return {"dir": self.dir, "exists": True, "files": len(names), "age": round(min(ages)) if ages else None}
+
     def ensure_dir(self):
         try:
             os.makedirs(self.dir, exist_ok=True)

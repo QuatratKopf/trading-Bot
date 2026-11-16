@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.00"
+#property version   "2.01"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -43,6 +43,7 @@ int OnInit()
    EventSetMillisecondTimer(250);
    WriteStatus();
    Print("FVG-Bridge gestartet fuer Konto ", g_login);
+   Print("FVG-Bridge Austausch-Ordner: ", TerminalInfoString(TERMINAL_COMMONDATA_PATH), "\\Files\\FVG");
    return(INIT_SUCCEEDED);
   }
 

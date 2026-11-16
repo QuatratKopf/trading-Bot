@@ -1,6 +1,6 @@
 {
-  "version": "3.9.3",
-  "file": "releases/FVG-Trader-3.9.3.cmd",
-  "sha256": "078d47e01b6561bd243ec9e29e79d98cfd0f7e1a379084a8a92ff9f1245166f1",
-  "notes": "Cockpit: Statt „–“ beim Kontostand steht jetzt, welches MT5-Konto nicht verbunden ist und was zu prüfen ist."
+  "version": "3.9.4",
+  "file": "releases/FVG-Trader-3.9.4.cmd",
+  "sha256": "0e8b6e6c84e9bdb8277cad295dec17884cf958e3abaf9372c478defe05456941",
+  "notes": "MT5-Verbindung prüfen: Die App zeigt ihren Austausch-Ordner und ob FVG-Bridge-Meldungen ankommen. FVG-Bridge 2.01 schreibt ihren Ordner ins MT5-Protokoll. Ordner bei Bedarf von Hand eintragbar."
 }

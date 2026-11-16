@@ -760,6 +760,9 @@ class Engine:
                        "label": str(t.get("label") or "")[:40]})
         c["tracked"] = tr
         m5 = c.setdefault("mt5", {})
+        m5["dir"] = str(m5.get("dir") or "").strip().strip('"').rstrip("\\/")
+        if m5["dir"] and not os.path.isdir(m5["dir"]):
+            raise ValueError(f"MT5-Austausch-Ordner „{m5['dir']}“ nicht gefunden. Den Pfad genau so eintragen, wie ihn FVG-Bridge im MT5-Reiter „Experten“ anzeigt.")
         for fam, dflt in (("NQ", "US100.cash"), ("ES", "US500.cash")):
             m5["sym_" + fam] = str(m5.get("sym_" + fam) or dflt).strip()[:40]
         accs = {}
@@ -2279,7 +2282,7 @@ class Engine:
                                  for fam in ("NQ", "ES")},
                          "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()}})
         st = self.mt5_copier.status
-        return {"dir": self.mt5_link.dir, "accounts": rows,
+        return {"dir": self.mt5_link.dir, "diag": self.mt5_link.diag(), "accounts": rows,
                 "copy": {"last": st.get("last"), "error": st.get("error"), "copies": st.get("copies"), "waiting": st.get("waiting") or []}}
 
     def mt5_install(self, source, chart_source=None):

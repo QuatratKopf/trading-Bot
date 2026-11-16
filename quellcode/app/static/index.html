@@ -3951,7 +3951,7 @@ const sec = (key, title, sum, chip, body) => `<details class="set-sec" data-sec=
   <div class="set-b">${body}</div></details>`;
 
 let settingsKey = "";
-const m5Key = () => { const m = S.mt5 || {}; return [(m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
+const m5Key = () => { const m = S.mt5 || {}; return [m.diag && [m.diag.dir, m.diag.files, (m.diag.age || 0) < 15], (m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
 const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key(), S.backups && [S.backups.last, S.backups.count, S.backups.busy, S.backups.error]]);
 // New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
 function localTime(hm) {
@@ -4156,6 +4156,9 @@ function settings() {
     </ol>
     <div class="inline wrap-gap"><button class="btn primary" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">EA herunterladen</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage herunterladen</a></div>
     <p class="hint">Chart-Vorlage „FVG-Chart“: zeigt FVGs, Sessions (wie im Bot), Vortageshoch/-tief und Mitternachts-Open in einem ruhigen dunklen Design. In MT5 im Navigator unter „Indikatoren“ auf den Chart ziehen.</p>
+    ${(() => { const g = m5.diag || {}; const ok = g.files && g.age != null && g.age < 15;
+      return `<div class="row"><label>Austausch-Ordner der App<small class="mono" style="overflow-wrap:anywhere">${esc(g.dir || "")}</small><small>${!g.exists ? '<span class="neg">Ordner gibt es noch nicht. FVG-Bridge hat hier noch nie etwas abgelegt.</span>' : !g.files ? '<span class="neg">Keine Meldung von FVG-Bridge in diesem Ordner.</span>' : ok ? `${g.files} Konto-Meldung${g.files === 1 ? "" : "en"}, neueste vor ${g.age} s` : `<span class="neg">Letzte Meldung vor ${g.age} s, also alt. FVG-Bridge läuft gerade nicht oder schreibt woanders hin.</span>`}</small></label><span class="chip ${ok ? "good" : "bad"}">${ok ? "empfängt" : "nichts"}</span></div>
+      ${ok ? "" : `<p class="cp-warn">Bridge läuft, aber hier kommt nichts an? In MT5 unten im Reiter <b>„Experten“</b> steht beim Start von FVG-Bridge die Zeile <b>„Austausch-Ordner: …“</b>. Ist der Pfad anders als oben, läuft die App wahrscheinlich als Dienst unter einem anderen Windows-Benutzer. Dann entweder den Dienst ausschalten (App &amp; Updates) oder den Pfad aus MT5 unten bei „Austausch-Ordner (nur bei Bedarf)“ eintragen.</p>`}`; })()}
     <span class="lbl">2 · Konten</span>
     ${m5Rows || '<p class="hint">Noch kein MT5-Konto gemeldet. Sobald FVG-Bridge in einem MT5-Fenster läuft, erscheint es hier.</p>'}
     <p class="hint">„Bot handelt hier“: Signale des Bots werden auf diesem Konto ausgeführt (dazu unter „Konten & Broker“ MetaTrader 5 wählen). Faktor 1 = gleiches Risiko in $ wie berechnet, 0,5 = halb so viel. Nasdaq / S&amp;P 500: wie das Symbol bei diesem Konto heißt (z. B. NAS100.gbe bei IQ Capital, US100.cash bei FTMO). Leer = Name unten unter „Symbole“. ✓ heißt: MT5 kennt das Symbol auf diesem Konto.</p>
@@ -4165,7 +4168,8 @@ function settings() {
     ${m5cc.enabled ? `<div class="row"><label>Status<small>${m5.copy.error ? `<span class="neg">${esc(m5.copy.error)}</span>` : m5.copy.waiting && m5.copy.waiting.length ? "Wartet auf Stop-Loss im Hauptkonto: " + esc(m5.copy.waiting.join(", ")) : m5.copy.last ? "läuft · " + (m5.copy.copies || 0) + " Kopien seit Start" : "startet gleich"}</small></label></div>` : ""}
     <span class="lbl">Symbole (allgemein)</span>
     ${field("m5sn", "Nasdaq in MT5", m5c.sym_NQ, {type: "text", help: "Gilt für alle Konten ohne eigenen Namen oben. Bei FTMO „US100.cash“, bei IQ Capital „NAS100.gbe“."})}
-    ${field("m5se", "S&P 500 in MT5", m5c.sym_ES, {type: "text", help: "Bei FTMO „US500.cash“"})}`)}
+    ${field("m5se", "S&P 500 in MT5", m5c.sym_ES, {type: "text", help: "Bei FTMO „US500.cash“"})}
+    ${field("m5dir", "Austausch-Ordner (nur bei Bedarf)", m5c.dir || "", {type: "text", attrs: {placeholder: "leer = automatisch", autocomplete: "off"}, help: "Nur ausfüllen, wenn App und MT5 nicht zusammenfinden: den Pfad aus der MT5-Zeile „FVG-Bridge Austausch-Ordner: …“ hier einfügen."})}`)}
 
   ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, Kontrakte, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
     <span class="lbl">Safe-Stop-Grenzen (Punkte)</span>
@@ -4223,7 +4227,7 @@ function settings() {
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
-      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
+      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
         accounts: Object.fromEntries((S.mt5 ? S.mt5.accounts : []).map(a => [a.login, {bot: v("m5b_" + a.login), copy: v("m5c_" + a.login), factor: v("m5f_" + a.login),
           sym_NQ: (v("m5n_" + a.login) || "").trim(), sym_ES: (v("m5e_" + a.login) || "").trim()}]))},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
