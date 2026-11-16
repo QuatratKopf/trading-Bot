@@ -540,6 +540,8 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.pw-set{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;min-width:0}
+.pw-set input{width:220px;max-width:100%}
 .bal-note{font-size:12.5px;line-height:1.45;color:var(--neg);margin:4px 0 2px}
 .bk-list{display:flex;flex-direction:column;gap:2px;padding:4px 0}
 .bk-list > div{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;padding:3px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -1253,6 +1255,10 @@ async function startupUpdatePrompt() {
 /* ───────── Login ───────── */
 async function showLogin() {
   const a = await fetch("/api/auth").then(r => r.json());
+  if (a.remote_blocked) {
+    $("#app").innerHTML = `<div class="login"><form><h1>FVG Trader</h1><p class="hint" style="line-height:1.6">Für den Zugriff übers Internet ist noch kein Passwort festgelegt. Bitte zuerst am PC/Server in FVG Trader unter <b>Einstellungen → App &amp; Updates → Anmeldung</b> ein Passwort festlegen. Danach kannst du dich hier anmelden.</p></form></div>`;
+    return;
+  }
   const setup = !a.has_password;
   $("#app").innerHTML = `<div class="login"><form id="lf">
     <h1>FVG Trader</h1>
@@ -4017,6 +4023,10 @@ function settings() {
       <button class="tgl" id="asT" role="switch" aria-checked="${S.autostart}" aria-label="Mit Windows starten"></button></div>` : ""}
     <div class="row"><label>FVG Trader beenden<small>Ohne Beenden läuft der Bot im Hintergrund weiter, auch wenn das Fenster zu ist.</small></label>
       <button class="btn ghost-danger" id="quit">App beenden</button></div>
+    <span class="lbl">Anmeldung</span>
+    ${field("lnp", "Am PC/Server ohne Passwort", c.local_no_pw !== false, {check: true, help: "Im App-Fenster auf diesem Rechner öffnet sich FVG Trader direkt. Übers Internet (Handy, anderer PC) wird immer das Passwort verlangt, danach bleibst du auf dem Gerät ein Jahr angemeldet."})}
+    <div class="row"><label>Passwort für Handy &amp; Internet<small>${(S.auth || {}).has_password ? "festgelegt" : '<span class="neg">noch keins: Zugriff übers Internet ist gesperrt, bis du hier eins festlegst</span>'}</small></label>
+      <div class="pw-set">${(S.auth || {}).has_password && !(S.auth || {}).local ? '<input type="password" id="pwOld" placeholder="bisheriges Passwort" autocomplete="current-password">' : ""}<input type="password" id="pwNew" placeholder="${(S.auth || {}).has_password ? "neues Passwort" : "Passwort festlegen"} (mind. 8 Zeichen)" autocomplete="new-password"><button class="btn" id="pwGo" type="button">${(S.auth || {}).has_password ? "Ändern" : "Festlegen"}</button></div></div>
     <span class="lbl">Aufs Handy</span>
     <div class="copyrow"><div class="code">${esc(phoneUrl || "kommt, sobald die Internet-Verbindung steht")}</div><button class="btn" id="cpPhone" ${phoneUrl ? "" : "disabled"}>Kopieren</button></div>
     ${intro(`Am Handy öffnen, anmelden und „Zum Startbildschirm“ wählen. ${S.tunnel.fixed || c.public_url ? "Die Adresse bleibt fest." : "Die Adresse ändert sich bei jedem Neustart, mit ngrok-Schlüssel (TradingView) bleibt sie fest."}`)}
@@ -4233,6 +4243,7 @@ function settings() {
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
+      local_no_pw: v("lnp"),
       backup: {enabled: v("bkE"), extra_dir: (v("bkX") || "").trim(), drive_url: (v("bkG") || "").trim(), keep_daily: parseInt(v("bkD")), keep_weekly: parseInt(v("bkW")), keep_monthly: parseInt(v("bkM"))},
       discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
         daystop: v("dcD"), daily: v("dcA"), weekly: v("dcW"), learn: v("dcL")},
@@ -4265,6 +4276,10 @@ function settings() {
   };
   // Protokoll
   $("#logShow").onclick = showLog;
+  $("#pwGo").onclick = async () => {
+    try { await api("/api/password", {password: $("#pwNew").value, old: $("#pwOld") ? $("#pwOld").value : ""}); $("#pwNew").value = ""; toast("Passwort gespeichert"); await refresh(true); }
+    catch (e) { toast(e.message); }
+  };
   $("#bkNow").onclick = async () => {
     const b = $("#bkNow"); b.disabled = true; b.textContent = "Sichert …";
     try { const r = await api("/api/backup/now", {}); toast("Gesichert" + (r.error ? " · " + r.error : "")); }

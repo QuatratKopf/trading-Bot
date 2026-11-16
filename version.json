@@ -1,6 +1,6 @@
 {
-  "version": "3.9.6",
-  "file": "releases/FVG-Trader-3.9.6.cmd",
-  "sha256": "8b36f26b4adcbfa3619b0775ec459a0b151a9de1d261f0a06a899f97cfe0fe3e",
-  "notes": "FVG-Bridge 2.03: arbeitet auch, wenn der MT5-Timer auf dem Server nicht anspringt (zusätzlich bei jedem neuen Kurs), und meldet „Meldungen an die App laufen“."
+  "version": "3.10.0",
+  "file": "releases/FVG-Trader-3.10.0.cmd",
+  "sha256": "25b8599be8a4beb777134ef72e1e58720faa9d41345910316e31872e0bd27140",
+  "notes": "Kein Passwort mehr am eigenen PC/Server: Das App-Fenster öffnet sich direkt. Übers Internet (Handy) einmal anmelden, dann ein Jahr angemeldet. Einstellungen → App & Updates → Anmeldung."
 }

@@ -123,6 +123,7 @@ DEFAULT_CONFIG = {
     # MetaTrader 5: Konten melden sich über den EA FVG-Bridge. Je Konto: bot = Bot handelt hier, copy = empfängt Kopien, factor = Größe
     # Meine Konten: Fremdkapital-Konten mit echter Datenquelle (MT5-Konto, Topstep oder eigene Trades)
     "tracked": [],
+    "local_no_pw": True,       # am eigenen Rechner (App-Fenster) ohne Passwort; von außen (Handy) immer mit Passwort
     "view_accounts": [],
     # Automatische Sicherungen: täglich, aufbewahrt 7 Tage + 4 Wochen + 6 Monate; optional Kopie in einen zweiten Ordner
     "backup": {"enabled": True, "extra_dir": "", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 6,
@@ -727,6 +728,7 @@ class Engine:
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
         c["view_accounts"] = [str(x) for x in (c.get("view_accounts") or []) if str(x).isdigit()][:20]
+        c["local_no_pw"] = bool(c.get("local_no_pw", True))
         bk = c.setdefault("backup", {})
         bk["enabled"] = bool(bk.get("enabled", True))
         bk["extra_dir"] = str(bk.get("extra_dir") or "").strip().strip('"')

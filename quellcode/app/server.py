@@ -159,7 +159,7 @@ tunnel = Tunnel(DATA, PORT, engine.db.log, get_token=lambda: (engine.cfg.get("tu
 LAUNCHER = os.environ.get("FVG_LAUNCHER") or os.path.abspath(sys.argv[0])
 AUTH_FILE = os.path.join(DATA, "auth.json")
 SESSION_FILE = os.path.join(DATA, "sessions.json")
-SESSION_TTL = 7 * 24 * 3600
+SESSION_TTL = 365 * 24 * 3600   # einmal anmelden, dann ein Jahr angemeldet (je Gerät)
 try:   # Anmeldungen überleben Neustarts und Updates
     with open(SESSION_FILE) as _f:
         SESSIONS = {k: v for k, v in json.load(_f).items() if v > time.time()}
@@ -259,7 +259,21 @@ class Handler(BaseHTTPRequestHandler):
         raw = self._body()
         return json.loads(raw) if raw.strip() else {}
 
+    def _is_local(self):
+        """Anfrage direkt vom selben Rechner (App-Fenster, Browser auf dem PC/Server)?
+        Über ngrok weitergeleitete Anfragen kommen zwar auch von 127.0.0.1, tragen aber Weiterleitungs-Kopfzeilen
+        und den Namen der Internet-Adresse. Die zählen nie als lokal."""
+        if self.client_address[0] not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            return False
+        for k in ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", "Forwarded", "Ngrok-Agent-Ips"):
+            if self.headers.get(k):
+                return False
+        host = (self.headers.get("Host") or "").split(":")[0].strip("[]").lower()
+        return host in ("127.0.0.1", "localhost", "::1", "")
+
     def _session(self):
+        if self._is_local() and engine.cfg.get("local_no_pw", True):
+            return "local"   # am eigenen Rechner ohne Passwort (abschaltbar)
         c = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
         sid = c["sid"].value if "sid" in c else None
         exp = SESSIONS.get(sid)
@@ -373,13 +387,18 @@ def version(h):
 
 @route("GET", r"/api/auth", auth=False)
 def auth_status(h):
-    h._send(200, {"has_password": has_password(), "logged_in": bool(h._session())})
+    local = h._is_local()
+    h._send(200, {"has_password": has_password(), "logged_in": bool(h._session()), "local": local,
+                  "remote_blocked": not has_password() and not local})
 
 
 @route("POST", r"/api/setup", auth=False)
 def setup(h):
     if has_password():
         return h._send(400, {"error": "Passwort ist bereits gesetzt"})
+    if not h._is_local():
+        # Das erste Passwort darf nur am eigenen Rechner festgelegt werden, nie über die Internet-Adresse
+        return h._send(403, {"error": "Das Passwort bitte zuerst am PC/Server in FVG Trader festlegen (Einstellungen → App & Updates → Anmeldung)."})
     pw = h._json().get("password", "")
     if len(pw) < 8:
         return h._send(400, {"error": "Passwort braucht mindestens 8 Zeichen"})
@@ -408,6 +427,24 @@ def login_ok(h):
         "Set-Cookie": f"sid={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}{secure}"})
 
 
+@route("POST", r"/api/password")
+def change_password(h):
+    """Passwort für den Zugriff von außen festlegen oder ändern. Von außen nur mit dem bisherigen Passwort."""
+    b = h._json()
+    pw = str(b.get("password") or "")
+    if len(pw) < 8:
+        raise ValueError("Passwort braucht mindestens 8 Zeichen")
+    if has_password() and not h._is_local():
+        with _fail_lock:
+            if not check_password(str(b.get("old") or "")):
+                time.sleep(1.0)
+                raise ValueError("Bisheriges Passwort falsch")
+    had = has_password()
+    set_password(pw)
+    engine.db.log("Passwort für den Zugriff von außen " + ("geändert" if had else "festgelegt"))
+    h._send(200, {"ok": True})
+
+
 @route("POST", r"/api/logout")
 def logout(h):
     SESSIONS.pop(h._session(), None)
@@ -424,6 +461,7 @@ def state(h):
     s["platform"] = sys.platform
     s["autostart"] = autostart_enabled()
     s["service"] = service_state()
+    s["auth"] = {"has_password": has_password(), "local": h._is_local(), "local_no_pw": engine.cfg.get("local_no_pw", True)}
     if not REMOTE["month"]:
         try:
             with open(_remote_file(), encoding="utf-8") as f:
