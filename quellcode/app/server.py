@@ -929,13 +929,22 @@ def app_log(h):
 @route("POST", r"/api/open-folder")
 def open_folder(h):
     import subprocess
+    folder = DATA
+    if (h._json() or {}).get("which") == "backup":
+        folder = engine.backup_dir
+        os.makedirs(folder, exist_ok=True)
     if sys.platform.startswith("win"):
-        os.startfile(DATA)   # noqa: S606
+        os.startfile(folder)   # noqa: S606
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", DATA])
+        subprocess.Popen(["open", folder])
     else:
-        subprocess.Popen(["xdg-open", DATA], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    h._send(200, {"ok": True, "folder": DATA})
+        subprocess.Popen(["xdg-open", folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    h._send(200, {"ok": True, "folder": folder})
+
+
+@route("POST", r"/api/backup/now")
+def backup_now(h):
+    h._send(200, engine.backup_run("von Hand"))
 
 
 @route("GET", r"/api/pine")

@@ -123,7 +123,9 @@ DEFAULT_CONFIG = {
     # MetaTrader 5: Konten melden sich über den EA FVG-Bridge. Je Konto: bot = Bot handelt hier, copy = empfängt Kopien, factor = Größe
     # Meine Konten: Fremdkapital-Konten mit echter Datenquelle (MT5-Konto, Topstep oder eigene Trades)
     "tracked": [],
-    "view_accounts": [],       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
+    "view_accounts": [],
+    # Automatische Sicherungen: täglich, aufbewahrt 7 Tage + 4 Wochen + 6 Monate; optional Kopie in einen zweiten Ordner
+    "backup": {"enabled": True, "extra_dir": "", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 6},       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
@@ -545,6 +547,8 @@ class Engine:
             self.db.log(f"Doppelte Einträge konnten nicht aufgeräumt werden: {e}", "warn")
         self.mt5_link = Mt5Link(self.cfg)
         self._ts_cache = {"at": 0}
+        self.backup_state = {"last": None, "error": ""}
+        self._started = time.time()
         self.mt5_copier = Mt5Copier(self.cfg, os.path.join(self.data_dir, "mt5-copytrading.json"))
         threading.Thread(target=self._loop, daemon=True).start()
         threading.Thread(target=self._copy_loop, daemon=True).start()
@@ -712,6 +716,16 @@ class Engine:
         if c["broker"] not in BROKERS:
             raise ValueError("Unbekannter Broker")
         c["view_accounts"] = [str(x) for x in (c.get("view_accounts") or []) if str(x).isdigit()][:20]
+        bk = c.setdefault("backup", {})
+        bk["enabled"] = bool(bk.get("enabled", True))
+        bk["extra_dir"] = str(bk.get("extra_dir") or "").strip().strip('"')
+        if bk["extra_dir"] and not os.path.isdir(bk["extra_dir"]):
+            raise ValueError(f"Sicherung: Ordner „{bk['extra_dir']}“ nicht gefunden. Bitte einen vorhandenen Ordner angeben, z. B. aus OneDrive oder einem USB-Stick.")
+        for k, lo, hi in (("keep_daily", 1, 60), ("keep_weekly", 0, 52), ("keep_monthly", 0, 36)):
+            try:
+                bk[k] = max(lo, min(hi, int(float(bk.get(k) if bk.get(k) is not None else lo))))
+            except (TypeError, ValueError):
+                raise ValueError("Sicherung: Anzahl als Zahl angeben")
         c["challenge"]["accounts"] = [str(x) for x in (c["challenge"].get("accounts") or []) if str(x).isdigit()][:20]
         tr = []
         for t in c.get("tracked") or []:
@@ -2211,6 +2225,13 @@ class Engine:
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
+            if time.time() - self._started > 600 and time.time() - self.backup_state.get("checked", 0) > 3600:
+                self.backup_state["checked"] = time.time()
+                if self.backup_due():
+                    try:
+                        self.backup_run()
+                    except ValueError:
+                        pass
             if self.broker.name == "mt5":
                 try:
                     self.mt5_fill_pnl()
@@ -2692,6 +2713,127 @@ class Engine:
             active.append(dict(r, since_n=len(lst), blocked_n=len(blocked), blocked_r=round(sum(x["r"] for x in blocked), 2)))
         return {"found": found[:20], "watch": watch[:6], "tests": tests, "signals": len(rows),
                 "setups": {s: len(v) for s, v in by.items()}, "min_scope": min_scope, "active": active}
+
+    # ───────── Automatische Sicherungen ─────────
+    BACKUP_FILES = ("config.json", "learning.json", "strategien.json", "mt5-copytrading.json", "backtest.json", "auth.json")
+    BACKUP_RX = re.compile(r"^FVG-Sicherung-(\d{4}-\d{2}-\d{2})_(\d{4})\.zip$")
+
+    @property
+    def backup_dir(self):
+        return os.path.join(self.data_dir, "sicherungen")
+
+    def backup_run(self, reason="automatisch"):
+        """Packt Datenbank (sicher im laufenden Betrieb), Einstellungen, Lernstand und Journal-Bilder in eine ZIP-Datei."""
+        import sqlite3
+        import zipfile
+        if getattr(self, "_backup_busy", False):
+            raise ValueError("Sicherung läuft gerade schon")
+        self._backup_busy = True
+        st = self.backup_state
+        try:
+            os.makedirs(self.backup_dir, exist_ok=True)
+            stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M")
+            name = f"FVG-Sicherung-{stamp}.zip"
+            path = os.path.join(self.backup_dir, name)
+            tmp_db = os.path.join(self.backup_dir, "trader-kopie.db")
+            if os.path.exists(tmp_db):
+                os.remove(tmp_db)
+            dst = sqlite3.connect(tmp_db)
+            try:
+                with self.db.lock:
+                    self.db.con.backup(dst)   # vollständige, stimmige Kopie, auch während der Bot läuft
+            finally:
+                dst.close()
+            with zipfile.ZipFile(path + ".tmp", "w", zipfile.ZIP_DEFLATED) as z:
+                z.write(tmp_db, "trader.db")
+                for fn in self.BACKUP_FILES:
+                    fp = os.path.join(self.data_dir, fn)
+                    if os.path.isfile(fp):
+                        z.write(fp, fn)
+                shots = os.path.join(self.data_dir, "screenshots")
+                if os.path.isdir(shots):
+                    for fn in os.listdir(shots):
+                        if os.path.isfile(os.path.join(shots, fn)):
+                            z.write(os.path.join(shots, fn), "screenshots/" + fn)
+                z.writestr("LIESMICH.txt", "FVG Trader - Sicherung vom " + dt.datetime.now().strftime("%d.%m.%Y %H:%M") + "\r\n\r\n"
+                           "Wiederherstellen:\r\n1. FVG Trader beenden (Einstellungen -> App & Updates -> Beenden).\r\n"
+                           "2. Den Ordner FVG-Trader-Daten zur Sicherheit umbenennen (z. B. FVG-Trader-Daten-alt).\r\n"
+                           "3. Einen neuen, leeren Ordner FVG-Trader-Daten anlegen und den Inhalt dieser ZIP-Datei hineinkopieren.\r\n"
+                           "4. FVG Trader starten.\r\n\r\nEnthaelt Zugangsdaten (config.json): nicht weitergeben.\r\n")
+            os.replace(path + ".tmp", path)
+            os.remove(tmp_db)
+            extra_err = ""
+            extra = (self.cfg.get("backup") or {}).get("extra_dir") or ""
+            if extra:
+                try:
+                    import shutil
+                    shutil.copy2(path, os.path.join(extra, name))
+                    self._backup_prune(extra)
+                except OSError as e:
+                    extra_err = f"Kopie in {extra} fehlgeschlagen: {e}"
+            self._backup_prune(self.backup_dir)
+            size = os.path.getsize(path)
+            st.update(last=time.time(), error=extra_err, name=name)
+            self.db.log(f"Sicherung erstellt ({reason}): {name}, {size / 1e6:.1f} MB" + (f". {extra_err}" if extra_err else ""),
+                        "warn" if extra_err else "info")
+            return {"ok": True, "name": name, "size": size, "error": extra_err}
+        except Exception as e:   # Sicherung darf den Bot nie stören
+            st.update(error=str(e))
+            self.db.log(f"Sicherung fehlgeschlagen: {e}", "error")
+            raise ValueError(f"Sicherung fehlgeschlagen: {e}")
+        finally:
+            self._backup_busy = False
+
+    def _backup_prune(self, folder):
+        """Behält die neuesten X täglichen, je eine pro Woche (Y Wochen) und je eine pro Monat (Z Monate). Nur eigene Sicherungsdateien."""
+        bk = self.cfg.get("backup") or {}
+        files = []
+        for fn in os.listdir(folder):
+            m = self.BACKUP_RX.match(fn)
+            if m:
+                files.append((m.group(1) + m.group(2), dt.date.fromisoformat(m.group(1)), fn))
+        files.sort(reverse=True)
+        keep, days, weeks, months = set(), [], [], []
+        for _, d, fn in files:
+            if d not in days and len(days) < int(bk.get("keep_daily", 7)):
+                days.append(d)
+                keep.add(fn)
+            wk = d.isocalendar()[:2]
+            if wk not in weeks and len(weeks) < int(bk.get("keep_weekly", 4)):
+                weeks.append(wk)
+                keep.add(fn)
+            mo = (d.year, d.month)
+            if mo not in months and len(months) < int(bk.get("keep_monthly", 6)):
+                months.append(mo)
+                keep.add(fn)
+        for _, _, fn in files:
+            if fn not in keep:
+                try:
+                    os.remove(os.path.join(folder, fn))
+                except OSError:
+                    pass
+
+    def backup_view(self):
+        out = []
+        try:
+            for fn in sorted(os.listdir(self.backup_dir), reverse=True):
+                m = self.BACKUP_RX.match(fn)
+                if m:   # Zeitpunkt aus dem Dateinamen (das Änderungsdatum kann sich beim Kopieren ändern)
+                    ts = dt.datetime.strptime(m.group(1) + m.group(2), "%Y-%m-%d%H%M").timestamp()
+                    out.append({"name": fn, "size": os.path.getsize(os.path.join(self.backup_dir, fn)), "ts": ts})
+        except OSError:
+            pass
+        st = self.backup_state
+        return {"enabled": (self.cfg.get("backup") or {}).get("enabled", True), "folder": self.backup_dir, "list": out[:20],
+                "count": len(out), "total": sum(x["size"] for x in out), "last": st.get("last") or (out[0]["ts"] if out else None),
+                "error": st.get("error", ""), "busy": bool(getattr(self, "_backup_busy", False))}
+
+    def backup_due(self):
+        """Einmal am Tag: Ist die neueste Sicherung älter als 23 Stunden, wird eine neue gemacht."""
+        if not (self.cfg.get("backup") or {}).get("enabled", True) or getattr(self, "_backup_busy", False):
+            return False
+        v = self.backup_view()
+        return not v["last"] or time.time() - v["last"] > 23 * 3600
 
     # ───────── Konten-Filter (MT5) ─────────
     @staticmethod
@@ -5013,6 +5155,7 @@ class Engine:
                 "daily": self.daily(),
                 "has_tests": bool(self.db.one("SELECT 1 x FROM positions WHERE is_test=1 LIMIT 1")),
                 "challenge": self.challenge() if self.cfg["challenge"]["enabled"] else None,
+                "backups": self.backup_view(),
                 "prop_presets": PROP_PRESETS, "prop_risk": PROP_RISK, "tracked": self.tracked_view(),
                 "news_pause": self.news_block(),
                 "old_script": self.old_script,

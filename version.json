@@ -1,6 +1,6 @@
 {
-  "version": "3.8.3",
-  "file": "releases/FVG-Trader-3.8.3.cmd",
-  "sha256": "52203040f59668f0f6d4fd09a0a958b4f9bd6e030c26ce9592be6ff1e5361a1e",
-  "notes": "Keine falschen Fehlermeldungen mehr („WinError 10053“), wenn Browser oder Handy die Verbindung zur App beenden."
+  "version": "3.9.0",
+  "file": "releases/FVG-Trader-3.9.0.cmd",
+  "sha256": "effe0d50137b6d7cb23340a9ad7c88921232948f3b6094e16d0fd785342a9291",
+  "notes": "Neu: Automatische Sicherungen (täglich, 7 Tage + 4 Wochen + 6 Monate), „Jetzt sichern“ und optional Kopie in einen zweiten Ordner, z. B. Google Drive oder OneDrive. Einstellungen → App & Updates → Sicherungen."
 }

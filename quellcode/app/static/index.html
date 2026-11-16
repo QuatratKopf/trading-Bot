@@ -540,6 +540,8 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.bk-list{display:flex;flex-direction:column;gap:2px;padding:4px 0}
+.bk-list > div{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0;border-bottom:1px solid var(--line)}
 .cp-accs{display:flex;flex-wrap:wrap;gap:6px 16px}
 .ib.sm.on,.btn.on{color:var(--accent)}
 #calAcc{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
@@ -3944,7 +3946,7 @@ const sec = (key, title, sum, chip, body) => `<details class="set-sec" data-sec=
 
 let settingsKey = "";
 const m5Key = () => { const m = S.mt5 || {}; return [(m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
-const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key()]);
+const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key(), S.backups && [S.backups.last, S.backups.count, S.backups.busy, S.backups.error]]);
 // New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
 function localTime(hm) {
   const [nh, nm] = (S.now_ny || "00:00").split(":").map(Number), now = new Date();
@@ -4012,6 +4014,18 @@ function settings() {
     <span class="lbl">Aufs Handy</span>
     <div class="copyrow"><div class="code">${esc(phoneUrl || "kommt, sobald die Internet-Verbindung steht")}</div><button class="btn" id="cpPhone" ${phoneUrl ? "" : "disabled"}>Kopieren</button></div>
     ${intro(`Am Handy öffnen, anmelden und „Zum Startbildschirm“ wählen. ${S.tunnel.fixed || c.public_url ? "Die Adresse bleibt fest." : "Die Adresse ändert sich bei jedem Neustart, mit ngrok-Schlüssel (TradingView) bleibt sie fest."}`)}
+    <span class="lbl">Sicherungen</span>
+    ${(() => { const B = S.backups || {list: []}, bk = c.backup || {}, mb = v => v < 1e6 ? Math.max(1, Math.round(v / 1e3)).toLocaleString("de-DE") + " KB" : (v / 1e6).toLocaleString("de-DE", {maximumFractionDigits: 1}) + " MB";
+      return `${field("bkE", "Automatisch sichern", bk.enabled !== false, {check: true, help: "Einmal am Tag im Hintergrund: Trades, Einstellungen, Lernstand, Strategien und Journal-Bilder als ZIP-Datei. Der Bot läuft dabei normal weiter."})}
+      <div class="row"><label>Letzte Sicherung<small>${B.error ? `<span class="neg">${esc(B.error)}</span>` : B.count ? `${B.count} Sicherung${B.count === 1 ? "" : "en"}, zusammen ${mb(B.total)}` : "noch keine, die erste kommt etwa 10 Minuten nach dem Start"}</small></label>
+        <div class="inline"><span class="mono">${B.last ? dtm(B.last) : "–"}</span></div></div>
+      ${B.list.length ? `<div class="bk-list">${B.list.slice(0, 6).map(x => `<div><span class="mono">${esc(new Date(x.ts * 1000).toLocaleString("de-DE", {weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"}))}</span><small class="hint">${mb(x.size)}</small></div>`).join("")}${B.list.length > 6 ? `<small class="hint">und ${B.list.length - 6} ältere</small>` : ""}</div>` : ""}
+      <div class="inline wrap-gap"><button class="btn primary" id="bkNow" ${B.busy ? "disabled" : ""}>${B.busy ? "Sichert …" : "Jetzt sichern"}</button><button class="btn" id="bkFolder">Sicherungsordner öffnen</button></div>
+      ${field("bkX", "Zusätzlich kopieren nach", bk.extra_dir || "", {type: "text", attrs: {placeholder: "leer = nur im Datenordner", autocomplete: "off"}, help: "Ein vorhandener Ordner, dann übersteht die Sicherung auch einen PC-Defekt. Google Drive: „Google Drive für Desktop“ installieren und z. B. G:\\Meine Ablage\\FVG-Sicherung eintragen. Genauso mit OneDrive oder einem USB-Stick."})}
+      ${field("bkD", "Tägliche aufheben", bk.keep_daily ?? 7, {attrs: {min: 1, max: 60, step: 1}})}
+      ${field("bkW", "Wöchentliche aufheben", bk.keep_weekly ?? 4, {attrs: {min: 0, max: 52, step: 1}})}
+      ${field("bkM", "Monatliche aufheben", bk.keep_monthly ?? 6, {attrs: {min: 0, max: 36, step: 1}, help: "Ältere Sicherungen werden automatisch weggeräumt. Deine eigentlichen Daten bleiben dabei immer unberührt."})}
+      ${intro("Wiederherstellen: FVG Trader beenden, den Ordner FVG-Trader-Daten umbenennen, einen neuen leeren Ordner FVG-Trader-Daten anlegen und den Inhalt der ZIP-Datei hineinkopieren. Die Anleitung liegt auch in jeder Sicherung (LIESMICH.txt).")}`; })()}
     <span class="lbl">Protokoll</span>
     <div class="inline wrap-gap"><button class="btn" id="logShow">App-Log anzeigen</button><button class="btn" id="logFolder">Ordner öffnen</button></div>
     ${intro("Hilfreich, wenn etwas nicht klappt: Log anzeigen, kopieren und in den Chat schicken.")}`)}
@@ -4198,6 +4212,7 @@ function settings() {
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
+      backup: {enabled: v("bkE"), extra_dir: (v("bkX") || "").trim(), keep_daily: parseInt(v("bkD")), keep_weekly: parseInt(v("bkW")), keep_monthly: parseInt(v("bkM"))},
       discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
         daystop: v("dcD"), daily: v("dcA"), weekly: v("dcW"), learn: v("dcL")},
     };
@@ -4229,6 +4244,13 @@ function settings() {
   };
   // Protokoll
   $("#logShow").onclick = showLog;
+  $("#bkNow").onclick = async () => {
+    const b = $("#bkNow"); b.disabled = true; b.textContent = "Sichert …";
+    try { const r = await api("/api/backup/now", {}); toast("Gesichert" + (r.error ? " · " + r.error : "")); }
+    catch (e) { toast(e.message); }
+    await refresh(true);
+  };
+  $("#bkFolder").onclick = async () => { try { const r = await api("/api/open-folder", {which: "backup"}); toast("Ordner geöffnet: " + r.folder); } catch (e) { toast(e.message); } };
   $("#logFolder").onclick = async () => { try { const r = await api("/api/open-folder", {}); toast("Ordner geöffnet: " + r.folder); } catch (e) { toast(e.message); } };
 
   // Sofort-Aktionen
