@@ -1,6 +1,6 @@
 {
-  "version": "3.10.0",
-  "file": "releases/FVG-Trader-3.10.0.cmd",
-  "sha256": "25b8599be8a4beb777134ef72e1e58720faa9d41345910316e31872e0bd27140",
-  "notes": "Kein Passwort mehr am eigenen PC/Server: Das App-Fenster öffnet sich direkt. Übers Internet (Handy) einmal anmelden, dann ein Jahr angemeldet. Einstellungen → App & Updates → Anmeldung."
+  "version": "3.10.1",
+  "file": "releases/FVG-Trader-3.10.1.cmd",
+  "sha256": "bb3037f6232db1bb871868097a32d235aa308284a355e189d1c6e646bf8d0784",
+  "notes": "MT5: Order wurde ausgeführt, aber als „abgelehnt“ gemeldet, wenn die Ticket-Nummer fehlte. Jetzt findet die App die Position selbst. FVG-Bridge 2.04 bitte neu einspielen."
 }

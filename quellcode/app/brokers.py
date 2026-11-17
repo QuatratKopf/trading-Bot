@@ -702,8 +702,19 @@ class Mt5Broker:
             raise BrokerError("Auf keinem MT5-Konto ausgeführt: " + "; ".join(warnings))
         ref = {"symbol": sym, "root": root, "accounts": {}, "warnings": warnings}
         fill = None
+        sent_at = time.time()
+        before = {lg: {p["ticket"] for p in (accs.get(lg) or {}).get("positions") or []} for lg in plan}
         for r in self.link.send(jobs):
             lg = r["login"]
+            if r.get("ok") and r.get("ticket") in (None, "", "0"):
+                # MT5 hat ausgeführt, die Bridge kennt das Ticket aber nicht: die Position in den MT5-Daten suchen
+                pos = self._find_new_position(lg, plan[lg]["symbol"], MT5_BOT_MAGIC, before.get(lg, set()), side)
+                if pos:
+                    r["ticket"], r["price"], r["volume"] = str(pos["ticket"]), str(pos["price"]), str(pos["volume"])
+                else:
+                    r["ok"] = False
+                    r["error"] = ("Order wurde in MT5 ausgeführt, aber die Position ist der App unbekannt. "
+                                  "Bitte in MT5 prüfen und bei Bedarf von Hand schließen")
             if r.get("ok") and r.get("ticket") and r.get("ticket") != "0":
                 p = plan[lg]
                 entry = self.link._num(r.get("price"), 0) or None
@@ -716,6 +727,20 @@ class Mt5Broker:
         if not ref["accounts"]:
             raise BrokerError("Order auf keinem MT5-Konto ausgeführt: " + "; ".join(warnings))
         return (fill if fill is not None else price), ref
+
+    def _find_new_position(self, login, symbol, magic, known, side, wait=4.0):
+        """Bot-Position auf diesem Konto/Symbol, die vor dem Senden noch nicht da war (aus der Statusmeldung der Bridge)."""
+        end = time.time() + wait
+        while True:
+            st = self.link.accounts().get(str(login)) or {}
+            cands = [p for p in st.get("positions") or [] if p["symbol"] == symbol and p["magic"] == magic
+                     and p["side"] == side and p["ticket"] not in known]
+            if cands:
+                newest = max(cands, key=lambda p: (p["time"], p["ticket"]))
+                return newest
+            if time.time() > end:
+                return None
+            time.sleep(0.5)
 
     def _open_tickets(self, pos):
         return [(lg, a) for lg, a in (pos["broker_ref"].get("accounts") or {}).items() if a.get("open", True)]

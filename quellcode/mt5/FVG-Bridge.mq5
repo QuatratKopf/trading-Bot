@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.03"
+#property version   "2.04"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.03"
+#define BRIDGE_VERSION "2.04"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -228,6 +228,26 @@ ulong FindPosition(string sym, string comment)
    return(0);
   }
 
+ulong FindNewest(string sym, long magic)
+  {
+   // neueste Position mit diesem Symbol und dieser Magic-Nummer
+   ulong best = 0;
+   long best_t = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || PositionGetString(POSITION_SYMBOL) != sym || PositionGetInteger(POSITION_MAGIC) != magic)
+         continue;
+      long tm = PositionGetInteger(POSITION_TIME_MSC);
+      if(tm > best_t)
+        {
+         best_t = tm;
+         best = t;
+        }
+     }
+   return(best);
+  }
+
 bool RetOk(uint rc)
   {
    return(rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED || rc == TRADE_RETCODE_DONE_PARTIAL);
@@ -327,7 +347,18 @@ string DoOpen(string &keys[], string &vals[])
    if(deal > 0 && HistoryDealSelect(deal))
       ticket = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
    if(ticket == 0)
+     {
+      // Bei manchen Brokern liefert MT5 die Deal-Nummer nicht sofort: ueber die Order-Nummer versuchen
+      ulong ord = trade.ResultOrder();
+      if(ord > 0 && PositionSelectByTicket(ord))
+         ticket = ord;
+     }
+   if(ticket == 0)
       ticket = FindPosition(sym, comment);
+   if(ticket == 0)
+      ticket = FindNewest(sym, magic > 0 ? magic : InpMagic);
+   if(ticket == 0)
+      Print("FVG-Bridge: Order ausgefuehrt, aber Positions-Ticket nicht gefunden (", sym, ")");
    if(ticket > 0 && PositionSelectByTicket(ticket))
      {
       if(PositionGetDouble(POSITION_SL) <= 0)
