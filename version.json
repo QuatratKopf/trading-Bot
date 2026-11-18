@@ -1,6 +1,6 @@
 {
-  "version": "3.12.1",
-  "file": "releases/FVG-Trader-3.12.1.cmd",
-  "sha256": "9905b68328de0874dfaf27298878816a7a35f5ec92a729144037a4913ffd7c80",
-  "notes": "Einstellungen: Bereich „Konten & Broker“ und Topstep entfernt; „Der Bot handelt über“ (MetaTrader 5 / Paper) steht jetzt oben bei MetaTrader 5 & Copytrading"
+  "version": "3.13.0",
+  "file": "releases/FVG-Trader-3.13.0.cmd",
+  "sha256": "deedbe0b52585387ff5eff3669dc4ecb3d11ba9db9e2b4048398be18ced4cbdf",
+  "notes": "Einstellungen aufgeräumt: eigene Bereiche „Lernmodul“ und „Sicherungen“, App/Handy/Updates schlanker, Anleitungen (Google Drive, Discord) zugeklappt, veraltete Texte entfernt"
 }
