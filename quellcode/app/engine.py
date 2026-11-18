@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link
+from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
 from discovery import BS_PARTS, bias_compute, bs_sess
@@ -129,6 +129,7 @@ DEFAULT_CONFIG = {
     "backup": {"enabled": True, "extra_dir": "", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 6,
                "drive_url": ""},  # Google-Apps-Script-Link: jede Sicherung zusätzlich in Google Drive       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
+            "terminals": [],   # MT5-Starter: je Konto {id, name, login, password, server, base, auto}
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
     "learning": {
@@ -548,6 +549,9 @@ class Engine:
         except Exception as e:  # noqa: BLE001
             self.db.log(f"Doppelte Einträge konnten nicht aufgeräumt werden: {e}", "warn")
         self.mt5_link = Mt5Link(self.cfg)
+        self.mt5_sources = None   # wird vom Server gesetzt: () -> (Bridge-Quelltext, Chart-Quelltext)
+        self.mt5_terms = Mt5Terminals(self.cfg, self.data_dir, lambda: self.mt5_sources())
+        self._watch_at = 0
         self._ts_cache = {"at": 0}
         self.backup_state = {"last": None, "error": ""}
         self._started = time.time()
@@ -599,6 +603,9 @@ class Engine:
         for sec, k in SECRET_PATHS:
             if c.get(sec, {}).get(k):
                 c[sec][k] = MASK
+        for t in (c.get("mt5") or {}).get("terminals") or []:
+            if t.get("password"):
+                t["password"] = MASK
         return c
 
     def update_cfg(self, patch):
@@ -607,6 +614,10 @@ class Engine:
                 part = (patch or {}).get(sec) or {}
                 if part.get(k) == MASK:
                     part.pop(k)
+            old_pw = {t["id"]: t.get("password", "") for t in (self.cfg.get("mt5") or {}).get("terminals") or []}
+            for t in ((patch or {}).get("mt5") or {}).get("terminals") or []:
+                if isinstance(t, dict) and (t.get("password") in (MASK, None)):
+                    t["password"] = old_pw.get(t.get("id"), "")
             new = deep_merge(self.cfg, patch)
             self._validate_cfg(new)
             broker_changed = new["broker"] != self.cfg["broker"] or new.get("topstep") != self.cfg.get("topstep")
@@ -783,8 +794,27 @@ class Engine:
                 if v and not re.match(r"^[A-Za-z0-9._#\-+!$]{1,40}$", v):
                     raise ValueError(f"MT5-Konto {lg}: Symbolname „{v}“ enthält ungültige Zeichen")
                 syms["sym_" + fam] = v
-            accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f}, **syms)
+            accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f,
+                                  "label": str(a.get("label") or "").strip()[:40]}, **syms)
         m5["accounts"] = accs
+        terms, seen = [], set()
+        for t in m5.get("terminals") or []:
+            if not isinstance(t, dict):
+                continue
+            login, server = str(t.get("login") or "").strip(), str(t.get("server") or "").strip()
+            name = str(t.get("name") or "").strip()[:40] or login
+            if not login.isdigit():
+                raise ValueError(f"MT5-Konto „{name}“: Login ist die Kontonummer (nur Ziffern)")
+            if not server or not re.match(r"^[\w.\- ]{2,60}$", server):
+                raise ValueError(f"MT5-Konto „{name}“: Server bitte genau wie in den Zugangsdaten eintragen (z. B. FTMO-Demo)")
+            if login in seen:
+                raise ValueError(f"MT5-Konto {login} ist doppelt eingetragen")
+            seen.add(login)
+            base = str(t.get("base") or "").strip().strip('"')
+            tid = re.sub(r"[^\w-]", "", str(t.get("id") or "")) or uuid.uuid4().hex[:8]
+            terms.append({"id": tid[:12], "name": name, "login": login, "password": str(t.get("password") or ""),
+                          "server": server, "base": base, "auto": bool(t.get("auto", True))})
+        m5["terminals"] = terms
         cc = m5.setdefault("copy", {})
         cc["enabled"], cc["master"] = bool(cc.get("enabled")), str(cc.get("master") or "")
         if cc["enabled"]:
@@ -2244,6 +2274,16 @@ class Engine:
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
+            mt = self.mt5_terms
+            while mt.log:
+                level, msg = mt.log.pop(0)
+                self.db.log(msg, level)
+                if level in ("warn", "error"):
+                    self.notify("errors", "MT5-Starter", msg, "bad")
+            if mt.terms and time.time() - self._watch_at > 30 and time.time() - self._started > 20:
+                self._watch_at = time.time()
+                accs = self.mt5_link.accounts()
+                threading.Thread(target=mt.watch, args=(accs,), daemon=True).start()
             if time.time() - self._started > 600 and time.time() - self.backup_state.get("checked", 0) > 3600:
                 self.backup_state["checked"] = time.time()
                 if self.backup_due():
@@ -2284,8 +2324,96 @@ class Engine:
                                  for fam in ("NQ", "ES")},
                          "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()}})
         st = self.mt5_copier.status
-        return {"dir": self.mt5_link.dir, "diag": self.mt5_link.diag(), "accounts": rows,
+        names = {t["login"]: t["name"] for t in (self.cfg["mt5"].get("terminals") or [])}
+        for r in rows:
+            r["label"] = (conf.get(r["login"]) or {}).get("label") or names.get(r["login"], "")
+        return {"dir": self.mt5_link.dir, "diag": self.mt5_link.diag(), "accounts": rows, "terminals": self.terminals_view(),
                 "copy": {"last": st.get("last"), "error": st.get("error"), "copies": st.get("copies"), "waiting": st.get("waiting") or []}}
+
+    def terminals_view(self):
+        mt = self.mt5_terms
+        accs = self.mt5_link.accounts()
+        out = []
+        for t in mt.terms:
+            st = mt.state.get(t["id"]) or {}
+            a = accs.get(t["login"]) or {}
+            out.append({"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
+                        "auto": t["auto"], "has_pw": bool(t.get("password")), "running": mt.running(t),
+                        "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
+                        "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),
+                        "folder": mt.folder(t), "busy": t["id"] in mt._busy})
+        return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH"))}
+
+    def _installs_cached(self):
+        c = getattr(self, "_inst_cache", (0, []))
+        if time.time() - c[0] > 60:
+            c = (time.time(), Mt5Terminals.installs())
+            self._inst_cache = c
+        return c[1]
+
+    def terminal_action(self, b):
+        act = str(b.get("action") or "")
+        mt = self.mt5_terms
+        terms = [dict(t) for t in (self.cfg.get("mt5") or {}).get("terminals") or []]
+        if act in ("add", "edit"):
+            t = next((x for x in terms if x["id"] == b.get("id")), None) if act == "edit" else None
+            if act == "edit" and not t:
+                raise ValueError("Konto nicht gefunden")
+            if t is None:
+                t = {"id": uuid.uuid4().hex[:8]}
+                terms.append(t)
+            for k in ("name", "login", "server", "base", "auto"):
+                if k in b:
+                    t[k] = b[k]
+            if b.get("password") not in (None, "", MASK):
+                t["password"] = b["password"]
+            elif act == "add":
+                raise ValueError("Bitte das Passwort des MT5-Kontos eintragen (das Trading-/Master-Passwort)")
+            login = str(t.get("login") or "").strip()
+            accs = dict((self.cfg.get("mt5") or {}).get("accounts") or {})
+            a = dict(accs.get(login) or {"bot": False, "copy": False, "factor": 1})
+            a["label"] = str(t.get("name") or "").strip()
+            if "bot" in b:
+                a["bot"] = bool(b["bot"])
+            if b.get("sym_NQ") is not None:
+                a["sym_NQ"] = str(b["sym_NQ"]).strip()
+            accs[login] = a
+            self.update_cfg({"mt5": {"terminals": terms, "accounts": accs}})
+            t = next(x for x in self.cfg["mt5"]["terminals"] if x["login"] == login)
+            self.db.log(f"MT5-Konto „{t['name']}“ ({login}) {'angelegt' if act == 'add' else 'geändert'}")
+            if act == "add" and t["auto"]:
+                threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
+            return {"ok": True, "id": t["id"]}
+        t = next((x for x in self.cfg["mt5"]["terminals"] if x["id"] == b.get("id")), None)
+        if not t:
+            raise ValueError("Konto nicht gefunden")
+        if act == "start":
+            mt.state.setdefault(t["id"], {}).update(restarts=0)
+            threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
+            return {"ok": True, "background": True}
+        if act == "stop":
+            # „automatisch starten“ bleibt, wie es ist; der Wächter wartet nach einem Stopp aber nicht ewig.
+            # Wer ein Konto dauerhaft aus will, schaltet „automatisch starten“ ab.
+            return mt.stop(t)
+        if act == "restart":
+            mt.stop(t, manual=False)
+            mt.state.setdefault(t["id"], {}).update(stopped=0, restarts=0)
+            threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
+            return {"ok": True, "background": True}
+        if act == "remove":
+            if any(p["broker"] == "mt5" and t["login"] in self._acc_of(p) for p in self.db.open_positions()):
+                raise ValueError("Auf diesem Konto ist noch eine Position offen. Erst schließen, dann entfernen.")
+            mt.stop(t)
+            self.update_cfg({"mt5": {"terminals": [x for x in terms if x["id"] != t["id"]]}})
+            self.db.log(f"MT5-Konto „{t['name']}“ entfernt. Der MT5-Ordner bleibt erhalten: {mt.folder(t)}")
+            return {"ok": True, "folder": mt.folder(t)}
+        raise ValueError("Unbekannte Aktion")
+
+    def _term_start_bg(self, t):
+        try:
+            self.mt5_terms.start(t, reason="von Hand")
+        except BrokerError as e:
+            self.db.log(str(e), "error")
 
     def mt5_install(self, source, chart_source=None):
         """Legt den EA (MQL5/Experts) und den Chart-Indikator (MQL5/Indicators) in alle gefundenen MT5-Installationen."""

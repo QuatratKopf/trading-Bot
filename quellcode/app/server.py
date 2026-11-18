@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import Engine  # noqa: E402
+from brokers import BrokerError  # noqa: E402
 from tunnel import Tunnel  # noqa: E402
 from appshell import MANIFEST, SERVICE_WORKER, autostart_enabled, ensure_desktop_shortcut, icon_png, open_app_window, service_install, service_installed, service_remove, set_autostart, windowless_python  # noqa: E402,E501
 
@@ -154,6 +155,7 @@ def apply_pending_restore(data):
 
 apply_pending_restore(DATA)
 engine = Engine(DATA)
+engine.mt5_sources = lambda: (mt5_source(), mt5_source(chart=True))
 engine.news_source = lambda: NEWS["events"]
 tunnel = Tunnel(DATA, PORT, engine.db.log, get_token=lambda: (engine.cfg.get("tunnel") or {}).get("ngrok_token", ""))
 LAUNCHER = os.environ.get("FVG_LAUNCHER") or os.path.abspath(sys.argv[0])
@@ -946,6 +948,14 @@ def tracked(h):
 @route("POST", r"/api/challenge/preset")
 def challenge_preset(h):
     h._send(200, engine.apply_prop(h._json()))
+
+
+@route("POST", r"/api/mt5/terminal")
+def mt5_terminal(h):
+    try:
+        h._send(200, engine.terminal_action(h._json()))
+    except BrokerError as e:
+        raise ValueError(str(e))
 
 
 @route("POST", r"/api/mt5/install")

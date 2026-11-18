@@ -540,6 +540,8 @@ svg.chart{width:100%;height:auto}
 .cp-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .cp-bar > div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .cp-bar b{font-size:16px}
+.mt-add{margin-top:4px}
+#mtList{display:flex;flex-direction:column;gap:8px}
 .pw-set{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;min-width:0}
 .pw-set input{width:220px;max-width:100%}
 .bal-note{font-size:12.5px;line-height:1.45;color:var(--neg);margin:4px 0 2px}
@@ -1519,7 +1521,7 @@ function heroHtml() {
   const wr = s.n ? Math.round(s.wins / s.n * 100) : null;
   return `
   <div class="hero-card">
-    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small title="${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.join(", ")) : ""}">${(S.view_accounts || []).length ? esc(S.view_accounts.length === 1 ? "Konto " + S.view_accounts[0] : S.view_accounts.length + " Konten") : esc(S.broker.label) + (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
+    <div class="hc-top"><span>Kontostand <button type="button" class="ib sm" id="hBal" title="Kontostand bearbeiten" aria-label="Kontostand bearbeiten">${icon(I.edit)}</button>${(S.mt5 && S.mt5.accounts.length) ? `<button type="button" class="ib sm ${(S.view_accounts || []).length ? "on" : ""}" id="hAcc" title="Welche Konten zählen" aria-label="Konten auswählen">${icon(I.filter)}</button>` : ""}</span><small title="${esc(S.broker.label)}${(S.view_accounts || []).length ? " · " + esc(S.view_accounts.join(", ")) : ""}">${(S.view_accounts || []).length ? esc(S.view_accounts.length === 1 ? accName(S.view_accounts[0]) : S.view_accounts.length + " Konten") : esc(S.broker.label) + (S.mt5 && S.mt5.accounts.length > 1 ? " · alle Konten" : "")}</small></div>
     <div><div class="bal mono" ${bal == null ? "" : cu(bal, "usd2")}>${bal == null ? "–" : usd2(bal)}</div>
       ${S.balance_note ? `<div class="bal-note">${esc(S.balance_note)}</div>` : ""}
       <div class="delta"><b class="${total > 0 ? "pos" : total < 0 ? "neg" : "zero"}">${total > 0 ? "↗" : total < 0 ? "↘" : "→"} ${base ? (dp >= 0 ? "+" : "") + dp.toFixed(2).replace(".", ",") + " %" : "0 %"}</b>heute</div></div>
@@ -2675,7 +2677,7 @@ function chPick() {
   const active = pre ? `${esc((P[pre.firm] || {}).name || "")} · ${esc(((P[pre.firm] || {}).programs || {})[pre.program] ? P[pre.firm].programs[pre.program].label : "")} · ${kk(pre.size)}`
     : cf.enabled ? `${esc(cf.name || "Eigene Regeln")} · ${mUsd(cf.start_balance)}` : "";
   if (cf.enabled && !CP.open) {
-    box.innerHTML = `<div class="cp-bar"><div><span class="l">Dein Konto</span><b>${active}</b>${pre ? `<small class="hint">Risiko ${esc(pre.risk || "normal")} · ${mUsd(Math.round(pre.size * (RK[pre.risk] || 0.5) / 100))} pro Trade${(cf.accounts || []).length ? " · zählt nur Konto " + esc(cf.accounts.join(", ")) : ""}</small>` : ""}</div>
+    box.innerHTML = `<div class="cp-bar"><div><span class="l">Dein Konto</span><b>${active}</b>${pre ? `<small class="hint">Risiko ${esc(pre.risk || "normal")} · ${mUsd(Math.round(pre.size * (RK[pre.risk] || 0.5) / 100))} pro Trade${(cf.accounts || []).length ? " · zählt nur " + esc(cf.accounts.map(accName).join(", ")) : ""}</small>` : ""}</div>
       <button type="button" class="btn" id="cpOpen">Konto ändern</button></div>`;
     $("#cpOpen").onclick = () => { CP.open = true; chPick(); };
     return;
@@ -2698,7 +2700,7 @@ function chPick() {
     <div class="cp-r"><span class="l">Risiko pro Trade</span>${seg("data-cpk", Object.entries(RK).filter(([, v]) => !pg.max_risk || v <= pg.max_risk).map(([k, v]) => [k, `${k[0].toUpperCase() + k.slice(1)} · ${String(v).replace(".", ",")} %`]), CP.risk)}</div>
     ${pg.no_bot ? '<p class="cp-warn">Bei diesem Programm kann der Bot nicht selbst handeln (läuft über Tradovate). Die App überwacht die Challenge mit deinen eigenen Trades.</p>' : f.info && !f.info.app_ok ? `<p class="cp-warn">${esc(f.info.app)}</p>` : ""}
     <p class="hint cp-what">Beim Übernehmen stellt die App den Bot passend ein: <b>${mUsd(riskUsd)} Risiko pro Trade</b>, Tages-Stopp bei <b>−${mUsd(Math.round((rules.daily || rules.dd * 0.5) * 0.8))}</b> (vor dem Limit der Firma)${rules.cons && rules.target ? `, Tages-Gewinnstopp bei <b>+${mUsd(Math.round(rules.target * rules.cons / 100 * 0.8))}</b> wegen der Konsistenzregel` : ""} und Bot-Schutz an. ${esc(f.note)}</p>
-    ${((S.mt5 || {}).accounts || []).length ? `<div class="cp-r"><span class="l">Zählt für Konto</span><div class="cp-accs">${S.mt5.accounts.map(a => `<label class="m5-c"><input type="checkbox" class="chk" data-cpa="${esc(a.login)}" ${(CP.accounts || []).includes(a.login) ? "checked" : ""}> <b class="mono">${esc(a.login)}</b> <small class="hint">${esc(a.company || "")}</small></label>`).join("")}</div><small class="hint">Nur Bot-Trades auf diesen Konten zählen für die Challenge. Nichts angehakt = alle.</small></div>` : ""}
+    ${((S.mt5 || {}).accounts || []).length ? `<div class="cp-r"><span class="l">Zählt für Konto</span><div class="cp-accs">${S.mt5.accounts.map(a => `<label class="m5-c"><input type="checkbox" class="chk" data-cpa="${esc(a.login)}" ${(CP.accounts || []).includes(a.login) ? "checked" : ""}> <b>${esc(a.label || a.login)}</b> <small class="hint">${a.label ? esc(a.login) + " · " : ""}${esc(a.company || "")}</small></label>`).join("")}</div><small class="hint">Nur Bot-Trades auf diesen Konten zählen für die Challenge. Nichts angehakt = alle.</small></div>` : ""}
     <label class="m5-c"><input type="checkbox" class="chk" id="cpAdapt" checked> Bot-Einstellungen anpassen</label>
     ${S.broker.name === "paper" ? `<label class="m5-c"><input type="checkbox" class="chk" id="cpPaper" checked> Paper-Konto auf ${mUsd(+CP.size)} setzen (zum Üben)</label>` : ""}
     <div class="inline wrap-gap"><button class="btn primary" id="cpGo">${cf.enabled ? "Übernehmen" : "Challenge starten"}</button><span class="hint">Werte bitte einmal mit den Regeln auf der Seite von ${esc(f.name)} vergleichen.</span></div>`
@@ -2725,7 +2727,7 @@ function trkSrcName(src) {
   if (src === "eigen") return "Eigene Trades (eingetragen / CSV)";
   if (src === "topstep") return "Topstep-Konto";
   const a = ((S.mt5 || {}).accounts || []).find(x => "mt5:" + x.login === src);
-  return "MT5 " + src.slice(4) + (a && a.company ? " · " + a.company : "");
+  return (a && a.label ? a.label + " · " : "") + "MT5 " + src.slice(4) + (a && a.company ? " · " + a.company : "");
 }
 function trkList() {
   const box = $("#trkList"); if (!box) return;
@@ -3212,7 +3214,8 @@ function equitySvg(curve) {
 
 /* ───────── Kalender ───────── */
 const CAL = {y: null, m: null, sel: null, detail: null, filter: "alle"};   // Bot + eigene immer zusammen; gefiltert wird nach Konten
-const accLabel = () => { const v = S.view_accounts || []; return v.length ? (v.length === 1 ? "Konto " + v[0] : v.length + " Konten") : "Alle Konten"; };
+const accName = lg => { const a = ((S.mt5 || {}).accounts || []).find(x => x.login === String(lg)); return a && a.label ? a.label : "Konto " + lg; };
+const accLabel = () => { const v = S.view_accounts || []; return v.length ? (v.length === 1 ? accName(v[0]) : v.length + " Konten") : "Alle Konten"; };
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const kUsd = v => { const a = Math.abs(v); return (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + (a >= 1000 ? (a / 1000).toFixed(a >= 10000 ? 0 : 1).replace(".", ",") + "k" : Math.round(a)); };
@@ -3423,11 +3426,63 @@ function modal(html) {
 }
 // Google-Apps-Script für Sicherungen in Google Drive (wird vom Nutzer in seinem Google-Konto angelegt)
 const DRIVE_SCRIPT = "// FVG Trader: Sicherungen in Google Drive (Ordner \"FVG-Sicherung\")\nvar FOLDER = \"FVG-Sicherung\";\nfunction doPost(e) {\n  var out;\n  try {\n    var b = JSON.parse(e.postData.contents);\n    var it = DriveApp.getFoldersByName(FOLDER);\n    var f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER);\n    if (b.ping) {\n      out = {ok: true, folder: f.getUrl()};\n    } else {\n      if (!/^FVG-Sicherung-[0-9_-]+\\.zip$/.test(b.name)) throw new Error(\"ungueltiger Dateiname\");\n      f.createFile(Utilities.newBlob(Utilities.base64Decode(b.data), \"application/zip\", b.name));\n      var files = [], fi = f.getFiles();\n      while (fi.hasNext()) { var x = fi.next(); if (/^FVG-Sicherung-.*\\.zip$/.test(x.getName())) files.push(x); }\n      files.sort(function (a, c) { return a.getName() < c.getName() ? 1 : -1; });\n      for (var i = (b.keep || 17); i < files.length; i++) files[i].setTrashed(true);\n      out = {ok: true, name: b.name, folder: f.getUrl()};\n    }\n  } catch (err) {\n    out = {ok: false, error: String(err)};\n  }\n  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);\n}\n";
+// MT5-Starter: Konten anlegen, MT5 automatisch starten und überwachen
+const MTF = {edit: null};
+function mtListRender() {
+  const box = $("#mtList"); if (!box) return;
+  const T = ((S.mt5 || {}).terminals || {list: []});
+  if (!T.list.length) { box.innerHTML = '<p class="hint" style="margin:0">Noch kein Konto angelegt. Unten „MT5-Konto hinzufügen“: Die App legt für jedes Konto ein eigenes MT5 an und startet es selbst.</p>'; return; }
+  const key = JSON.stringify(T.list.map(t => [t.id, t.running, t.online, t.step, t.error, Math.round(t.balance || 0), t.busy, t.auto, t.name]));
+  if (box.dataset.k === key) return; box.dataset.k = key;
+  box.innerHTML = T.list.map(t => {
+    const st = t.busy || t.step ? ["warn", t.step || "wird eingerichtet …"] : t.online ? ["good", "läuft · verbunden"] : t.running ? ["warn", "läuft · meldet sich noch nicht"] : ["bad", "gestoppt"];
+    return `<div class="m5-acc"><div class="m5-h"><b>${esc(t.name)}</b><span class="mono hint">${esc(t.login)} · ${esc(t.server)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>
+      <small class="hint">${t.balance != null ? usd2(t.balance) + " · " : ""}${t.auto ? "startet automatisch" : "nur von Hand"}${t.restarts ? ` · ${t.restarts}× neu gestartet` : ""}${t.has_pw ? "" : ' · <span class="neg">Passwort fehlt</span>'}</small>
+      ${t.error ? `<small class="neg" style="flex-basis:100%">${esc(t.error)}</small>` : ""}</div>
+      <div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
+        <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div></div>`; }).join("");
+  const act = async (b, a) => { try { b.disabled = true; const r = await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); box.dataset.k = ""; await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
+  box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
+  box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
+}
+function mtFormRender() {
+  const box = $("#mtForm"); if (!box) return;
+  const T = (S.mt5 || {}).terminals || {list: [], installs: []};
+  const e = MTF.edit ? T.list.find(x => x.id === MTF.edit) : null;
+  const acc = e ? ((S.config.mt5 || {}).accounts || {})[e.login] || {} : {};
+  const inst = T.installs || [];
+  if (!T.windows) { box.innerHTML = '<p class="hint">MT5 automatisch starten geht nur, wenn FVG Trader unter Windows läuft.</p>'; return; }
+  const baseOpts = inst.map(i => [i.path, i.name]);
+  const curBase = e ? e.base : (inst[0] || {}).path || "";
+  box.innerHTML = `
+    ${e ? `<p class="hint" style="margin:0">Bearbeiten: <b>${esc(e.name)}</b>. <button type="button" class="lnk" id="mtNew">Stattdessen neues Konto anlegen</button></p>` : ""}
+    <div class="row"><label for="mtN">Name<small>wie das Konto in der App heißen soll, z. B. „IQ Challenge 1“</small></label><input id="mtN" type="text" maxlength="40" value="${esc(e ? e.name : "")}"></div>
+    <div class="row"><label for="mtL">Login (Kontonummer)</label><input id="mtL" type="text" inputmode="numeric" value="${esc(e ? e.login : "")}" ${e ? "readonly" : ""}></div>
+    <div class="row"><label for="mtP">Passwort<small>das Trading-/Master-Passwort aus den Zugangsdaten der Firma (nicht das Investor-Passwort)</small></label><input id="mtP" type="password" autocomplete="new-password" placeholder="${e && e.has_pw ? "unverändert lassen" : ""}"></div>
+    <div class="row"><label for="mtS">Server<small>genau wie in den Zugangsdaten, z. B. FTMO-Demo oder BeyondIQCapital-Server</small></label><input id="mtS" type="text" value="${esc(e ? e.server : "")}"></div>
+    <div class="row"><label for="mtB">MT5-Vorlage<small>das MT5-Programm der Firma, die App macht davon eine eigene Kopie für dieses Konto</small></label>
+      ${baseOpts.length ? `<select id="mtB">${baseOpts.map(([v, l]) => `<option value="${esc(v)}" ${v === curBase ? "selected" : ""}>${esc(l)}</option>`).join("")}<option value="">anderer Ordner …</option></select>` : ""}
+      <input id="mtBx" type="text" placeholder="z. B. C:\\Program Files\\FTMO MetaTrader 5" value="${esc(baseOpts.some(([v]) => v === curBase) ? "" : curBase)}" ${baseOpts.length && baseOpts.some(([v]) => v === curBase) ? "hidden" : ""}></div>
+    <div class="row"><label for="mtY">Nasdaq-Symbol auf diesem Konto<small>z. B. US100.cash (FTMO), NAS100.gbe (IQ Capital)</small></label><input id="mtY" type="text" value="${esc(acc.sym_NQ || "")}" placeholder="${esc((S.config.mt5 || {}).sym_NQ || "US100.cash")}"></div>
+    <div class="row"><label for="mtBot">Bot handelt hier</label><input id="mtBot" type="checkbox" class="chk" ${!e || acc.bot ? "checked" : ""}></div>
+    <div class="row"><label for="mtAuto">Automatisch starten<small>beim Start der App und wieder, wenn MT5 abstürzt oder hängt</small></label><input id="mtAuto" type="checkbox" class="chk" ${!e || e.auto ? "checked" : ""}></div>
+    <div class="inline wrap-gap"><button class="btn primary" id="mtGo">${e ? "Speichern" : "Konto anlegen und MT5 starten"}</button></div>
+    <p class="hint" style="margin:0">Die Zugangsdaten bleiben nur auf diesem Rechner (in FVG-Trader-Daten, auch in den Sicherungen). Die Start-Datei mit dem Passwort leert die App kurz nach dem Start wieder.</p>`;
+  if ($("#mtB")) $("#mtB").onchange = () => { $("#mtBx").hidden = !!$("#mtB").value; };
+  if ($("#mtNew")) $("#mtNew").onclick = () => { MTF.edit = null; mtFormRender(); };
+  $("#mtGo").onclick = async () => {
+    const base = ($("#mtB") && $("#mtB").value) || $("#mtBx").value.trim();
+    const body = {action: e ? "edit" : "add", id: e ? e.id : undefined, name: $("#mtN").value.trim(), login: $("#mtL").value.trim(), password: $("#mtP").value,
+      server: $("#mtS").value.trim(), base, sym_NQ: $("#mtY").value.trim(), bot: $("#mtBot").checked, auto: $("#mtAuto").checked};
+    try { $("#mtGo").disabled = true; await api("/api/mt5/terminal", body); toast(e ? "Gespeichert" : "Angelegt. MT5 wird eingerichtet und gestartet (beim ersten Mal 1 bis 2 Minuten)."); MTF.edit = null; $("#mtAdd").open = false; $("#mtList").dataset.k = ""; await refresh(true); }
+    catch (err) { toast(err.message); $("#mtGo").disabled = false; }
+  };
+}
 // Konten-Filter: welche MT5-Konten im Cockpit, Kalender und in der Statistik zählen
 function accountsDialog() {
   const accs = (S.mt5 || {}).accounts || [], sel = new Set(S.view_accounts || []);
   const row = a => `<label class="acc-row"><input type="checkbox" class="chk" data-acc="${esc(a.login)}" ${sel.has(a.login) ? "checked" : ""}>
-    <span><b class="mono">${esc(a.login)}</b><small class="hint">${esc(a.company || "")}${a.balance != null ? " · " + usd2(a.balance) : ""}${a.bot ? " · Bot handelt hier" : ""}</small></span>
+    <span><b>${esc(a.label || a.login)}</b><small class="hint">${a.label ? esc(a.login) + " · " : ""}${esc(a.company || "")}${a.balance != null ? " · " + usd2(a.balance) : ""}${a.bot ? " · Bot handelt hier" : ""}</small></span>
     <span class="dot ${a.online ? "ok" : "bad"}" title="${a.online ? "verbunden" : "nicht verbunden"}"></span></label>`;
   const close = modal(`<h2 style="font-size:18px">Welche Konten zählen?</h2>
     <p class="hint" style="margin:6px 0 12px;line-height:1.5">Gilt für Kontostand, Tages-Ergebnis, Statistik und Kalender. Der Bot selbst (Positionsgröße, Tageslimit) rechnet davon unabhängig.</p>
@@ -3957,7 +4012,7 @@ const sec = (key, title, sum, chip, body) => `<details class="set-sec" data-sec=
   <div class="set-b">${body}</div></details>`;
 
 let settingsKey = "";
-const m5Key = () => { const m = S.mt5 || {}; return [m.diag && [m.diag.dir, m.diag.files, (m.diag.age || 0) < 15], (m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
+const m5Key = () => { const m = S.mt5 || {}; return [m.terminals && m.terminals.list.map(t => [t.id, t.running, t.online, t.step, t.error, t.busy, t.restarts]), m.diag && [m.diag.dir, m.diag.files, (m.diag.age || 0) < 15], (m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
 const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key(), S.backups && [S.backups.last, S.backups.count, S.backups.busy, S.backups.error]]);
 // New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
 function localTime(hm) {
@@ -3992,7 +4047,7 @@ function settings() {
   const m5on = m5.accounts.filter(a => a.online).length;
   const m5Chip = m5.accounts.length ? `<span class="chip ${m5on ? "good" : "bad"}">${m5on} von ${m5.accounts.length} verbunden</span>` : '<span class="chip mute">kein Konto</span>';
   const m5Rows = m5.accounts.map(a => `<div class="m5-acc">
-      <div class="m5-h"><b class="mono">${esc(a.login)}</b> <span class="chip ${a.online ? (a.can_trade ? "good" : "warn") : "bad"}">${a.online ? (a.can_trade ? "verbunden" : "Algo Trading aus") : "nicht verbunden"}</span>
+      <div class="m5-h">${a.label ? `<b>${esc(a.label)}</b><span class="mono hint">${esc(a.login)}</span>` : `<b class="mono">${esc(a.login)}</b>`} <span class="chip ${a.online ? (a.can_trade ? "good" : "warn") : "bad"}">${a.online ? (a.can_trade ? "verbunden" : "Algo Trading aus") : "nicht verbunden"}</span>
         <small class="hint">${esc([a.company, a.server].filter(Boolean).join(" · ") || "noch keine Meldung")}${a.balance != null ? " · " + usd2(a.balance) + (a.currency && a.currency !== "USD" ? " " + esc(a.currency) : "") : ""}${a.positions ? ` · ${a.positions} offen` : ""}</small></div>
       <div class="m5-o">
         <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5b_${esc(a.login)}" ${a.bot ? "checked" : ""}> Bot handelt hier</label>
@@ -4157,7 +4212,10 @@ function settings() {
 
   ${sec("mt5", "MetaTrader 5 & Copytrading", m5.accounts.length ? `${m5.accounts.length} ${m5.accounts.length === 1 ? "Konto" : "Konten"}${m5cc.enabled ? " · Copytrading an" : ""}${c.broker === "mt5" ? " · Bot handelt über MT5" : ""}` : "Mehrere Konten gleichzeitig handeln, z. B. FTMO", m5Chip, `
     ${intro("Der Bot kann auf beliebig vielen MT5-Konten gleichzeitig handeln. Jedes Konto läuft in einem eigenen MT5-Fenster mit dem Zusatzprogramm „FVG-Bridge“. Alles bleibt auf deinem PC.")}
-    <span class="lbl">1 · Zusatzprogramm einrichten</span>
+    <span class="lbl">Konten · MT5 startet automatisch</span>
+    <div id="mtList"></div>
+    <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen</b><span class="hint">Die App richtet MT5 ein, meldet sich an und startet es minimiert</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
+    <span class="lbl">Von Hand einrichten (nur falls nötig)</span>
     <ol class="m5-steps">
       <li>„In MT5 installieren“ drücken (MT5 dabei geschlossen lassen oder danach neu starten).</li>
       <li>In MT5 links im Navigator unter „Expert Advisors“ <b>FVG-Bridge</b> auf einen beliebigen Chart ziehen. Taucht er nicht auf: Rechtsklick → Aktualisieren.</li>
@@ -4254,6 +4312,7 @@ function settings() {
     try { await doSave(); toast("Gespeichert"); await refresh(true); }
     catch (e) { $("#saveMsg").textContent = e.message; $("#saveMsg").className = "err-msg"; }
   };
+  mtListRender(); mtFormRender();
   $("#m5Inst").onclick = async () => {
     try { const r = await api("/api/mt5/install", {}); toast(r.count ? `EA und Chart-Vorlage in ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte beide Dateien herunterladen und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts bzw. Indicators ablegen."); }
     catch (e) { toast(e.message); }

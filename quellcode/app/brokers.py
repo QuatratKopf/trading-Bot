@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -428,7 +429,8 @@ class Mt5Link:
 
     def __init__(self, cfg):
         self.cfg = cfg
-        self._cache = {}       # Dateiname -> (mtime, Daten)
+        self._cache = {}       # Pfad -> (mtime, Daten)
+        self._dir_of = {}      # Login -> Ordner, in dem seine Bridge schreibt
 
     @property
     def mcfg(self):
@@ -451,6 +453,18 @@ class Mt5Link:
             except OSError:
                 pass
         return {"dir": self.dir, "exists": True, "files": len(names), "age": round(min(ages)) if ages else None}
+
+    @property
+    def dirs(self):
+        """Alle Ordner, in denen Bridges schreiben können: der eingestellte und der eigene der App
+        (MT5-Programme, die die App selbst startet, schreiben in den Ordner ihres Windows-Benutzers)."""
+        out = [self.dir]
+        if not os.environ.get("FVG_MT5_DIR") and os.path.normcase(mt5_default_dir()) != os.path.normcase(self.dir):
+            out.append(mt5_default_dir())
+        return out
+
+    def dir_for(self, login):
+        return self._dir_of.get(str(login)) or self.dir
 
     def ensure_dir(self):
         try:
@@ -475,18 +489,24 @@ class Mt5Link:
         for c in (self.mcfg.get("accounts") or {}).values():
             names += [c.get("sym_NQ") or "", c.get("sym_ES") or ""]
         txt = "\r\n".join(dict.fromkeys(n.strip() for n in names if n and n.strip())) + "\r\n"
-        path = os.path.join(self.dir, "symbols.txt")
-        try:
-            with open(path, encoding="latin-1") as f:
-                if f.read() == txt.replace("\r\n", "\n"):
-                    return
-        except OSError:
-            pass
         self.ensure_dir()
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="latin-1", newline="") as f:
-            f.write(txt)
-        os.replace(tmp, path)
+        for d in self.dirs:
+            if d != self.dir and not os.path.isdir(d):
+                continue
+            path = os.path.join(d, "symbols.txt")
+            try:
+                with open(path, encoding="latin-1") as f:
+                    if f.read() == txt.replace("\r\n", "\n"):
+                        continue
+            except OSError:
+                pass
+            try:
+                tmp = path + ".tmp"
+                with open(tmp, "w", encoding="latin-1", newline="") as f:
+                    f.write(txt)
+                os.replace(tmp, path)
+            except OSError:
+                pass
 
     @staticmethod
     def _num(x, d=0.0):
@@ -533,46 +553,52 @@ class Mt5Link:
     def accounts(self):
         """Alle MT5-Konten, die sich gemeldet haben: login -> Status."""
         out = {}
-        try:
-            names = [n for n in os.listdir(self.dir) if n.startswith("status_") and n.endswith(".txt")]
-        except OSError:
-            return out
         now = time.time()
-        for n in names:
-            path = os.path.join(self.dir, n)
+        for d in self.dirs:
             try:
-                mt = os.path.getmtime(path)
-                hit = self._cache.get(n)
-                if hit and hit[0] == mt:
-                    a = hit[1]
-                else:
-                    with open(path, encoding="latin-1", errors="replace") as f:
-                        a = self._parse(f.read())
-                    self._cache[n] = (mt, a)
-            except (OSError, ValueError):
-                hit = self._cache.get(n)
-                if not hit:
-                    continue
-                mt, a = hit
-            login = str(a.get("login") or n[7:-4])
-            a = dict(a, login=login, seen=mt, online=now - mt < MT5_ONLINE_SEC,
-                     balance=self._num(a.get("balance"), None), equity=self._num(a.get("equity"), None),
-                     can_trade=a.get("trade_allowed") == "1")
-            out[login] = a
+                names = [n for n in os.listdir(d) if n.startswith("status_") and n.endswith(".txt")]
+            except OSError:
+                continue
+            for n in names:
+                path = os.path.join(d, n)
+                try:
+                    mt = os.path.getmtime(path)
+                    hit = self._cache.get(path)
+                    if hit and hit[0] == mt:
+                        a = hit[1]
+                    else:
+                        with open(path, encoding="latin-1", errors="replace") as f:
+                            a = self._parse(f.read())
+                        self._cache[path] = (mt, a)
+                except (OSError, ValueError):
+                    hit = self._cache.get(path)
+                    if not hit:
+                        continue
+                    mt, a = hit
+                login = str(a.get("login") or n[7:-4])
+                if login in out and out[login]["seen"] >= mt:
+                    continue   # dasselbe Konto in zwei Ordnern: die neuere Meldung gilt
+                a = dict(a, login=login, seen=mt, online=now - mt < MT5_ONLINE_SEC, dir=d,
+                         balance=self._num(a.get("balance"), None), equity=self._num(a.get("equity"), None),
+                         can_trade=a.get("trade_allowed") == "1")
+                out[login] = a
+                self._dir_of[login] = d
         return out
 
     def send(self, jobs, wait=8.0):
         """jobs: Liste (login, dict). Schreibt Aufträge, wartet auf die Antworten und gibt sie in derselben Reihenfolge zurück."""
         self.ensure_dir()
+        if any(str(lg) not in self._dir_of for lg, _ in jobs):
+            self.accounts()   # Ordner der Konten ermitteln
         sent = []
         for login, cmd in jobs:
             cid = uuid.uuid4().hex[:12]
             body = dict(cmd, id=cid, expires=int(time.time() + 20))
             txt = "".join(f"{k}={str(v).replace(chr(10), ' ').replace(chr(13), ' ')}\r\n" for k, v in body.items() if v is not None)
-            tmp = os.path.join(self.dir, f"tmpcmd_{login}_{cid}.txt")
+            tmp = os.path.join(self.dir_for(login), f"tmpcmd_{login}_{cid}.txt")
             with open(tmp, "w", encoding="latin-1", errors="replace", newline="") as f:
                 f.write(txt)
-            os.replace(tmp, os.path.join(self.dir, f"cmd_{login}_{cid}.txt"))
+            os.replace(tmp, os.path.join(self.dir_for(login), f"cmd_{login}_{cid}.txt"))
             sent.append((login, cid))
         results = {}
         end = time.time() + wait
@@ -580,7 +606,7 @@ class Mt5Link:
             for login, cid in sent:
                 if (login, cid) in results:
                     continue
-                path = os.path.join(self.dir, f"res_{login}_{cid}.txt")
+                path = os.path.join(self.dir_for(login), f"res_{login}_{cid}.txt")
                 try:
                     with open(path, encoding="latin-1", errors="replace") as f:
                         raw = f.read()
@@ -600,12 +626,260 @@ class Mt5Link:
             if (login, cid) in results:
                 continue
             try:   # keine Antwort: Auftrag zurückziehen, damit er nicht später ausgeführt wird
-                os.remove(os.path.join(self.dir, f"cmd_{login}_{cid}.txt"))
+                os.remove(os.path.join(self.dir_for(login), f"cmd_{login}_{cid}.txt"))
                 results[(login, cid)] = {"ok": False, "error": "MT5 hat nicht geantwortet (EA oder Algo Trading aus?)"}
             except OSError:
                 results[(login, cid)] = {"ok": False, "unclear": True,
                                          "error": "MT5 hat den Auftrag angenommen, aber nicht rechtzeitig geantwortet. Bitte in MT5 prüfen!"}
         return [dict(results[k], login=k[0]) for k in sent]
+
+
+class Mt5Terminals:
+    """MT5-Starter: legt je Konto eine eigene (portable) MT5-Kopie an, spielt FVG-Bridge ein, meldet sich
+    über eine Start-Datei automatisch an, legt die Bridge auf den Chart und hält das Programm am Laufen."""
+
+    def __init__(self, cfg, data_dir, sources):
+        self.cfg = cfg
+        self.base = os.path.join(data_dir, "mt5")
+        self.sources = sources          # Funktion: () -> (Bridge-Quelltext, Chart-Quelltext)
+        self.state = {}                 # id -> {"step", "error", "pid", "started", "restarts"}
+        self.log = []                   # (Stufe, Text) fürs Protokoll
+        self._procs = {}                # id -> Popen (nur zum Prüfen, ob noch läuft)
+        self._ps = (0, {})              # (Zeit, {Pfad: [PIDs]}) laufende terminal64.exe
+        self._busy = set()
+
+    # ── Grundlagen ──
+    @property
+    def terms(self):
+        return (self.cfg.get("mt5") or {}).get("terminals") or []
+
+    def folder(self, t):
+        return os.path.join(self.base, t["id"])
+
+    @staticmethod
+    def exe_of(folder):
+        for n in ("terminal64.exe", "terminal.exe"):
+            p = os.path.join(folder, n)
+            if os.path.isfile(p):
+                return p
+        return None
+
+    def _say(self, msg, level="info"):
+        self.log.append((level, msg))
+
+    @staticmethod
+    def installs():
+        """Gefundene MT5-Installationen (Vorlagen), z. B. das FTMO- oder IQ-MT5."""
+        found = {}
+        appdata = os.environ.get("APPDATA") or ""
+        base = os.path.join(appdata, "MetaQuotes", "Terminal")
+        try:
+            names = os.listdir(base)
+        except OSError:
+            names = []
+        for n in names:
+            o = os.path.join(base, n, "origin.txt")
+            try:
+                raw = open(o, "rb").read()
+                txt = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", "replace")
+                path = txt.strip().strip("\x00").strip()
+            except OSError:
+                continue
+            if path and Mt5Terminals.exe_of(path):
+                found[os.path.normcase(path)] = path
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            if not root:
+                continue
+            try:
+                for n in os.listdir(root):
+                    p = os.path.join(root, n)
+                    if os.path.isdir(p) and Mt5Terminals.exe_of(p):
+                        found.setdefault(os.path.normcase(p), p)
+            except OSError:
+                pass
+        return [{"path": p, "name": os.path.basename(p.rstrip("\\/"))} for p in sorted(found.values())]
+
+    # ── laufende Programme ──
+    def _running_map(self):
+        """{Programmpfad (klein): [PIDs]} aller laufenden terminal64.exe. Unter Windows per PowerShell, höchstens alle 10 s."""
+        import subprocess
+        ts, m = self._ps
+        if time.time() - ts < 10:
+            return m
+        m = {}
+        if os.name == "nt":
+            try:
+                out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                      "Get-Process terminal64,terminal -ErrorAction SilentlyContinue | "
+                                      "ForEach-Object { \"$($_.Id)|$($_.Path)\" }"],
+                                     capture_output=True, text=True, timeout=20, creationflags=0x08000000).stdout
+                for line in out.splitlines():
+                    pid, _, path = line.strip().partition("|")
+                    if path:
+                        m.setdefault(os.path.normcase(os.path.dirname(path)), []).append(int(pid))
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+        self._ps = (time.time(), m)
+        return m
+
+    def running(self, t):
+        p = self._procs.get(t["id"])
+        if p is not None and p.poll() is None:
+            return True
+        return bool(self._running_map().get(os.path.normcase(self.folder(t))))
+
+    # ── Einrichten ──
+    def setup(self, t):
+        """Kopie der Vorlage anlegen (nur beim ersten Mal), Bridge und Chart-Vorlage einspielen und übersetzen."""
+        import shutil
+        import subprocess
+        st = self.state.setdefault(t["id"], {})
+        dst = self.folder(t)
+        src = t.get("base") or ""
+        if not self.exe_of(dst):
+            if not src or not self.exe_of(src):
+                raise BrokerError("MT5-Vorlage nicht gefunden: bitte das MT5-Programm der Firma auswählen")
+            st["step"] = "kopiere MT5 …"
+            os.makedirs(self.base, exist_ok=True)
+            shutil.copytree(src, dst, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("logs", "*.log", "Tester", "Bases", "tmp"))
+        bridge, chart = self.sources()
+        for sub, fn, code in (("Experts", "FVG-Bridge.mq5", bridge), ("Indicators", "FVG-Chart.mq5", chart)):
+            d = os.path.join(dst, "MQL5", sub)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, fn), "w", encoding="utf-8-sig", newline="\r\n") as f:
+                f.write(code)
+        me = next((os.path.join(dst, n) for n in ("metaeditor64.exe", "metaeditor.exe") if os.path.isfile(os.path.join(dst, n))), None)
+        if me and os.name == "nt":
+            st["step"] = "übersetze FVG-Bridge …"
+            for sub, fn in (("Experts", "FVG-Bridge.mq5"), ("Indicators", "FVG-Chart.mq5")):
+                try:
+                    subprocess.run([me, "/portable", f"/compile:{os.path.join(dst, 'MQL5', sub, fn)}",
+                                    f"/log:{os.path.join(dst, 'kompilieren.log')}"], timeout=120, creationflags=0x08000000)
+                except (OSError, subprocess.SubprocessError) as e:
+                    self._say(f"MT5 „{t['name']}“: Übersetzen von {fn} fehlgeschlagen: {e}", "warn")
+        st["step"] = ""
+        st["ready"] = True
+
+    def _ini(self, t):
+        fam = "NQ"
+        acc = ((self.cfg.get("mt5") or {}).get("accounts") or {}).get(str(t["login"])) or {}
+        sym = acc.get("sym_" + fam) or (self.cfg.get("mt5") or {}).get("sym_" + fam) or "US100.cash"
+        return ("[Common]\r\n"
+                f"Login={t['login']}\r\nPassword={t.get('password') or ''}\r\nServer={t['server']}\r\n"
+                "KeepPrivate=1\r\nNewsEnable=0\r\nCertInstall=1\r\n"
+                "[Experts]\r\nAllowLiveTrading=1\r\nAllowDllImport=0\r\nEnabled=1\r\nAccount=0\r\nProfile=0\r\n"
+                f"[StartUp]\r\nExpert=FVG-Bridge\r\nSymbol={sym}\r\nPeriod=M5\r\n")
+
+    def start(self, t, reason="von Hand"):
+        import subprocess
+        if t["id"] in self._busy:
+            raise BrokerError("wird gerade eingerichtet")
+        if self.running(t):
+            return {"ok": True, "already": True}
+        self._busy.add(t["id"])
+        st = self.state.setdefault(t["id"], {})
+        try:
+            if not st.get("ready") or not self.exe_of(self.folder(t)):
+                self.setup(t)
+            dst = self.folder(t)
+            ini = os.path.join(dst, "fvg-start.ini")
+            with open(ini, "w", encoding="utf-16", newline="") as f:   # MT5 liest die Start-Datei als Unicode
+                f.write(self._ini(t))
+            fake = os.environ.get("FVG_MT5_LAUNCH")   # nur für Tests: nachgebautes MT5
+            if fake:
+                cmd = [sys_executable(), fake, dst, ini]
+                kw = {}
+            else:
+                exe = self.exe_of(dst)
+                if os.name != "nt":
+                    raise BrokerError("MT5 automatisch starten geht nur unter Windows")
+                cmd = [exe, "/portable", f"/config:{ini}"]
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= 0x00000001           # STARTF_USESHOWWINDOW
+                si.wShowWindow = 7                 # minimiert, ohne den Fokus zu nehmen
+                kw = {"startupinfo": si, "creationflags": 0x00000008 | 0x00000200}   # unabhängig von der App
+            self._procs[t["id"]] = subprocess.Popen(cmd, cwd=dst, close_fds=True, **kw)
+            st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False)
+            self._ps = (0, {})
+
+            def scrub():   # Passwort aus der Start-Datei entfernen, sobald MT5 sie gelesen hat
+                time.sleep(90)
+                try:
+                    with open(ini, "w", encoding="utf-16", newline="") as f:
+                        f.write(self._ini(dict(t, password="")))
+                except OSError:
+                    pass
+            threading.Thread(target=scrub, daemon=True).start()
+            self._say(f"MT5 „{t['name']}“ ({t['login']}) gestartet ({reason})")
+            return {"ok": True}
+        except (OSError, BrokerError) as e:
+            st["error"] = str(e)
+            raise BrokerError(f"MT5 „{t['name']}“ konnte nicht starten: {e}")
+        finally:
+            self._busy.discard(t["id"])
+
+    def stop(self, t, manual=True):
+        import subprocess
+        pids = list(self._running_map().get(os.path.normcase(self.folder(t)), []))
+        p = self._procs.pop(t["id"], None)
+        if p is not None and p.poll() is None:
+            pids.append(p.pid)
+        for pid in set(pids):
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T"], capture_output=True, timeout=20, creationflags=0x08000000)
+                else:
+                    os.kill(pid, 15)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        self._ps = (0, {})
+        st = self.state.setdefault(t["id"], {})
+        st["stopped"] = time.time()
+        st["manual_stop"] = manual
+        self._say(f"MT5 „{t['name']}“ beendet" + (" (bleibt aus bis zum nächsten Start)" if manual else ""))
+        return {"ok": True}
+
+    def watch(self, accounts):
+        """Wächter: Konten mit „automatisch starten“, deren MT5 nicht läuft oder sich lange nicht meldet, neu starten."""
+        for t in self.terms:
+            if not t.get("auto", True) or t["id"] in self._busy:
+                continue
+            st = self.state.setdefault(t["id"], {})
+            if st.get("manual_stop"):
+                continue   # von Hand beendet: bleibt aus, bis jemand „Starten“ drückt
+            if time.time() - st.get("started", 0) < 180 or time.time() - st.get("stopped", 0) < 60:
+                continue   # gerade gestartet oder von Hand beendet: abwarten
+            a = accounts.get(str(t["login"])) or {}
+            alive = self.running(t)
+            if alive and a.get("online"):
+                st["restarts"] = 0
+                st["error"] = ""
+                continue
+            if alive and (not a or time.time() - a.get("seen", 0) < 300):
+                continue   # läuft, meldet sich aber (noch) nicht: z. B. Anmeldung läuft, Wochenende
+            if alive:
+                self._say(f"MT5 „{t['name']}“ meldet sich seit über 5 Minuten nicht: Neustart", "warn")
+                self.stop(t, manual=False)
+                st["stopped"] = 0
+            if st.get("started"):   # der allererste Start zählt nicht als Neustart
+                st["restarts"] = st.get("restarts", 0) + 1
+            if st.get("restarts", 0) >= 2:
+                st["error"] = ("MT5 meldet sich nach dem Start nicht. Bitte Login, Passwort (Trading-Passwort, nicht Investor) "
+                               "und Server prüfen, oder einmal „Neu starten“ und im MT5-Fenster nachsehen.")
+            if st.get("restarts", 0) > 5:
+                if st.get("restarts") == 6:
+                    self._say(f"MT5 „{t['name']}“ startet immer wieder nicht. Bitte prüfen (Login, Server, Vorlage).", "error")
+                continue
+            try:
+                self.start(t, reason="Wächter")
+            except BrokerError as e:
+                self._say(str(e), "error")
+
+
+def sys_executable():
+    import sys
+    return sys.executable
 
 
 class Mt5Broker:
