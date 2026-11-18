@@ -536,6 +536,9 @@ class Mt5Link:
                                           "vol_min": self._num(f[7]), "vol_step": self._num(f[8]), "vol_max": self._num(f[9])}
                 elif f:
                     a["symbols"].setdefault(f[0], None)
+            elif k == "chart":
+                sym, _, mins = v.partition("|")
+                a["chart"] = {"symbol": sym, "minutes": int(self._num(mins, 0))}
             elif k == "dsum":
                 f = v.split("|")
                 if len(f) >= 4:
@@ -765,11 +768,13 @@ class Mt5Terminals:
         fam = "NQ"
         acc = ((self.cfg.get("mt5") or {}).get("accounts") or {}).get(str(t["login"])) or {}
         sym = acc.get("sym_" + fam) or (self.cfg.get("mt5") or {}).get("sym_" + fam) or "US100.cash"
+        mins = int((self.cfg.get("mt5") or {}).get("chart_minutes") or 5)
+        per = {1: "M1", 3: "M3", 5: "M5", 15: "M15", 30: "M30", 60: "H1", 240: "H4"}.get(mins, "M5")
         return ("[Common]\r\n"
                 f"Login={t['login']}\r\nPassword={t.get('password') or ''}\r\nServer={t['server']}\r\n"
                 "KeepPrivate=1\r\nNewsEnable=0\r\nCertInstall=1\r\n"
                 "[Experts]\r\nAllowLiveTrading=1\r\nAllowDllImport=0\r\nEnabled=1\r\nAccount=0\r\nProfile=0\r\n"
-                f"[StartUp]\r\nExpert=FVG-Bridge\r\nSymbol={sym}\r\nPeriod=M5\r\n")
+                f"[StartUp]\r\nExpert=FVG-Bridge\r\nSymbol={sym}\r\nPeriod={per}\r\n")
 
     def start(self, t, reason="von Hand"):
         import subprocess

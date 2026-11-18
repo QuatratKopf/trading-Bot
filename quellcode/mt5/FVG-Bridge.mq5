@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.04"
+#property version   "2.05"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.04"
+#define BRIDGE_VERSION "2.05"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -305,6 +305,9 @@ void HandleCommand(string fname)
                if(action == "ping")
                   res += "ok=1\r\n";
                else
+                  if(action == "chart")
+                     res += DoChart(keys, vals);
+               else
                   res += Err("unbekannter Auftrag " + action);
    WriteAtomic("res_" + IntegerToString(g_login) + "_" + id + ".txt", res);
   }
@@ -375,6 +378,40 @@ string DoOpen(string &keys[], string &vals[])
      }
    return("ok=1\r\nticket=" + IntegerToString((long)ticket) + "\r\nprice=" + DoubleToString(price, digits) +
           "\r\nvolume=" + DoubleToString(vol, 2) + "\r\n");
+  }
+
+ENUM_TIMEFRAMES TfOf(int minutes)
+  {
+   switch(minutes)
+     {
+      case 1:
+         return(PERIOD_M1);
+      case 3:
+         return(PERIOD_M3);
+      case 15:
+         return(PERIOD_M15);
+      case 30:
+         return(PERIOD_M30);
+      case 60:
+         return(PERIOD_H1);
+      case 240:
+         return(PERIOD_H4);
+      default:
+         return(PERIOD_M5);
+     }
+  }
+
+string DoChart(string &keys[], string &vals[])
+  {
+   // Den eigenen Chart auf Symbol und Zeiteinheit umstellen. Die Bridge bleibt dabei auf dem Chart.
+   string sym = Get(keys, vals, "symbol");
+   int minutes = (int)StringToInteger(Get(keys, vals, "minutes"));
+   if(sym == "" || !SymbolSelect(sym, true))
+      return(Err("Symbol " + sym + " gibt es in diesem Konto nicht"));
+   if(!ChartSetSymbolPeriod(0, sym, TfOf(minutes)))
+      return(Err("Chart umstellen fehlgeschlagen (Fehler " + IntegerToString(GetLastError()) + ")"));
+   Print("FVG-Bridge: Chart wird auf ", sym, " ", minutes, " Minuten umgestellt");
+   return("ok=1\r\n");
   }
 
 string DoClose(string &keys[], string &vals[])
@@ -521,6 +558,7 @@ void WriteStatus()
    s += "trade_allowed=" + (can ? "1" : "0") + "\r\n";
    s += "connected=" + (TerminalInfoInteger(TERMINAL_CONNECTED) != 0 ? "1" : "0") + "\r\n";
    s += "time=" + IntegerToString((long)TimeGMT()) + "\r\n";
+   s += "chart=" + _Symbol + "|" + IntegerToString(PeriodSeconds(_Period) / 60) + "\r\n";
    // Symbole, die die App kennen moechte
    string wanted[];
    int nw = 0;

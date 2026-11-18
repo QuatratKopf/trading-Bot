@@ -4012,7 +4012,7 @@ const sec = (key, title, sum, chip, body) => `<details class="set-sec" data-sec=
   <div class="set-b">${body}</div></details>`;
 
 let settingsKey = "";
-const m5Key = () => { const m = S.mt5 || {}; return [m.terminals && m.terminals.list.map(t => [t.id, t.running, t.online, t.step, t.error, t.busy, t.restarts]), m.diag && [m.diag.dir, m.diag.files, (m.diag.age || 0) < 15], (m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
+const m5Key = () => { const m = S.mt5 || {}; return [(m.accounts || []).map(a => a.chart && [a.chart.symbol, a.chart.minutes]), m.terminals && m.terminals.list.map(t => [t.id, t.running, t.online, t.step, t.error, t.busy, t.restarts]), m.diag && [m.diag.dir, m.diag.files, (m.diag.age || 0) < 15], (m.accounts || []).map(a => [a.login, a.online, a.can_trade, Math.round(a.balance || 0), a.positions, a.eff]), m.copy && m.copy.error, m.copy && m.copy.waiting && m.copy.waiting.length]; };
 const setKey = () => JSON.stringify([S.tunnel, S.hook_url, S.broker, S.update, S.autostart, S.service, m5Key(), S.backups && [S.backups.last, S.backups.count, S.backups.busy, S.backups.error]]);
 // New Yorker Uhrzeit in die Ortszeit des Nutzers umrechnen (aus aktueller NY-Zeit vom Server)
 function localTime(hm) {
@@ -4054,6 +4054,7 @@ function settings() {
         <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5c_${esc(a.login)}" ${a.copy ? "checked" : ""}> Kopien empfangen</label>
         <label class="m5-c">Faktor <input type="number" data-cfg id="m5f_${esc(a.login)}" value="${a.factor}" min="0.01" max="100" step="0.1" style="width:80px"></label>
       </div>
+      ${a.chart && a.chart.known ? `<small class="${a.chart.ok ? "hint" : "neg"}">Chart der Bridge: ${esc(a.chart.symbol)} · ${a.chart.minutes} Min ${a.chart.ok ? "✓" : `→ soll ${esc(a.chart.want_symbol)} · ${a.chart.want_minutes} Min${(c.mt5 || {}).chart_fix !== false ? " (wird umgestellt)" : ""}`}</small>` : a.online ? '<small class="hint">Chart der Bridge: wird ab FVG-Bridge 2.05 angezeigt</small>' : ""}
       <div class="m5-o m5-sym">
         ${[["NQ", "Nasdaq", "m5n_"], ["ES", "S&amp;P 500", "m5e_"]].map(([fam, lbl, pre]) => { const e = (a.eff || {})[fam] || {};
           return `<label class="m5-c">${lbl} <input type="text" data-cfg id="${pre}${esc(a.login)}" value="${esc(a["sym_" + fam] || "")}" placeholder="${esc(fam === "NQ" ? m5c.sym_NQ : m5c.sym_ES)}" maxlength="40" style="width:130px" autocomplete="off">
@@ -4237,6 +4238,8 @@ function settings() {
     <span class="lbl">Symbole (allgemein)</span>
     ${field("m5sn", "Nasdaq in MT5", m5c.sym_NQ, {type: "text", help: "Gilt für alle Konten ohne eigenen Namen oben. Bei FTMO „US100.cash“, bei IQ Capital „NAS100.gbe“."})}
     ${field("m5se", "S&P 500 in MT5", m5c.sym_ES, {type: "text", help: "Bei FTMO „US500.cash“"})}
+    ${field("m5cf", "Chart der Bridge richtig halten", m5c.chart_fix !== false, {check: true, help: "Liegt FVG-Bridge auf einem anderen Chart, stellt die App ihn auf das Nasdaq-Symbol des Kontos und die Zeiteinheit unten um."})}
+    ${field("m5tf", "Zeiteinheit des Charts", m5c.chart_minutes || 5, {select: [[1, "1 Minute"], [3, "3 Minuten"], [5, "5 Minuten (wie TradingView)"], [15, "15 Minuten"], [30, "30 Minuten"], [60, "1 Stunde"]]})}
     ${field("m5dir", "Austausch-Ordner (nur bei Bedarf)", m5c.dir || "", {type: "text", attrs: {placeholder: "leer = automatisch", autocomplete: "off"}, help: "Nur ausfüllen, wenn App und MT5 nicht zusammenfinden: den Pfad aus der MT5-Zeile „FVG-Bridge Austausch-Ordner: …“ hier einfügen."})}`)}
 
   ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, Kontrakte, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
@@ -4295,7 +4298,7 @@ function settings() {
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
-      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
+      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
         accounts: Object.fromEntries((S.mt5 ? S.mt5.accounts : []).map(a => [a.login, {bot: v("m5b_" + a.login), copy: v("m5c_" + a.login), factor: v("m5f_" + a.login),
           sym_NQ: (v("m5n_" + a.login) || "").trim(), sym_ES: (v("m5e_" + a.login) || "").trim()}]))},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},

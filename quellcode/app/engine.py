@@ -130,6 +130,7 @@ DEFAULT_CONFIG = {
                "drive_url": ""},  # Google-Apps-Script-Link: jede Sicherung zusätzlich in Google Drive       # Konten-Filter für Cockpit, Kalender und Statistik (MT5-Logins, leer = alle)
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "terminals": [],   # MT5-Starter: je Konto {id, name, login, password, server, base, auto}
+            "chart_fix": True, "chart_minutes": 5,   # Chart der Bridge auf Nasdaq-Symbol und Zeiteinheit halten
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
     "learning": {
@@ -797,6 +798,13 @@ class Engine:
             accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f,
                                   "label": str(a.get("label") or "").strip()[:40]}, **syms)
         m5["accounts"] = accs
+        m5["chart_fix"] = bool(m5.get("chart_fix", True))
+        try:
+            m5["chart_minutes"] = int(m5.get("chart_minutes") or 5)
+        except (TypeError, ValueError):
+            m5["chart_minutes"] = 5
+        if m5["chart_minutes"] not in (1, 3, 5, 15, 30, 60, 240):
+            m5["chart_minutes"] = 5
         terms, seen = [], set()
         for t in m5.get("terminals") or []:
             if not isinstance(t, dict):
@@ -2280,6 +2288,12 @@ class Engine:
                 self.db.log(msg, level)
                 if level in ("warn", "error"):
                     self.notify("errors", "MT5-Starter", msg, "bad")
+            if time.time() - getattr(self, "_chart_at", 0) > 60:
+                self._chart_at = time.time()
+                try:
+                    self.mt5_chart_fix()
+                except Exception as e:   # nur Komfort, darf den Loop nicht stoppen
+                    self.db.log(f"Chart-Prüfung: {e}", "warn")
             if mt.terms and time.time() - self._watch_at > 30 and time.time() - self._started > 20:
                 self._watch_at = time.time()
                 accs = self.mt5_link.accounts()
@@ -2319,6 +2333,7 @@ class Engine:
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
                          "factor": float(c.get("factor") or 1.0),
                          "sym_NQ": c.get("sym_NQ") or "", "sym_ES": c.get("sym_ES") or "",
+                         "chart": self._chart_check(lg, a) if a else None,
                          "eff": {fam: {"name": self.mt5_link.sym_for(lg, fam),
                                        "found": bool((a.get("symbols") or {}).get(self.mt5_link.sym_for(lg, fam))) if a else None}
                                  for fam in ("NQ", "ES")},
@@ -2329,6 +2344,39 @@ class Engine:
             r["label"] = (conf.get(r["login"]) or {}).get("label") or names.get(r["login"], "")
         return {"dir": self.mt5_link.dir, "diag": self.mt5_link.diag(), "accounts": rows, "terminals": self.terminals_view(),
                 "copy": {"last": st.get("last"), "error": st.get("error"), "copies": st.get("copies"), "waiting": st.get("waiting") or []}}
+
+    def _chart_check(self, login, a):
+        """Liegt die Bridge auf dem Nasdaq-Chart dieses Kontos in der eingestellten Zeiteinheit?"""
+        ch = a.get("chart")
+        if not ch:
+            return {"known": False}
+        want_sym = self.mt5_link.sym_for(login, "NQ")
+        want_min = int(self.cfg["mt5"].get("chart_minutes") or 5)
+        return {"known": True, "symbol": ch["symbol"], "minutes": ch["minutes"], "want_symbol": want_sym, "want_minutes": want_min,
+                "ok": ch["symbol"] == want_sym and ch["minutes"] == want_min}
+
+    def mt5_chart_fix(self):
+        """Bridges auf falschem Chart umstellen lassen (höchstens alle 5 Minuten je Konto)."""
+        if not self.cfg["mt5"].get("chart_fix", True):
+            return
+        last = getattr(self, "_chart_fix_at", {})
+        self._chart_fix_at = last
+        jobs = []
+        for lg, a in self.mt5_link.accounts().items():
+            if not a.get("online") or round(self.mt5_link._num(a.get("version"), 0) * 100) < 205:
+                continue
+            chk = self._chart_check(lg, a)
+            if chk.get("known") and not chk["ok"] and time.time() - last.get(lg, 0) > 300:
+                if not (a.get("symbols") or {}).get(chk["want_symbol"]):
+                    continue   # Symbol auf diesem Konto unbekannt: nichts umstellen, das zeigt die Konto-Karte
+                last[lg] = time.time()
+                jobs.append((lg, {"action": "chart", "symbol": chk["want_symbol"], "minutes": chk["want_minutes"]}))
+                self.db.log(f"MT5-Konto {lg}: Bridge liegt auf {chk['symbol']} {chk['minutes']} Min, wird auf "
+                            f"{chk['want_symbol']} {chk['want_minutes']} Min umgestellt")
+        if jobs:
+            for r in self.mt5_link.send(jobs, wait=5):
+                if not r.get("ok"):
+                    self.db.log(f"MT5-Konto {r['login']}: Chart umstellen fehlgeschlagen: {r.get('error')}", "warn")
 
     def terminals_view(self):
         mt = self.mt5_terms

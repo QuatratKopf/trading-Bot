@@ -1,6 +1,6 @@
 {
-  "version": "3.11.0",
-  "file": "releases/FVG-Trader-3.11.0.cmd",
-  "sha256": "ff9ce67e560a18360c9d48a5f7a60407f9576b7f5f671335d838d4cfe1bed50f",
-  "notes": "Neu: MT5-Starter. MT5-Konten in der App anlegen (Name, Login, Passwort, Server). Die App richtet je Konto ein eigenes MT5 ein, meldet sich an, legt FVG-Bridge auf den Chart, startet es minimiert und startet es neu, wenn es abstürzt. Einstellungen → MetaTrader 5 → Konten."
+  "version": "3.11.1",
+  "file": "releases/FVG-Trader-3.11.1.cmd",
+  "sha256": "95fbe8fe9710f1498d9e9160f26d6c078868cda04ca80f6dad1aa11e8727b6ba",
+  "notes": "MT5: Die App prüft, auf welchem Chart FVG-Bridge liegt, und stellt ihn selbst auf das Nasdaq-Symbol des Kontos und 5 Minuten um. Braucht FVG-Bridge 2.05."
 }
