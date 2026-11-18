@@ -705,13 +705,22 @@ class Mt5Terminals:
     @staticmethod
     def data_folders():
         """[(Datenordner, Programmpfad)] der normal installierten MT5 (dort liegt u. a. die Serverliste servers.dat)."""
+        import glob
         out = []
-        base = os.path.join(os.environ.get("APPDATA") or "", "MetaQuotes", "Terminal")
-        try:
-            names = os.listdir(base)
-        except OSError:
-            names = []
-        for n in names:
+        bases = [os.path.join(os.environ.get("APPDATA") or "", "MetaQuotes", "Terminal")]
+        if os.name == "nt":
+            bases += glob.glob(os.path.join(os.environ.get("SystemDrive", "C:") + "\\", "Users", "*", "AppData", "Roaming", "MetaQuotes", "Terminal"))
+        seen = set()
+        pairs = []
+        for base in bases:
+            if os.path.normcase(base) in seen:
+                continue
+            seen.add(os.path.normcase(base))
+            try:
+                pairs += [(base, n) for n in os.listdir(base)]
+            except OSError:
+                pass
+        for base, n in pairs:
             try:
                 raw = open(os.path.join(base, n, "origin.txt"), "rb").read()
                 txt = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", "replace")
@@ -955,6 +964,13 @@ class Mt5Terminals:
             with open(ini, "w", encoding="utf-16", newline="") as f:   # MT5 liest die Start-Datei als Unicode
                 f.write(self._ini(t))
             fake = os.environ.get("FVG_MT5_LAUNCH")   # nur für Tests: nachgebautes MT5
+            if os.name == "nt" and os.environ.get("FVG_SERVICE") and not fake:
+                user = self._start_as_user(t, self.exe_of(dst), dst, ini)
+                st.update(started=time.time(), pid=0, manual_stop=False, user=user)
+                self._ps = (0, {})
+                self._scrub_later(t, ini)
+                self._say(f"MT5 „{t['name']}“ ({t['login']}) im Benutzerkonto {user} gestartet ({reason})")
+                return {"ok": True}
             if fake:
                 cmd = [sys_executable(), fake, dst, ini]
                 kw = {}
@@ -971,14 +987,7 @@ class Mt5Terminals:
             st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False)
             self._ps = (0, {})
 
-            def scrub():   # Passwort aus der Start-Datei entfernen, sobald MT5 sie gelesen hat
-                time.sleep(90)
-                try:
-                    with open(ini, "w", encoding="utf-16", newline="") as f:
-                        f.write(self._ini(dict(t, password="")))
-                except OSError:
-                    pass
-            threading.Thread(target=scrub, daemon=True).start()
+            self._scrub_later(t, ini)
             self._say(f"MT5 „{t['name']}“ ({t['login']}) gestartet ({reason})")
             return {"ok": True}
         except (OSError, BrokerError) as e:
@@ -986,6 +995,49 @@ class Mt5Terminals:
             raise BrokerError(f"MT5 „{t['name']}“ konnte nicht starten: {e}")
         finally:
             self._busy.discard(t["id"])
+
+    def _scrub_later(self, t, ini):
+        def scrub():   # Passwort aus der Start-Datei entfernen, sobald MT5 sie gelesen hat
+            time.sleep(90)
+            try:
+                with open(ini, "w", encoding="utf-16", newline="") as f:
+                    f.write(self._ini(dict(t, password="")))
+            except OSError:
+                pass
+        threading.Thread(target=scrub, daemon=True).start()
+
+    def _start_as_user(self, t, exe, dst, ini):
+        """Die App läuft als Dienst (Konto SYSTEM, ohne Bildschirm). Ein von dort gestartetes MT5 hätte kein Fenster und
+        schriebe in den Ordner von SYSTEM. Darum MT5 über eine Windows-Aufgabe im angemeldeten Benutzerkonto starten."""
+        import subprocess
+        q = lambda s: "'" + str(s).replace("'", "''") + "'"
+        task = "FVG Trader MT5 " + t["id"]
+        script = f"""$ErrorActionPreference = 'Stop'
+$o = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Select-Object -First 1 | Invoke-CimMethod -MethodName GetOwner
+if (-not $o -or -not $o.User) {{ Write-Output 'NOUSER'; exit 0 }}
+$u = if ($o.Domain) {{ $o.Domain + '\\' + $o.User }} else {{ $o.User }}
+& icacls {q(dst)} /grant ($u + ':(OI)(CI)F') /T /Q | Out-Null
+$a = New-ScheduledTaskAction -Execute {q(exe)} -Argument {q('/portable "/config:' + ini + '"')} -WorkingDirectory {q(dst)}
+$p = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest
+$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName {q(task)} -Action $a -Principal $p -Settings $s -Force | Out-Null
+Start-ScheduledTask -TaskName {q(task)}
+Write-Output ('OK ' + $u)
+"""
+        try:
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                               capture_output=True, text=True, timeout=60, creationflags=0x08000000)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise BrokerError(f"Start im Benutzerkonto fehlgeschlagen: {e}")
+        out = (r.stdout or "").strip().splitlines()
+        last = out[-1] if out else ""
+        if last == "NOUSER":
+            raise BrokerError("Die App läuft als Dienst, aber niemand ist am PC/Server angemeldet. MT5 braucht ein angemeldetes "
+                              "Windows-Konto: einmal per Remotedesktop anmelden, das Fenster danach nur schließen (nicht abmelden).")
+        if not last.startswith("OK "):
+            err = ((r.stderr or "").strip().splitlines() or ["unbekannter Fehler"])[-1]
+            raise BrokerError(f"Start im Benutzerkonto fehlgeschlagen: {err[:200]}")
+        return last[3:]
 
     def stop(self, t, manual=True):
         import subprocess

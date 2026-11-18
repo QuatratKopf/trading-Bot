@@ -3443,7 +3443,7 @@ function mtListRender() {
   box.innerHTML = T.list.map(t => {
     const st = t.busy || t.step ? ["warn", t.step || "wird eingerichtet …"] : t.online ? ["good", "läuft · verbunden"] : t.running ? ["warn", "läuft · meldet sich noch nicht"] : ["bad", "gestoppt"];
     return `<div class="m5-acc"><div class="m5-h"><b>${esc(t.name)}</b><span class="mono hint">${esc(t.login)} · ${esc(t.server)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>
-      <small class="hint">${t.balance != null ? usd2(t.balance) + " · " : ""}${t.auto ? "startet automatisch" : "nur von Hand"}${t.restarts ? ` · ${t.restarts}× neu gestartet` : ""}${t.has_pw ? "" : ' · <span class="neg">Passwort fehlt</span>'}</small>
+      <small class="hint">${t.balance != null ? usd2(t.balance) + " · " : ""}${t.auto ? "startet automatisch" : "nur von Hand"}${t.user ? ` · im Windows-Konto ${esc(t.user)}` : ""}${t.restarts ? ` · ${t.restarts}× neu gestartet` : ""}${t.has_pw ? "" : ' · <span class="neg">Passwort fehlt</span>'}</small>
       ${t.error ? `<small class="neg" style="flex-basis:100%">${esc(t.error)}</small>` : ""}
       ${t.hint ? `<small class="neg" style="flex-basis:100%"><b>Grund laut MT5:</b> ${esc(t.hint)}</small>` : ""}
       ${(t.lines || []).length ? `<details class="m5-log" style="flex-basis:100%;min-width:0"><summary class="hint">Letzte Meldungen aus MT5</summary><pre class="mono" style="white-space:pre-wrap;word-break:break-word;font-size:11px;margin:6px 0 0">${esc(t.lines.join("\n"))}</pre></details>` : ""}</div>

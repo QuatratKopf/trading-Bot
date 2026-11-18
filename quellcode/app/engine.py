@@ -2398,7 +2398,7 @@ class Engine:
                     self._diag_cache[t["id"]] = dc
                 if dc:
                     hint, lines = dc[1], dc[2]
-            out.append({"hint": hint, "lines": lines,"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
+            out.append({"hint": hint, "lines": lines, "user": st.get("user", ""),"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
                         "auto": t["auto"], "has_pw": bool(t.get("password")), "running": run,
                         "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
                         "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),

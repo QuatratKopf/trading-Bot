@@ -1,6 +1,6 @@
 {
-  "version": "3.11.4",
-  "file": "releases/FVG-Trader-3.11.4.cmd",
-  "sha256": "562fbab38cb33493f0e006f9b689c588bb842276615b5e1a47fddb6a2303ac9d",
-  "notes": "MT5-Starter: Vorlage ist jetzt standardmäßig das normale MetaTrader 5; die App sucht sich die passende Serverliste (FTMO, IQ …) selbst aus deinen installierten MT5"
+  "version": "3.11.5",
+  "file": "releases/FVG-Trader-3.11.5.cmd",
+  "sha256": "3691656791d0e594617001c7a40f640c6ef28c323e79f4aeea37a3739a09c2c2",
+  "notes": "MT5-Starter: läuft die App als Dienst, startet MT5 jetzt im angemeldeten Windows-Konto (vorher lief es unsichtbar als SYSTEM und beendete sich oder meldete sich nicht); Serverliste und MT5-Bibliothek werden bei allen Windows-Benutzern gesucht"
 }

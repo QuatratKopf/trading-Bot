@@ -29,6 +29,8 @@ HOST = os.environ.get("FVG_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FVG_PORT", "8787"))
 BACKGROUND = "--hintergrund" in sys.argv
 SERVICE = "--dienst" in sys.argv   # läuft als Dienst (Windows-Aufgabenplanung, Start ohne Anmeldung)
+if SERVICE:
+    os.environ["FVG_SERVICE"] = "1"   # MT5-Starter: MT5 dann im angemeldeten Benutzerkonto starten, nicht als SYSTEM
 _svc_cache = {"t": 0, "v": False}
 
 
