@@ -2385,12 +2385,27 @@ class Engine:
         for t in mt.terms:
             st = mt.state.get(t["id"]) or {}
             a = accs.get(t["login"]) or {}
-            out.append({"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
-                        "auto": t["auto"], "has_pw": bool(t.get("password")), "running": mt.running(t),
+            run = mt.running(t)
+            hint, lines = "", []
+            if not a.get("online") and t["id"] not in mt._busy:
+                dc = self._diag_cache.get(t["id"])
+                fresh = time.time() - st.get("started", 0) > 45   # direkt nach dem Start: alte Meldung stehen lassen
+                if fresh and (not dc or time.time() - dc[0] > 15):
+                    try:
+                        dc = (time.time(), *mt.diagnose(t))
+                    except OSError:
+                        dc = (time.time(), "", [])
+                    self._diag_cache[t["id"]] = dc
+                if dc:
+                    hint, lines = dc[1], dc[2]
+            out.append({"hint": hint, "lines": lines,"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
+                        "auto": t["auto"], "has_pw": bool(t.get("password")), "running": run,
                         "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
                         "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),
                         "folder": mt.folder(t), "busy": t["id"] in mt._busy})
         return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH"))}
+
+    _diag_cache = {}
 
     def _installs_cached(self):
         c = getattr(self, "_inst_cache", (0, []))

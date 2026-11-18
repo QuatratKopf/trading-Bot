@@ -3427,23 +3427,31 @@ function modal(html) {
 // Google-Apps-Script für Sicherungen in Google Drive (wird vom Nutzer in seinem Google-Konto angelegt)
 const DRIVE_SCRIPT = "// FVG Trader: Sicherungen in Google Drive (Ordner \"FVG-Sicherung\")\nvar FOLDER = \"FVG-Sicherung\";\nfunction doPost(e) {\n  var out;\n  try {\n    var b = JSON.parse(e.postData.contents);\n    var it = DriveApp.getFoldersByName(FOLDER);\n    var f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER);\n    if (b.ping) {\n      out = {ok: true, folder: f.getUrl()};\n    } else {\n      if (!/^FVG-Sicherung-[0-9_-]+\\.zip$/.test(b.name)) throw new Error(\"ungueltiger Dateiname\");\n      f.createFile(Utilities.newBlob(Utilities.base64Decode(b.data), \"application/zip\", b.name));\n      var files = [], fi = f.getFiles();\n      while (fi.hasNext()) { var x = fi.next(); if (/^FVG-Sicherung-.*\\.zip$/.test(x.getName())) files.push(x); }\n      files.sort(function (a, c) { return a.getName() < c.getName() ? 1 : -1; });\n      for (var i = (b.keep || 17); i < files.length; i++) files[i].setTrashed(true);\n      out = {ok: true, name: b.name, folder: f.getUrl()};\n    }\n  } catch (err) {\n    out = {ok: false, error: String(err)};\n  }\n  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);\n}\n";
 // MT5-Starter: Konten anlegen, MT5 automatisch starten und überwachen
-const MTF = {edit: null};
+const MTF = {edit: null, viaEdit: false};
+// Firmen-Vorlagen für neue MT5-Konten: Server, Nasdaq-Symbol, passendes MT5-Programm
+const MT_FIRMS = {
+  ftmo: {name: "FTMO", server: "FTMO-Demo", servers: ["FTMO-Demo", "FTMO-Server", "FTMO-Server2", "FTMO-Server3", "FTMO-Server4", "FTMO-Server5"], sym: "US100.cash", match: /ftmo/i},
+  iq: {name: "IQ Capital", server: "BeyondIQCapital-Server", servers: ["BeyondIQCapital-Server"], sym: "NAS100.gbe", match: /iq|beyond/i},
+};
+function mtFirmOf(server) { for (const [k, f] of Object.entries(MT_FIRMS)) if (f.match.test(server || "")) return k; return ""; }
 function mtListRender() {
   const box = $("#mtList"); if (!box) return;
   const T = ((S.mt5 || {}).terminals || {list: []});
   if (!T.list.length) { box.innerHTML = '<p class="hint" style="margin:0">Noch kein Konto angelegt. Unten „MT5-Konto hinzufügen“: Die App legt für jedes Konto ein eigenes MT5 an und startet es selbst.</p>'; return; }
-  const key = JSON.stringify(T.list.map(t => [t.id, t.running, t.online, t.step, t.error, Math.round(t.balance || 0), t.busy, t.auto, t.name]));
+  const key = JSON.stringify(T.list.map(t => [t.id, t.running, t.online, t.step, t.error, Math.round(t.balance || 0), t.busy, t.auto, t.name, t.hint, t.lines]));
   if (box.dataset.k === key) return; box.dataset.k = key;
   box.innerHTML = T.list.map(t => {
     const st = t.busy || t.step ? ["warn", t.step || "wird eingerichtet …"] : t.online ? ["good", "läuft · verbunden"] : t.running ? ["warn", "läuft · meldet sich noch nicht"] : ["bad", "gestoppt"];
     return `<div class="m5-acc"><div class="m5-h"><b>${esc(t.name)}</b><span class="mono hint">${esc(t.login)} · ${esc(t.server)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>
       <small class="hint">${t.balance != null ? usd2(t.balance) + " · " : ""}${t.auto ? "startet automatisch" : "nur von Hand"}${t.restarts ? ` · ${t.restarts}× neu gestartet` : ""}${t.has_pw ? "" : ' · <span class="neg">Passwort fehlt</span>'}</small>
-      ${t.error ? `<small class="neg" style="flex-basis:100%">${esc(t.error)}</small>` : ""}</div>
+      ${t.error ? `<small class="neg" style="flex-basis:100%">${esc(t.error)}</small>` : ""}
+      ${t.hint ? `<small class="neg" style="flex-basis:100%"><b>Grund laut MT5:</b> ${esc(t.hint)}</small>` : ""}
+      ${(t.lines || []).length ? `<details class="m5-log" style="flex-basis:100%;min-width:0"><summary class="hint">Letzte Meldungen aus MT5</summary><pre class="mono" style="white-space:pre-wrap;word-break:break-word;font-size:11px;margin:6px 0 0">${esc(t.lines.join("\n"))}</pre></details>` : ""}</div>
       <div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
         <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div></div>`; }).join("");
   const act = async (b, a) => { try { b.disabled = true; const r = await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); box.dataset.k = ""; await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
-  box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
+  box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
 }
 function mtFormRender() {
   const box = $("#mtForm"); if (!box) return;
@@ -3453,23 +3461,35 @@ function mtFormRender() {
   const inst = T.installs || [];
   if (!T.windows) { box.innerHTML = '<p class="hint">MT5 automatisch starten geht nur, wenn FVG Trader unter Windows läuft.</p>'; return; }
   const baseOpts = inst.map(i => [i.path, i.name]);
-  const curBase = e ? e.base : (inst[0] || {}).path || "";
+  const firm = e ? mtFirmOf(e.server) : (MTF.firm != null ? MTF.firm : "ftmo");
+  const F = MT_FIRMS[firm];
+  const curBase = e ? e.base : ((F && inst.find(i => F.match.test(i.name + " " + i.path))) || inst[0] || {}).path || "";
   box.innerHTML = `
-    ${e ? `<p class="hint" style="margin:0">Bearbeiten: <b>${esc(e.name)}</b>. <button type="button" class="lnk" id="mtNew">Stattdessen neues Konto anlegen</button></p>` : ""}
+    ${e ? `<p class="cp-warn" style="margin:0">Du bearbeitest <b>${esc(e.name)}</b> (${esc(e.login)}). <button type="button" class="btn sm" id="mtNew">Neues Konto anlegen</button></p>` : '<p class="hint" style="margin:0"><b>Neues Konto</b></p>'}
+    <div class="row"><label for="mtF">Firma<small>trägt Server, Symbol und MT5-Vorlage automatisch ein, du kannst alles danach noch ändern</small></label><select id="mtF">${Object.entries(MT_FIRMS).map(([k, f]) => `<option value="${k}" ${k === firm ? "selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="" ${firm ? "" : "selected"}>Andere Firma</option></select></div>
     <div class="row"><label for="mtN">Name<small>wie das Konto in der App heißen soll, z. B. „IQ Challenge 1“</small></label><input id="mtN" type="text" maxlength="40" value="${esc(e ? e.name : "")}"></div>
     <div class="row"><label for="mtL">Login (Kontonummer)</label><input id="mtL" type="text" inputmode="numeric" value="${esc(e ? e.login : "")}" ${e ? "readonly" : ""}></div>
     <div class="row"><label for="mtP">Passwort<small>das Trading-/Master-Passwort aus den Zugangsdaten der Firma (nicht das Investor-Passwort)</small></label><input id="mtP" type="password" autocomplete="new-password" placeholder="${e && e.has_pw ? "unverändert lassen" : ""}"></div>
-    <div class="row"><label for="mtS">Server<small>genau wie in den Zugangsdaten, z. B. FTMO-Demo oder BeyondIQCapital-Server</small></label><input id="mtS" type="text" value="${esc(e ? e.server : "")}"></div>
+    <div class="row"><label for="mtS">Server<small>genau wie in den Zugangsdaten, z. B. FTMO-Demo oder BeyondIQCapital-Server</small></label><input id="mtS" type="text" list="mtSl" value="${esc(e ? e.server : (F ? F.server : ""))}"><datalist id="mtSl">${Object.values(MT_FIRMS).flatMap(f => f.servers).map(v => `<option value="${esc(v)}">`).join("")}</datalist></div>
     <div class="row"><label for="mtB">MT5-Vorlage<small>das MT5-Programm der Firma, die App macht davon eine eigene Kopie für dieses Konto</small></label>
       ${baseOpts.length ? `<select id="mtB">${baseOpts.map(([v, l]) => `<option value="${esc(v)}" ${v === curBase ? "selected" : ""}>${esc(l)}</option>`).join("")}<option value="">anderer Ordner …</option></select>` : ""}
       <input id="mtBx" type="text" placeholder="z. B. C:\\Program Files\\FTMO MetaTrader 5" value="${esc(baseOpts.some(([v]) => v === curBase) ? "" : curBase)}" ${baseOpts.length && baseOpts.some(([v]) => v === curBase) ? "hidden" : ""}></div>
-    <div class="row"><label for="mtY">Nasdaq-Symbol auf diesem Konto<small>z. B. US100.cash (FTMO), NAS100.gbe (IQ Capital)</small></label><input id="mtY" type="text" value="${esc(acc.sym_NQ || "")}" placeholder="${esc((S.config.mt5 || {}).sym_NQ || "US100.cash")}"></div>
+    <div class="row"><label for="mtY">Nasdaq-Symbol auf diesem Konto<small>z. B. US100.cash (FTMO), NAS100.gbe (IQ Capital)</small></label><input id="mtY" type="text" value="${esc(e ? (acc.sym_NQ || "") : (F ? F.sym : ""))}" placeholder="${esc((S.config.mt5 || {}).sym_NQ || "US100.cash")}"></div>
     <div class="row"><label for="mtBot">Bot handelt hier</label><input id="mtBot" type="checkbox" class="chk" ${!e || acc.bot ? "checked" : ""}></div>
     <div class="row"><label for="mtAuto">Automatisch starten<small>beim Start der App und wieder, wenn MT5 abstürzt oder hängt</small></label><input id="mtAuto" type="checkbox" class="chk" ${!e || e.auto ? "checked" : ""}></div>
     <div class="inline wrap-gap"><button class="btn primary" id="mtGo">${e ? "Speichern" : "Konto anlegen und MT5 starten"}</button></div>
     <p class="hint" style="margin:0">Die Zugangsdaten bleiben nur auf diesem Rechner (in FVG-Trader-Daten, auch in den Sicherungen). Die Start-Datei mit dem Passwort leert die App kurz nach dem Start wieder.</p>`;
   if ($("#mtB")) $("#mtB").onchange = () => { $("#mtBx").hidden = !!$("#mtB").value; };
   if ($("#mtNew")) $("#mtNew").onclick = () => { MTF.edit = null; mtFormRender(); };
+  $("#mtF").onchange = () => {
+    const f = MT_FIRMS[$("#mtF").value];
+    if (!e) {   // neues Konto: Formular mit der Firma neu aufbauen, schon getippte Felder bleiben
+      const keep = {n: $("#mtN").value, l: $("#mtL").value, p: $("#mtP").value};
+      MTF.firm = $("#mtF").value; mtFormRender();
+      $("#mtN").value = keep.n; $("#mtL").value = keep.l; $("#mtP").value = keep.p; return;
+    }
+    if (f) { $("#mtS").value = f.server; $("#mtY").value = f.sym; }
+  };
   $("#mtGo").onclick = async () => {
     const base = ($("#mtB") && $("#mtB").value) || $("#mtBx").value.trim();
     const body = {action: e ? "edit" : "add", id: e ? e.id : undefined, name: $("#mtN").value.trim(), login: $("#mtL").value.trim(), password: $("#mtP").value,
@@ -4215,7 +4235,7 @@ function settings() {
     ${intro("Der Bot kann auf beliebig vielen MT5-Konten gleichzeitig handeln. Jedes Konto läuft in einem eigenen MT5-Fenster mit dem Zusatzprogramm „FVG-Bridge“. Alles bleibt auf deinem PC.")}
     <span class="lbl">Konten · MT5 startet automatisch</span>
     <div id="mtList"></div>
-    <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen</b><span class="hint">Die App richtet MT5 ein, meldet sich an und startet es minimiert</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
+    <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen / bearbeiten</b><span class="hint">Die App richtet MT5 ein, meldet sich an und startet es minimiert</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
     <span class="lbl">Von Hand einrichten (nur falls nötig)</span>
     <ol class="m5-steps">
       <li>„In MT5 installieren“ drücken (MT5 dabei geschlossen lassen oder danach neu starten).</li>
@@ -4315,7 +4335,14 @@ function settings() {
     try { await doSave(); toast("Gespeichert"); await refresh(true); }
     catch (e) { $("#saveMsg").textContent = e.message; $("#saveMsg").className = "err-msg"; }
   };
+  MTF.edit = null;   // Formular startet immer leer („hinzufügen“)
   mtListRender(); mtFormRender();
+  $("#mtAdd").addEventListener("toggle", () => {
+    // über die Überschrift aufgeklappt: neues Konto. Über „Bearbeiten“ aufgeklappt: Daten des Kontos.
+    if ($("#mtAdd").open && !MTF.viaEdit && MTF.edit) { MTF.edit = null; mtFormRender(); }
+    if (!$("#mtAdd").open && MTF.edit) { MTF.edit = null; mtFormRender(); }
+    MTF.viaEdit = false;
+  });
   $("#m5Inst").onclick = async () => {
     try { const r = await api("/api/mt5/install", {}); toast(r.count ? `EA und Chart-Vorlage in ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte beide Dateien herunterladen und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts bzw. Indicators ablegen."); }
     catch (e) { toast(e.message); }

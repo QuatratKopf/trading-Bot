@@ -702,6 +702,124 @@ class Mt5Terminals:
                 pass
         return [{"path": p, "name": os.path.basename(p.rstrip("\\/"))} for p in sorted(found.values())]
 
+    @staticmethod
+    def data_folders():
+        """[(Datenordner, Programmpfad)] der normal installierten MT5 (dort liegt u. a. die Serverliste servers.dat)."""
+        out = []
+        base = os.path.join(os.environ.get("APPDATA") or "", "MetaQuotes", "Terminal")
+        try:
+            names = os.listdir(base)
+        except OSError:
+            names = []
+        for n in names:
+            try:
+                raw = open(os.path.join(base, n, "origin.txt"), "rb").read()
+                txt = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", "replace")
+            except OSError:
+                continue
+            out.append((os.path.join(base, n), txt.strip().strip("\x00").strip()))
+        return out
+
+    def copy_servers(self, t):
+        """Serverliste (servers.dat) der Firma in die eigene MT5-Kopie übernehmen. Ohne sie kennt eine frische
+        Kopie z. B. „BeyondIQCapital-Server“ nicht und die Anmeldung scheitert still."""
+        import shutil
+        src = os.path.normcase((t.get("base") or "").rstrip("\\/"))
+        words = {w for w in re.split(r"[^a-z0-9]+", str(t.get("server") or "").lower()) if len(w) >= 3} - {"server", "demo", "live", "real"}
+        best = (0, 0, None)
+        for data, origin in self.data_folders():
+            f = os.path.join(data, "config", "servers.dat")
+            if not os.path.isfile(f):
+                f = os.path.join(data, "Config", "servers.dat")
+                if not os.path.isfile(f):
+                    continue
+            oname = re.sub(r"[^a-z0-9]+", "", os.path.basename(origin.rstrip("\\/")).lower())
+            score = 3 if os.path.normcase(origin.rstrip("\\/")) == src else 2 if any(w in oname or oname and oname in w for w in words) else 1
+            cand = (score, os.path.getmtime(f), f)
+            if cand[:2] > best[:2]:
+                best = cand
+        if not best[2]:
+            return False
+        d = os.path.join(self.folder(t), "Config")
+        os.makedirs(d, exist_ok=True)
+        try:
+            shutil.copy2(best[2], os.path.join(d, "servers.dat"))
+            return True
+        except OSError:
+            return False
+
+    def _ensure_servers(self, t):
+        dst = self.folder(t)
+        if not any(os.path.isfile(os.path.join(dst, c, "servers.dat")) for c in ("Config", "config")):
+            if self.copy_servers(t):
+                self._say(f"MT5 „{t['name']}“: Serverliste der Firma übernommen")
+
+    @staticmethod
+    def _read_log(path, tail=400):
+        try:
+            raw = open(path, "rb").read()[-200000:]
+        except OSError:
+            return []
+        if raw[:2] == b"\xff\xfe" or raw[1:200:2].count(0) > 50:   # MT5 schreibt Protokolle als UTF-16
+            txt = raw[len(raw) % 2:].decode("utf-16-le", "replace")
+        else:
+            txt = raw.decode("utf-8", "replace")
+        return [l.strip().lstrip("\ufeff") for l in txt.splitlines() if l.strip()][-tail:]
+
+    @staticmethod
+    def _newest(folder, pattern="*.log"):
+        import glob
+        fs = glob.glob(os.path.join(folder, pattern))
+        return max(fs, key=os.path.getmtime) if fs else None
+
+    def diagnose(self, t):
+        """Grund aus den MT5-Protokollen der Kopie lesen: (kurzer Satz, letzte Zeilen). Leer, wenn nichts auffällt."""
+        dst = self.folder(t)
+        if not os.path.isdir(dst):
+            return "", []
+        ex5 = os.path.join(dst, "MQL5", "Experts", "FVG-Bridge.ex5")
+        if self.exe_of(dst) and not os.path.isfile(ex5):
+            comp = self._read_log(os.path.join(dst, "kompilieren.log"), 30)
+            errs = [l for l in comp if " error" in l.lower() or "error " in l.lower()]
+            return ("FVG-Bridge wurde in dieser MT5-Kopie nicht übersetzt (FVG-Bridge.ex5 fehlt). "
+                    "Bitte „Neu starten“, sonst in dieser Kopie einmal den MetaEditor öffnen."), (errs or comp)[-5:]
+        lines = []
+        lg = self._newest(os.path.join(dst, "logs"))
+        if lg:
+            lines = self._read_log(lg)
+        hint = ""
+        last = {}
+        for i, l in enumerate(lines):
+            low = l.lower()
+            for k, pat in (("auth_fail", "authorization on"), ("auth_ok", "authorized on"), ("no_srv", "no connection"),
+                           ("invalid", "invalid account"), ("ea_ok", "fvg-bridge"), ("algo_off", "automated trading is disabled"),
+                           ("algo_off", "algo trading is disabled")):
+                if pat in low:
+                    if k == "auth_fail" and "failed" not in low:
+                        continue
+                    if k == "ea_ok" and not ("loaded successfully" in low or "removed" in low or "cannot" in low):
+                        continue
+                    last[k] = (i, l)
+        if "auth_fail" in last and last["auth_fail"][0] > last.get("auth_ok", (-1,))[0] or "invalid" in last:
+            hint = ("Anmeldung abgelehnt: Login, Passwort (Trading-/Master-Passwort, nicht Investor) oder Server stimmt nicht. "
+                    "Unter „Bearbeiten“ prüfen.")
+        elif "no_srv" in last and last["no_srv"][0] > last.get("auth_ok", (-1,))[0]:
+            hint = "MT5 findet den Server nicht. Server-Name genau wie in den Zugangsdaten eintragen und die richtige MT5-Vorlage der Firma wählen."
+        elif "ea_ok" in last and ("removed" in last["ea_ok"][1].lower() or "cannot" in last["ea_ok"][1].lower()):
+            hint = "FVG-Bridge wurde in MT5 entfernt oder konnte nicht geladen werden. Bitte „Neu starten“."
+        elif "algo_off" in last:
+            hint = "In diesem MT5 ist Algo Trading aus. Bitte „Neu starten“ oder im MT5-Fenster oben „Algo Trading“ einschalten."
+        elif lines and "auth_ok" not in last:
+            hint = "MT5 hat sich noch nicht beim Server angemeldet."
+        keys = ("authoriz", "connection", "fvg-bridge", "account", "trading", "error", "failed", "expert")
+        rel = [l for l in lines if any(k in l.lower() for k in keys)][-4:]
+        ea = self._newest(os.path.join(dst, "MQL5", "Logs"))
+        if ea:
+            rel += [l for l in self._read_log(ea, 50) if "fvg" in l.lower() or "error" in l.lower() or "fehler" in l.lower()][-3:]
+        mask = str(t.get("password") or "")
+        rel = [(l.replace(mask, "•••") if len(mask) >= 4 else l)[:220] for l in rel]
+        return hint, rel
+
     # ── laufende Programme ──
     def _running_map(self):
         """{Programmpfad (klein): [PIDs]} aller laufenden terminal64.exe. Unter Windows per PowerShell, höchstens alle 10 s."""
@@ -746,6 +864,7 @@ class Mt5Terminals:
             os.makedirs(self.base, exist_ok=True)
             shutil.copytree(src, dst, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("logs", "*.log", "Tester", "Bases", "tmp"))
+        self._ensure_servers(t)
         bridge, chart = self.sources()
         for sub, fn, code in (("Experts", "FVG-Bridge.mq5", bridge), ("Indicators", "FVG-Chart.mq5", chart)):
             d = os.path.join(dst, "MQL5", sub)
@@ -788,6 +907,7 @@ class Mt5Terminals:
             if not st.get("ready") or not self.exe_of(self.folder(t)):
                 self.setup(t)
             dst = self.folder(t)
+            self._ensure_servers(t)
             ini = os.path.join(dst, "fvg-start.ini")
             with open(ini, "w", encoding="utf-16", newline="") as f:   # MT5 liest die Start-Datei als Unicode
                 f.write(self._ini(t))
