@@ -1054,6 +1054,47 @@ class Mt5Terminals:
         except OSError:
             return False
 
+    def _ensure_include(self, t):
+        """FVG-Bridge braucht <Trade\\Trade.mqh>. Eine frische Kopie hat die MT5-Standard-Bibliothek erst nach dem
+        ersten Start, deshalb aus der Vorlage (oder einem installierten MT5) übernehmen."""
+        import shutil
+        dst = os.path.join(self.folder(t), "MQL5", "Include")
+        if os.path.isfile(os.path.join(dst, "Trade", "Trade.mqh")):
+            return True
+        src = (t.get("base") or "").rstrip("\\/")
+        cands = [os.path.join(src, "MQL5", "Include")] if src else []
+        same = [d for d, o in self.data_folders() if os.path.normcase(o.rstrip("\\/")) == os.path.normcase(src)]
+        cands += [os.path.join(d, "MQL5", "Include") for d in same]
+        cands += [os.path.join(d, "MQL5", "Include") for d, _ in self.data_folders() if d not in same]
+        for c in cands:
+            if os.path.isfile(os.path.join(c, "Trade", "Trade.mqh")):
+                try:
+                    shutil.copytree(c, dst, dirs_exist_ok=True)
+                    self._say(f"MT5 „{t['name']}“: MT5-Standard-Bibliothek übernommen")
+                    return True
+                except OSError:
+                    continue
+        return False
+
+    def _compile(self, t):
+        import subprocess
+        dst = self.folder(t)
+        me = next((os.path.join(dst, n) for n in ("metaeditor64.exe", "metaeditor.exe") if os.path.isfile(os.path.join(dst, n))), None)
+        if not me or os.name != "nt":
+            return
+        self._ensure_include(t)
+        st = self.state.setdefault(t["id"], {})
+        st["step"] = "übersetze FVG-Bridge …"
+        for sub, fn in (("Experts", "FVG-Bridge.mq5"), ("Indicators", "FVG-Chart.mq5")):
+            try:
+                subprocess.run([me, "/portable", f"/compile:{os.path.join(dst, 'MQL5', sub, fn)}",
+                                f"/log:{os.path.join(dst, 'kompilieren.log')}"], timeout=120, creationflags=0x08000000)
+            except (OSError, subprocess.SubprocessError) as e:
+                self._say(f"MT5 „{t['name']}“: Übersetzen von {fn} fehlgeschlagen: {e}", "warn")
+        st["step"] = ""
+        if not os.path.isfile(os.path.join(dst, "MQL5", "Experts", "FVG-Bridge.ex5")):
+            self._say(f"MT5 „{t['name']}“: FVG-Bridge ließ sich noch nicht übersetzen, nächster Versuch beim nächsten Start", "warn")
+
     def _ensure_servers(self, t):
         dst = self.folder(t)
         if not any(os.path.isfile(os.path.join(dst, c, "servers.dat")) for c in ("Config", "config")):
@@ -1118,7 +1159,7 @@ class Mt5Terminals:
         elif lines and "auth_ok" not in last:
             hint = "MT5 hat sich noch nicht beim Server angemeldet."
         keys = ("authoriz", "connection", "fvg-bridge", "account", "trading", "error", "failed", "expert")
-        rel = [l for l in lines if any(k in l.lower() for k in keys)][-4:]
+        rel = [l for l in lines if any(k in l.lower() for k in keys)][-4:] or lines[-4:]
         ea = self._newest(os.path.join(dst, "MQL5", "Logs"))
         if ea:
             rel += [l for l in self._read_log(ea, 50) if "fvg" in l.lower() or "error" in l.lower() or "fehler" in l.lower()][-3:]
@@ -1177,15 +1218,7 @@ class Mt5Terminals:
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, fn), "w", encoding="utf-8-sig", newline="\r\n") as f:
                 f.write(code)
-        me = next((os.path.join(dst, n) for n in ("metaeditor64.exe", "metaeditor.exe") if os.path.isfile(os.path.join(dst, n))), None)
-        if me and os.name == "nt":
-            st["step"] = "übersetze FVG-Bridge …"
-            for sub, fn in (("Experts", "FVG-Bridge.mq5"), ("Indicators", "FVG-Chart.mq5")):
-                try:
-                    subprocess.run([me, "/portable", f"/compile:{os.path.join(dst, 'MQL5', sub, fn)}",
-                                    f"/log:{os.path.join(dst, 'kompilieren.log')}"], timeout=120, creationflags=0x08000000)
-                except (OSError, subprocess.SubprocessError) as e:
-                    self._say(f"MT5 „{t['name']}“: Übersetzen von {fn} fehlgeschlagen: {e}", "warn")
+        self._compile(t)
         st["step"] = ""
         st["ready"] = True
 
@@ -1214,6 +1247,8 @@ class Mt5Terminals:
                 self.setup(t)
             dst = self.folder(t)
             self._ensure_servers(t)
+            if not os.path.isfile(os.path.join(dst, "MQL5", "Experts", "FVG-Bridge.ex5")):
+                self._compile(t)
             ini = os.path.join(dst, "fvg-start.ini")
             with open(ini, "w", encoding="utf-16", newline="") as f:   # MT5 liest die Start-Datei als Unicode
                 f.write(self._ini(t))
@@ -8704,7 +8739,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.11.2"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.11.3"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 

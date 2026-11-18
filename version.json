@@ -1,6 +1,6 @@
 {
-  "version": "3.11.2",
-  "file": "releases/FVG-Trader-3.11.2.cmd",
-  "sha256": "9638558fe1ba65fdebaac18b40b6c3f67166c637641d3e0ba5f8f31033fad6bb",
-  "notes": "MT5-Starter: Formular „Konto hinzufügen“ startet immer leer, Firmen-Auswahl (FTMO / IQ Capital) trägt Server, Symbol und MT5-Vorlage selbst ein, Starter übernimmt die Serverliste der Firma und zeigt den Grund an, wenn sich ein Konto nicht meldet"
+  "version": "3.11.3",
+  "file": "releases/FVG-Trader-3.11.3.cmd",
+  "sha256": "92fbcb4f0382ef572eefa797437907ad654e39a1770951cfb2f984f90dbead7c",
+  "notes": "MT5-Starter: FVG-Bridge wird in neuen MT5-Kopien zuverlässig übersetzt (Standard-Bibliothek wird mitkopiert, neuer Versuch bei jedem Start); Fehleranzeige zeigt immer die letzten MT5-Meldungen"
 }
