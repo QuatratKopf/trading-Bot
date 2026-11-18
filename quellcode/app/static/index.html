@@ -3463,7 +3463,9 @@ function mtFormRender() {
   const baseOpts = inst.map(i => [i.path, i.name]);
   const firm = e ? mtFirmOf(e.server) : (MTF.firm != null ? MTF.firm : "ftmo");
   const F = MT_FIRMS[firm];
-  const curBase = e ? e.base : ((F && inst.find(i => F.match.test(i.name + " " + i.path))) || inst[0] || {}).path || "";
+  // Vorauswahl: das normale MetaTrader 5 (gleiches Programm für alle Firmen), sonst das MT5 der Firma
+  const std = inst.find(i => /^metatrader ?5$/i.test(i.name.trim()));
+  const curBase = e ? e.base : (std || (F && inst.find(i => F.match.test(i.name + " " + i.path))) || inst[0] || {}).path || "";
   box.innerHTML = `
     ${e ? `<p class="cp-warn" style="margin:0">Du bearbeitest <b>${esc(e.name)}</b> (${esc(e.login)}). <button type="button" class="btn sm" id="mtNew">Neues Konto anlegen</button></p>` : '<p class="hint" style="margin:0"><b>Neues Konto</b></p>'}
     <div class="row"><label for="mtF">Firma<small>trägt Server, Symbol und MT5-Vorlage automatisch ein, du kannst alles danach noch ändern</small></label><select id="mtF">${Object.entries(MT_FIRMS).map(([k, f]) => `<option value="${k}" ${k === firm ? "selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="" ${firm ? "" : "selected"}>Andere Firma</option></select></div>
@@ -3471,7 +3473,7 @@ function mtFormRender() {
     <div class="row"><label for="mtL">Login (Kontonummer)</label><input id="mtL" type="text" inputmode="numeric" value="${esc(e ? e.login : "")}" ${e ? "readonly" : ""}></div>
     <div class="row"><label for="mtP">Passwort<small>das Trading-/Master-Passwort aus den Zugangsdaten der Firma (nicht das Investor-Passwort)</small></label><input id="mtP" type="password" autocomplete="new-password" placeholder="${e && e.has_pw ? "unverändert lassen" : ""}"></div>
     <div class="row"><label for="mtS">Server<small>genau wie in den Zugangsdaten, z. B. FTMO-Demo oder BeyondIQCapital-Server</small></label><input id="mtS" type="text" list="mtSl" value="${esc(e ? e.server : (F ? F.server : ""))}"><datalist id="mtSl">${Object.values(MT_FIRMS).flatMap(f => f.servers).map(v => `<option value="${esc(v)}">`).join("")}</datalist></div>
-    <div class="row"><label for="mtB">MT5-Vorlage<small>das MT5-Programm der Firma, die App macht davon eine eigene Kopie für dieses Konto</small></label>
+    <div class="row"><label for="mtB">MT5-Vorlage<small>am besten das normale „MetaTrader 5“, es funktioniert für jede Firma. Die App macht davon eine eigene Kopie für dieses Konto und holt sich die Serverliste der Firma selbst</small></label>
       ${baseOpts.length ? `<select id="mtB">${baseOpts.map(([v, l]) => `<option value="${esc(v)}" ${v === curBase ? "selected" : ""}>${esc(l)}</option>`).join("")}<option value="">anderer Ordner …</option></select>` : ""}
       <input id="mtBx" type="text" placeholder="z. B. C:\\Program Files\\FTMO MetaTrader 5" value="${esc(baseOpts.some(([v]) => v === curBase) ? "" : curBase)}" ${baseOpts.length && baseOpts.some(([v]) => v === curBase) ? "hidden" : ""}></div>
     <div class="row"><label for="mtY">Nasdaq-Symbol auf diesem Konto<small>z. B. US100.cash (FTMO), NAS100.gbe (IQ Capital)</small></label><input id="mtY" type="text" value="${esc(e ? (acc.sym_NQ || "") : (F ? F.sym : ""))}" placeholder="${esc((S.config.mt5 || {}).sym_NQ || "US100.cash")}"></div>

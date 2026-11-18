@@ -725,6 +725,8 @@ class Mt5Terminals:
         Kopie z. B. „BeyondIQCapital-Server“ nicht und die Anmeldung scheitert still."""
         import shutil
         src = os.path.normcase((t.get("base") or "").rstrip("\\/"))
+        names = [str(t.get("server") or "").strip()]
+        needles = [n.encode(enc) for n in names if n for enc in ("utf-16-le", "utf-8")]
         words = {w for w in re.split(r"[^a-z0-9]+", str(t.get("server") or "").lower()) if len(w) >= 3} - {"server", "demo", "live", "real"}
         best = (0, 0, None)
         for data, origin in self.data_folders():
@@ -734,7 +736,13 @@ class Mt5Terminals:
                 if not os.path.isfile(f):
                     continue
             oname = re.sub(r"[^a-z0-9]+", "", os.path.basename(origin.rstrip("\\/")).lower())
-            score = 3 if os.path.normcase(origin.rstrip("\\/")) == src else 2 if any(w in oname or oname and oname in w for w in words) else 1
+            try:   # kennt diese Serverliste den Server schon (dort war man schon mal angemeldet)?
+                raw = open(f, "rb").read()
+                known = any(n in raw for n in needles)
+            except OSError:
+                known = False
+            score = (4 if known else 3 if os.path.normcase(origin.rstrip("\\/")) == src
+                     else 2 if any(w in oname or oname and oname in w for w in words) else 1)
             cand = (score, os.path.getmtime(f), f)
             if cand[:2] > best[:2]:
                 best = cand

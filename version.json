@@ -1,6 +1,6 @@
 {
-  "version": "3.11.3",
-  "file": "releases/FVG-Trader-3.11.3.cmd",
-  "sha256": "92fbcb4f0382ef572eefa797437907ad654e39a1770951cfb2f984f90dbead7c",
-  "notes": "MT5-Starter: FVG-Bridge wird in neuen MT5-Kopien zuverlässig übersetzt (Standard-Bibliothek wird mitkopiert, neuer Versuch bei jedem Start); Fehleranzeige zeigt immer die letzten MT5-Meldungen"
+  "version": "3.11.4",
+  "file": "releases/FVG-Trader-3.11.4.cmd",
+  "sha256": "562fbab38cb33493f0e006f9b689c588bb842276615b5e1a47fddb6a2303ac9d",
+  "notes": "MT5-Starter: Vorlage ist jetzt standardmäßig das normale MetaTrader 5; die App sucht sich die passende Serverliste (FTMO, IQ …) selbst aus deinen installierten MT5"
 }
