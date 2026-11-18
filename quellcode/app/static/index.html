@@ -610,6 +610,23 @@ svg.chart{width:100%;height:auto}
 .m5-o{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 .m5-c{display:inline-flex;align-items:center;gap:6px;font-size:14px;flex-wrap:wrap}
 .m5-sym{gap:8px 18px}
+.m5-list{display:flex;flex-direction:column;gap:10px}
+.m5-role{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.m5-rl{font-size:13px;font-weight:600;color:var(--muted)}
+.m5-role .seg button{padding:8px 14px;font-size:14px}
+.m5-role .seg button[data-role="master"][aria-pressed="true"]{background:var(--accent);color:var(--accent-fg)}
+.m5-role .seg button[data-role="copy"][aria-pressed="true"]{background:var(--pos-bg);color:var(--pos)}
+.m5-more summary,.m5-log summary{cursor:pointer;font-size:13px}
+.m5-more{display:flex;flex-direction:column;gap:6px}
+.m5-more[open] > .m5-sym{margin:8px 0 4px}
+.m5-log pre{white-space:pre-wrap;word-break:break-word;font-size:11px;margin:6px 0 0}
+.m5-h .m5-log{flex-basis:100%;min-width:0}
+.cp-box{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.cp-flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.cp-flow.off{opacity:.55}
+.cp-node{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13.5px;font-weight:600;max-width:100%;overflow-wrap:anywhere}
+.cp-node.main{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.cp-arrow{font-size:18px;color:var(--muted)}
 .m5-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;line-height:1.5;font-size:14px}
 .lbl{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;margin:4px 0 4px}
 .preview{display:flex;flex-direction:column;gap:4px;background:var(--sunk);border-radius:8px;padding:10px 12px;font-size:12.5px}
@@ -3436,22 +3453,63 @@ const MT_FIRMS = {
 function mtFirmOf(server) { for (const [k, f] of Object.entries(MT_FIRMS)) if (f.match.test(server || "")) return k; return ""; }
 function mtListRender() {
   const box = $("#mtList"); if (!box) return;
-  const T = ((S.mt5 || {}).terminals || {list: []});
-  if (!T.list.length) { box.innerHTML = '<p class="hint" style="margin:0">Noch kein Konto angelegt. Unten „MT5-Konto hinzufügen“: Die App legt für jedes Konto ein eigenes MT5 an und startet es selbst.</p>'; return; }
-  const key = JSON.stringify(T.list.map(t => [t.id, t.running, t.online, t.step, t.error, Math.round(t.balance || 0), t.busy, t.auto, t.name, t.hint, t.lines]));
-  if (box.dataset.k === key) return; box.dataset.k = key;
-  box.innerHTML = T.list.map(t => {
-    const st = t.busy || t.step ? ["warn", t.step || "wird eingerichtet …"] : t.online ? ["good", "läuft · verbunden"] : t.running ? ["warn", "läuft · meldet sich noch nicht"] : ["bad", "gestoppt"];
-    return `<div class="m5-acc"><div class="m5-h"><b>${esc(t.name)}</b><span class="mono hint">${esc(t.login)} · ${esc(t.server)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>
-      <small class="hint">${t.balance != null ? usd2(t.balance) + " · " : ""}${t.auto ? "startet automatisch" : "nur von Hand"}${t.user ? ` · im Windows-Konto ${esc(t.user)}` : ""}${t.restarts ? ` · ${t.restarts}× neu gestartet` : ""}${t.has_pw ? "" : ' · <span class="neg">Passwort fehlt</span>'}</small>
-      ${t.error ? `<small class="neg" style="flex-basis:100%">${esc(t.error)}</small>` : ""}
-      ${t.hint ? `<small class="neg" style="flex-basis:100%"><b>Grund laut MT5:</b> ${esc(t.hint)}</small>` : ""}
-      ${(t.lines || []).length ? `<details class="m5-log" style="flex-basis:100%;min-width:0"><summary class="hint">Letzte Meldungen aus MT5</summary><pre class="mono" style="white-space:pre-wrap;word-break:break-word;font-size:11px;margin:6px 0 0">${esc(t.lines.join("\n"))}</pre></details>` : ""}</div>
-      <div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
-        <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div></div>`; }).join("");
-  const act = async (b, a) => { try { b.disabled = true; const r = await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); box.dataset.k = ""; await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
+  const m5 = S.mt5 || {accounts: [], copy: {}}, m5c = S.config.mt5 || {}, cc = m5c.copy || {};
+  const T = (m5.terminals || {list: []}).list;
+  const logins = [...new Set([...T.map(t => String(t.login)), ...m5.accounts.map(a => a.login)])];
+  if (!logins.length) { box.innerHTML = '<p class="hint" style="margin:0">Noch kein Konto. Unten auf <b>„+ MT5-Konto hinzufügen“</b>: Die App richtet MT5 ein und startet es selbst.</p>'; return; }
+  const role = lg => String(cc.master || "") === lg ? "master" : (m5.accounts.find(a => a.login === lg) || {}).copy ? "copy" : "none";
+  box.innerHTML = logins.map(lg => {
+    const a = m5.accounts.find(x => x.login === lg) || {login: lg, factor: 1, eff: {}}, t = T.find(x => String(x.login) === lg);
+    const name = (t && t.name) || a.label || lg, r = role(lg);
+    const st = t && (t.busy || t.step) ? ["warn", t.step || "wird eingerichtet …"] : a.online ? (a.can_trade ? ["good", "verbunden"] : ["warn", "Algo Trading aus"])
+      : t && t.running ? ["warn", "startet / meldet sich nicht"] : ["bad", t ? "gestoppt" : "nicht verbunden"];
+    const info = [esc(a.company || (t && t.server) || a.server || ""), a.balance != null ? usd2(a.balance) : "", a.positions ? a.positions + " offen" : ""].filter(Boolean).join(" · ");
+    const sym = [["NQ", "Nasdaq", "m5n_"], ["ES", "S&amp;P 500", "m5e_"]].map(([fam, lbl, pre]) => { const e = (a.eff || {})[fam] || {};
+      return `<label class="m5-c">${lbl} <input type="text" data-cfg id="${pre}${esc(lg)}" value="${esc(a["sym_" + fam] || "")}" placeholder="${esc(fam === "NQ" ? m5c.sym_NQ : m5c.sym_ES)}" maxlength="40" style="width:130px" autocomplete="off">
+        ${!a.online ? "" : e.found ? `<span class="chip good">✓</span>` : `<span class="chip ${fam === "NQ" ? "bad" : "mute"}" title="Dieses Konto kennt ${esc(e.name)} nicht">✗ fehlt</span>`}</label>`; }).join("");
+    const chart = a.chart && a.chart.known ? `<small class="${a.chart.ok ? "hint" : "neg"}">Chart der Bridge: ${esc(a.chart.symbol)} · ${a.chart.minutes} Min ${a.chart.ok ? "✓" : `→ soll ${esc(a.chart.want_symbol)} · ${a.chart.want_minutes} Min`}</small>` : "";
+    const symBad = a.online && ((a.eff || {}).NQ || {}).found === false;
+    return `<div class="m5-acc" data-acc-card="${esc(lg)}">
+      <div class="m5-h"><b>${esc(name)}</b><span class="mono hint">${esc(lg)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>${info ? `<small class="hint">${info}</small>` : ""}
+        ${t && t.error ? `<small class="neg">${esc(t.error)}</small>` : ""}${t && t.hint ? `<small class="neg"><b>Grund:</b> ${esc(t.hint)}</small>` : ""}
+        ${t && (t.lines || []).length && !a.online ? `<details class="m5-log"><summary class="hint">Meldungen aus MT5</summary><pre class="mono">${esc(t.lines.join("\n"))}</pre></details>` : ""}</div>
+      <div class="m5-role"><span class="m5-rl">Kopieren</span>
+        <div class="seg" role="group" aria-label="Rolle beim Kopieren">${[["master", "Hauptkonto"], ["copy", "Kopiert"], ["none", "Aus"]].map(([k, l]) => `<button type="button" data-role="${k}" data-lg="${esc(lg)}" aria-pressed="${r === k}">${l}</button>`).join("")}</div>
+        <input type="hidden" data-cfg id="m5r_${esc(lg)}" value="${r}"></div>
+      <div class="m5-o">
+        <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5b_${esc(lg)}" ${a.bot ? "checked" : ""}> Bot handelt hier</label>
+        <label class="m5-c" title="1 = normale Größe, 0,5 = halb so groß, 2 = doppelt">Größe × <input type="number" data-cfg id="m5f_${esc(lg)}" value="${a.factor || 1}" min="0.01" max="100" step="0.1" style="width:72px"></label>
+      </div>
+      <details class="m5-more" ${symBad ? "open" : ""}><summary class="hint">Symbole &amp; Chart${symBad ? ' · <span class="neg">Nasdaq-Symbol fehlt</span>' : ""}</summary><div class="m5-o m5-sym">${sym}</div>${chart}</details>
+      ${t ? `<div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
+        <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div>`
+        : `<small class="hint">MT5 von Hand geöffnet (nicht über die App)</small>`}</div>`; }).join("");
+  const act = async (b, a) => { try { b.disabled = true; await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
   box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
+  box.querySelectorAll("[data-role]").forEach(b => b.onclick = () => {
+    const lg = b.dataset.lg, k = b.dataset.role;
+    if (k === "master") box.querySelectorAll('input[id^="m5r_"]').forEach(i => { if (i.value === "master") i.value = "none"; });   // nur ein Hauptkonto
+    $("#m5r_" + CSS.escape(lg)).value = k;
+    box.querySelectorAll('input[id^="m5r_"]').forEach(i => { const l = i.id.slice(4);
+      box.querySelectorAll(`[data-role][data-lg="${CSS.escape(l)}"]`).forEach(x => x.setAttribute("aria-pressed", String(x.dataset.role === i.value))); });
+    if (k !== "none" && $("#m5ce") && !$("#m5ce").checked) $("#m5ce").checked = true;
+    copyFlowRender(); $("#main").dispatchEvent(new Event("input", {bubbles: true}));
+    $("#savebar").hidden = false; settingsDirty = true;
+  });
+  copyFlowRender();
+}
+// Copytrading-Übersicht: Hauptkonto → Empfänger, live aus den Knöpfen auf den Konto-Karten
+function copyFlowRender() {
+  const box = $("#cpFlow"); if (!box) return;
+  const name = lg => { const t = ((S.mt5 || {}).terminals || {list: []}).list.find(x => String(x.login) === lg), a = ((S.mt5 || {}).accounts || []).find(x => x.login === lg) || {}; return (t && t.name) || a.label || lg; };
+  const roles = [...document.querySelectorAll('input[id^="m5r_"]')].map(i => [i.id.slice(4), i.value]);
+  const m = roles.find(r => r[1] === "master"), to = roles.filter(r => r[1] === "copy");
+  const on = $("#m5ce") && $("#m5ce").checked;
+  box.innerHTML = !m ? `<p class="hint" style="margin:0">So geht's: Bei dem Konto, auf dem du selbst handelst, unten <b>„Hauptkonto“</b> drücken, bei allen anderen <b>„Kopiert“</b>. Dann <b>Speichern</b>.</p>`
+    : `<div class="cp-flow ${on ? "" : "off"}"><span class="cp-node main">${esc(name(m[0]))}</span><span class="cp-arrow" aria-hidden="true">→</span>
+      ${to.length ? to.map(r => `<span class="cp-node">${esc(name(r[0]))}</span>`).join("") : '<span class="hint">noch kein Konto auf „Kopiert“</span>'}</div>
+      ${on ? "" : '<p class="hint" style="margin:6px 0 0">Copytrading ist aus: Schalter oben einschalten und speichern.</p>'}`;
 }
 function mtFormRender() {
   const box = $("#mtForm"); if (!box) return;
@@ -4068,20 +4126,6 @@ function settings() {
   const m5 = S.mt5 || {accounts: [], copy: {}}, m5c = c.mt5 || {copy: {}}, m5cc = m5c.copy || {};
   const m5on = m5.accounts.filter(a => a.online).length;
   const m5Chip = m5.accounts.length ? `<span class="chip ${m5on ? "good" : "bad"}">${m5on} von ${m5.accounts.length} verbunden</span>` : '<span class="chip mute">kein Konto</span>';
-  const m5Rows = m5.accounts.map(a => `<div class="m5-acc">
-      <div class="m5-h">${a.label ? `<b>${esc(a.label)}</b><span class="mono hint">${esc(a.login)}</span>` : `<b class="mono">${esc(a.login)}</b>`} <span class="chip ${a.online ? (a.can_trade ? "good" : "warn") : "bad"}">${a.online ? (a.can_trade ? "verbunden" : "Algo Trading aus") : "nicht verbunden"}</span>
-        <small class="hint">${esc([a.company, a.server].filter(Boolean).join(" · ") || "noch keine Meldung")}${a.balance != null ? " · " + usd2(a.balance) + (a.currency && a.currency !== "USD" ? " " + esc(a.currency) : "") : ""}${a.positions ? ` · ${a.positions} offen` : ""}</small></div>
-      <div class="m5-o">
-        <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5b_${esc(a.login)}" ${a.bot ? "checked" : ""}> Bot handelt hier</label>
-        <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5c_${esc(a.login)}" ${a.copy ? "checked" : ""}> Kopien empfangen</label>
-        <label class="m5-c">Faktor <input type="number" data-cfg id="m5f_${esc(a.login)}" value="${a.factor}" min="0.01" max="100" step="0.1" style="width:80px"></label>
-      </div>
-      ${a.chart && a.chart.known ? `<small class="${a.chart.ok ? "hint" : "neg"}">Chart der Bridge: ${esc(a.chart.symbol)} · ${a.chart.minutes} Min ${a.chart.ok ? "✓" : `→ soll ${esc(a.chart.want_symbol)} · ${a.chart.want_minutes} Min${(c.mt5 || {}).chart_fix !== false ? " (wird umgestellt)" : ""}`}</small>` : a.online ? '<small class="hint">Chart der Bridge: wird ab FVG-Bridge 2.05 angezeigt</small>' : ""}
-      <div class="m5-o m5-sym">
-        ${[["NQ", "Nasdaq", "m5n_"], ["ES", "S&amp;P 500", "m5e_"]].map(([fam, lbl, pre]) => { const e = (a.eff || {})[fam] || {};
-          return `<label class="m5-c">${lbl} <input type="text" data-cfg id="${pre}${esc(a.login)}" value="${esc(a["sym_" + fam] || "")}" placeholder="${esc(fam === "NQ" ? m5c.sym_NQ : m5c.sym_ES)}" maxlength="40" style="width:130px" autocomplete="off">
-            ${!a.online ? "" : e.found ? `<span class="chip good" title="${esc(e.name)} gibt es auf diesem Konto">✓ ${esc(e.name)}</span>` : `<span class="chip ${fam === "NQ" ? "bad" : "mute"}" title="Dieses Konto kennt ${esc(e.name)} nicht">✗ ${esc(e.name)} fehlt</span>`}</label>`; }).join("")}
-      </div></div>`).join("");
   $("#main").innerHTML = `<div class="settings-wrap">
   ${sec("app", "App & Updates", `Version ${esc(S.version)}${S.autostart ? " · startet mit Windows" : ""} · Handy · Protokoll`, updState, `
     <div class="row"><label>Installierte Version<small>${S.update.checked ? "Zuletzt geprüft: " + dtm(S.update.checked) : "Die App prüft bei jedem Start und alle 6 Stunden."}</small></label>
@@ -4234,35 +4278,25 @@ function settings() {
     </div>`)}
 
   ${sec("mt5", "MetaTrader 5 & Copytrading", m5.accounts.length ? `${m5.accounts.length} ${m5.accounts.length === 1 ? "Konto" : "Konten"}${m5cc.enabled ? " · Copytrading an" : ""}${c.broker === "mt5" ? " · Bot handelt über MT5" : ""}` : "Mehrere Konten gleichzeitig handeln, z. B. FTMO", m5Chip, `
-    ${intro("Der Bot kann auf beliebig vielen MT5-Konten gleichzeitig handeln. Jedes Konto läuft in einem eigenen MT5-Fenster mit dem Zusatzprogramm „FVG-Bridge“. Alles bleibt auf deinem PC.")}
-    <span class="lbl">Konten · MT5 startet automatisch</span>
-    <div id="mtList"></div>
-    <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen / bearbeiten</b><span class="hint">Die App richtet MT5 ein, meldet sich an und startet es minimiert</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
-    <span class="lbl">Von Hand einrichten (nur falls nötig)</span>
-    <ol class="m5-steps">
-      <li>„In MT5 installieren“ drücken (MT5 dabei geschlossen lassen oder danach neu starten).</li>
-      <li>In MT5 links im Navigator unter „Expert Advisors“ <b>FVG-Bridge</b> auf einen beliebigen Chart ziehen. Taucht er nicht auf: Rechtsklick → Aktualisieren.</li>
-      <li>Oben in MT5 <b>Algo Trading</b> einschalten. Nach ein paar Sekunden erscheint das Konto hier unten.</li>
-      <li>Für jedes weitere Konto ein eigenes MT5-Fenster öffnen (eigene Installation) und dasselbe tun.</li>
-    </ol>
-    <div class="inline wrap-gap"><button class="btn primary" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">EA herunterladen</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage herunterladen</a></div>
-    <p class="hint">Chart-Vorlage „FVG-Chart“: zeigt FVGs, Sessions (wie im Bot), Vortageshoch/-tief und Mitternachts-Open in einem ruhigen dunklen Design. In MT5 im Navigator unter „Indikatoren“ auf den Chart ziehen.</p>
+    <div class="cp-box">
+      <div class="row" style="border:0;padding:0"><label for="m5ce"><b>Copytrading</b><small>Deine Trades auf dem Hauptkonto werden auf alle Konten mit „Kopiert“ übertragen (sobald sie einen Stop-Loss haben).</small></label><input id="m5ce" type="checkbox" class="chk" data-cfg ${m5cc.enabled ? "checked" : ""}></div>
+      <div id="cpFlow"></div>
+      ${m5cc.enabled && (m5.copy.error || (m5.copy.waiting || []).length) ? `<small class="${m5.copy.error ? "neg" : "hint"}">${m5.copy.error ? esc(m5.copy.error) : "Wartet auf Stop-Loss im Hauptkonto: " + esc(m5.copy.waiting.join(", "))}</small>` : m5cc.enabled && m5.copy.last ? `<small class="hint">läuft · ${m5.copy.copies || 0} Kopien seit Start</small>` : ""}
+    </div>
+    <span class="lbl">Konten</span>
+    <div id="mtList" class="m5-list"></div>
+    <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen</b><span class="hint">Die App richtet MT5 ein und startet es selbst</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
     ${(() => { const g = m5.diag || {}; const ok = g.files && g.age != null && g.age < 15;
-      return `<div class="row"><label>Austausch-Ordner der App<small class="mono" style="overflow-wrap:anywhere">${esc(g.dir || "")}</small><small>${!g.exists ? '<span class="neg">Ordner gibt es noch nicht. FVG-Bridge hat hier noch nie etwas abgelegt.</span>' : !g.files ? '<span class="neg">Keine Meldung von FVG-Bridge in diesem Ordner.</span>' : ok ? `${g.files} Konto-Meldung${g.files === 1 ? "" : "en"}, neueste vor ${g.age} s` : `<span class="neg">Letzte Meldung vor ${g.age} s, also alt. FVG-Bridge läuft gerade nicht oder schreibt woanders hin.</span>`}</small></label><span class="chip ${ok ? "good" : "bad"}">${ok ? "empfängt" : "nichts"}</span></div>
-      ${ok ? "" : `<p class="cp-warn">Bridge läuft, aber hier kommt nichts an? In MT5 unten im Reiter <b>„Experten“</b> steht beim Start von FVG-Bridge die Zeile <b>„Austausch-Ordner: …“</b>. Ist der Pfad anders als oben, läuft die App wahrscheinlich als Dienst unter einem anderen Windows-Benutzer. Dann entweder den Dienst ausschalten (App &amp; Updates) oder den Pfad aus MT5 unten bei „Austausch-Ordner (nur bei Bedarf)“ eintragen.</p>`}`; })()}
-    <span class="lbl">2 · Konten</span>
-    ${m5Rows || '<p class="hint">Noch kein MT5-Konto gemeldet. Sobald FVG-Bridge in einem MT5-Fenster läuft, erscheint es hier.</p>'}
-    <p class="hint">„Bot handelt hier“: Signale des Bots werden auf diesem Konto ausgeführt (dazu unter „Konten & Broker“ MetaTrader 5 wählen). Faktor 1 = gleiches Risiko in $ wie berechnet, 0,5 = halb so viel. Nasdaq / S&amp;P 500: wie das Symbol bei diesem Konto heißt (z. B. NAS100.gbe bei IQ Capital, US100.cash bei FTMO). Leer = Name unten unter „Symbole“. ✓ heißt: MT5 kennt das Symbol auf diesem Konto.</p>
-    <span class="lbl">3 · Copytrading</span>
-    ${field("m5ce", "Copytrading einschalten", m5cc.enabled, {check: true, help: "Trades, die du auf dem Hauptkonto selbst eröffnest, werden auf alle Konten mit „Kopien empfangen“ übertragen: Einstieg, Stop, Ziel, Teil-Schließen und Schließen. Kopiert wird erst, wenn die Position einen Stop-Loss hat."})}
-    ${field("m5cm", "Hauptkonto", m5cc.master, {select: [["", "– wählen –"], ...m5.accounts.map(a => [a.login, a.login + (a.company ? " · " + a.company : "")])], help: "Größe der Kopie = Lots des Hauptkontos × Faktor des Empfänger-Kontos"})}
-    ${m5cc.enabled ? `<div class="row"><label>Status<small>${m5.copy.error ? `<span class="neg">${esc(m5.copy.error)}</span>` : m5.copy.waiting && m5.copy.waiting.length ? "Wartet auf Stop-Loss im Hauptkonto: " + esc(m5.copy.waiting.join(", ")) : m5.copy.last ? "läuft · " + (m5.copy.copies || 0) + " Kopien seit Start" : "startet gleich"}</small></label></div>` : ""}
-    <span class="lbl">Symbole (allgemein)</span>
-    ${field("m5sn", "Nasdaq in MT5", m5c.sym_NQ, {type: "text", help: "Gilt für alle Konten ohne eigenen Namen oben. Bei FTMO „US100.cash“, bei IQ Capital „NAS100.gbe“."})}
-    ${field("m5se", "S&P 500 in MT5", m5c.sym_ES, {type: "text", help: "Bei FTMO „US500.cash“"})}
-    ${field("m5cf", "Chart der Bridge richtig halten", m5c.chart_fix !== false, {check: true, help: "Liegt FVG-Bridge auf einem anderen Chart, stellt die App ihn auf das Nasdaq-Symbol des Kontos und die Zeiteinheit unten um."})}
-    ${field("m5tf", "Zeiteinheit des Charts", m5c.chart_minutes || 5, {select: [[1, "1 Minute"], [3, "3 Minuten"], [5, "5 Minuten (wie TradingView)"], [15, "15 Minuten"], [30, "30 Minuten"], [60, "1 Stunde"]]})}
-    ${field("m5dir", "Austausch-Ordner (nur bei Bedarf)", m5c.dir || "", {type: "text", attrs: {placeholder: "leer = automatisch", autocomplete: "off"}, help: "Nur ausfüllen, wenn App und MT5 nicht zusammenfinden: den Pfad aus der MT5-Zeile „FVG-Bridge Austausch-Ordner: …“ hier einfügen."})}`)}
+      return `<details class="set-sec mt-add" id="m5Tech"><summary><span class="s-ic">${icon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>')}</span><span class="s-t"><b>Technik &amp; Fehlersuche</b><span class="hint">Chart, Standard-Symbole, Austausch-Ordner, MT5 von Hand</span></span><span class="chip ${ok ? "good" : "bad"}">${ok ? "empfängt" : "keine Meldung"}</span></summary><div class="set-b">
+      ${field("m5cf", "Chart der Bridge richtig halten", m5c.chart_fix !== false, {check: true, help: "Stellt den Chart von FVG-Bridge auf das Nasdaq-Symbol des Kontos und die Zeiteinheit."})}
+      ${field("m5tf", "Zeiteinheit des Charts", m5c.chart_minutes || 5, {select: [[1, "1 Minute"], [3, "3 Minuten"], [5, "5 Minuten (wie TradingView)"], [15, "15 Minuten"], [30, "30 Minuten"], [60, "1 Stunde"]]})}
+      ${field("m5sn", "Nasdaq-Symbol (Standard)", m5c.sym_NQ, {type: "text", help: "Für Konten ohne eigenes Symbol. FTMO: US100.cash · IQ Capital: NAS100.gbe"})}
+      ${field("m5se", "S&P-500-Symbol (Standard)", m5c.sym_ES, {type: "text", help: "FTMO: US500.cash"})}
+      <div class="row"><label>Austausch-Ordner<small class="mono" style="overflow-wrap:anywhere">${esc(g.dir || "")}</small><small>${ok ? `${g.files} Konto-Meldung${g.files === 1 ? "" : "en"}, neueste vor ${g.age} s` : !g.files ? '<span class="neg">Keine Meldung von FVG-Bridge.</span>' : `<span class="neg">Letzte Meldung vor ${g.age} s.</span>`}</small></label><span class="chip ${ok ? "good" : "bad"}">${ok ? "empfängt" : "nichts"}</span></div>
+      ${field("m5dir", "Austausch-Ordner von Hand", m5c.dir || "", {type: "text", attrs: {placeholder: "leer = automatisch", autocomplete: "off"}, help: "Nur nötig, wenn ein von Hand geöffnetes MT5 nicht ankommt: den Pfad aus der MT5-Zeile „FVG-Bridge Austausch-Ordner: …“ einfügen."})}
+      <div class="row"><label>MT5 von Hand einrichten<small>Nur für MT5-Fenster, die du selbst öffnest: installieren, dann FVG-Bridge auf einen Chart ziehen und Algo Trading einschalten.</small></label></div>
+      <div class="inline wrap-gap"><button class="btn" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">FVG-Bridge laden</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage laden</a></div>
+      </div></details>`; })()}`)}
 
   ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, Kontrakte, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
     <span class="lbl">Safe-Stop-Grenzen (Punkte)</span>
@@ -4320,9 +4354,9 @@ function settings() {
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
       topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
-      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: v("m5cm") || ""},
-        accounts: Object.fromEntries((S.mt5 ? S.mt5.accounts : []).map(a => [a.login, {bot: v("m5b_" + a.login), copy: v("m5c_" + a.login), factor: v("m5f_" + a.login),
-          sym_NQ: (v("m5n_" + a.login) || "").trim(), sym_ES: (v("m5e_" + a.login) || "").trim()}]))},
+      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
+        accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg),
+          sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},
       contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
@@ -4339,6 +4373,7 @@ function settings() {
   };
   MTF.edit = null;   // Formular startet immer leer („hinzufügen“)
   mtListRender(); mtFormRender();
+  $("#m5ce").addEventListener("change", copyFlowRender);
   $("#mtAdd").addEventListener("toggle", () => {
     // über die Überschrift aufgeklappt: neues Konto. Über „Bearbeiten“ aufgeklappt: Daten des Kontos.
     if ($("#mtAdd").open && !MTF.viaEdit && MTF.edit) { MTF.edit = null; mtFormRender(); }
