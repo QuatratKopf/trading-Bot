@@ -2796,7 +2796,7 @@ function trkForm() {
   if (!pg.sizes.includes(+TF.size)) TF.size = pg.sizes.includes(100000) ? 100000 : pg.sizes[0];
   const accs = (S.mt5 || {}).accounts || [];
   const srcs = [...accs.map(a => ["mt5:" + a.login, `MT5 ${a.login}${a.company ? " · " + a.company : ""}${a.online ? "" : " (gerade offline)"}`]),
-    ...((S.config.topstep || {}).username ? [["topstep", "Topstep-Konto (Einstellungen → Konten & Broker)"]] : []), ["eigen", "Eigene Trades (eintragen oder CSV-Import)"]];
+    ...((S.config.topstep || {}).username ? [["topstep", "Topstep-Konto (alt)"]] : []), ["eigen", "Eigene Trades (eintragen oder CSV-Import)"]];
   const sel = (id, items, cur) => `<select id="${id}">${items.map(([k, l]) => `<option value="${esc(k)}" ${String(k) === String(cur) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
   box.innerHTML = `
     <div class="row"><label for="tfF">Firma</label>${sel("tfF", Object.entries(P).map(([k, x]) => [k, x.name]), TF.firm)}</div>
@@ -4119,10 +4119,6 @@ function settings() {
   const cfg0 = c.confluence || {enabled: true, min: 3, use: {}};
   const riskSum = `Stop NQ ${ss.NQ.default} / ES ${ss.ES.default} Pkt. · Ziel ${ss.default_rr} R · ${r.max_daily_loss > 0 ? "Tageslimit " + usd(r.max_daily_loss) : "kein Tageslimit"} · ${(c.news || {}).enabled ? `News-Pause ±${c.news.before_min}/${c.news.after_min} Min` : "keine News-Pause"}${c.early_exit === false ? " · ohne frühen Ausstieg" : ""}${r.max_open > 1 ? ` · bis zu ${r.max_open} Positionen gleichzeitig` : ""}`;
   const tunChip = S.tunnel.ok || c.public_url ? `<span class="chip ${S.tunnel.fixed || c.public_url ? "good" : "warn"}">${S.tunnel.fixed || c.public_url ? "feste Adresse" : "wechselnde Adresse"}</span>` : '<span class="chip bad">getrennt</span>';
-  const ts = c.topstep || {};
-  const accChip = c.broker === "topstep" ? `<span class="chip ${S.broker.ok ? "good" : "bad"}">Topstep</span>`
-    : c.broker === "mt5" ? `<span class="chip ${S.broker.ok ? "good" : "bad"}">MetaTrader 5</span>` : '<span class="chip mute">Paper</span>';
-  const brokerLabel = {topstep: "Topstep", mt5: "MetaTrader 5"}[c.broker] || "Paper-Trading";
   const m5 = S.mt5 || {accounts: [], copy: {}}, m5c = c.mt5 || {copy: {}}, m5cc = m5c.copy || {};
   const m5on = m5.accounts.filter(a => a.online).length;
   const m5Chip = m5.accounts.length ? `<span class="chip ${m5on ? "good" : "bad"}">${m5on} von ${m5.accounts.length} verbunden</span>` : '<span class="chip mute">kein Konto</span>';
@@ -4261,23 +4257,12 @@ function settings() {
     <div class="inline wrap-gap"><button class="btn" id="cpPine2">Strategie-Script kopieren</button><button class="btn" id="tL">Test-Signal senden</button><button class="btn" id="tNet">Webhook über Internet testen</button></div>
     ${intro("„Test-Signal senden“ prüft nur die App selbst. „Webhook über Internet testen“ schickt eine Nachricht über ngrok an die Webhook-Adresse – genau den Weg, den TradingView nimmt.")}`)}
 
-  ${sec("acc", "Konten & Broker", `Bot handelt über ${brokerLabel}`, accChip, `
-    ${intro("Hier legst du fest, wo der Bot handelt: Paper-Trading zum Testen, ein Topstep-Konto oder deine MetaTrader-5-Konten.")}
-    <span class="lbl">Topstep ${ts.username && ts.api_key ? (c.broker === "topstep" && !S.broker.ok ? '<span class="chip bad">Fehler</span>' : '<span class="chip good">hinterlegt</span>') : '<span class="chip mute">nicht verbunden</span>'}</span>
-    <p class="hint" style="margin:0 0 6px">Für Fremdkapital-Konten von Topstep. Den API-Schlüssel bekommst du in TopstepX unter Einstellungen → API (kostenpflichtiges Zusatzpaket von Topstep).</p>
-    ${field("tsu", "TopstepX-Benutzername", ts.username, {type: "text", attrs: {autocomplete: "off"}, help: "Der Benutzername aus TopstepX, nicht die E-Mail-Adresse"})}
-    ${field("tsk", "API-Schlüssel", ts.api_key, {type: "password"})}
-    ${field("tsa", "Kontoname", ts.account, {type: "text", attrs: {autocomplete: "off"}, help: "Genau das Konto, auf dem der Bot handeln soll. „Verbindung testen“ zeigt alle deine Konten."})}
-    <div class="inline wrap-gap"><button class="btn" id="tsTest">Topstep-Verbindung testen</button></div>
-    <div id="tsAccs"></div>
-    <span class="lbl">Bot-Orders</span>
-    ${field("bk", "Der Bot handelt über", c.broker, {select: [["paper", "Paper-Trading (Simulation)"], ["topstep", "Topstep-Konto oben"], ["mt5", "MetaTrader 5 (Konten unter „MetaTrader 5“)"]], help: c.broker !== "paper" ? `Status: ${esc(S.broker.status || "–")}` : "Empfohlen, bis der Bot sich bewährt hat"})}
+  ${sec("mt5", "MetaTrader 5 & Copytrading", m5.accounts.length ? `${m5.accounts.length} ${m5.accounts.length === 1 ? "Konto" : "Konten"}${m5cc.enabled ? " · Copytrading an" : ""}${c.broker === "mt5" ? " · Bot handelt über MT5" : c.broker === "paper" ? " · Bot handelt nur Paper" : ""}` : (c.broker === "paper" ? "Bot handelt nur Paper · " : "") + "Mehrere Konten gleichzeitig handeln, z. B. FTMO", m5Chip, `
+    ${field("bk", "Der Bot handelt über", c.broker, {select: [["mt5", "MetaTrader 5 (Konten unten)"], ["paper", "Paper-Trading (nur Test, kein echtes Geld)"], ...(c.broker === "topstep" ? [["topstep", "Topstep (alt)"]] : [])], help: c.broker !== "paper" ? `Status: ${esc(S.broker.status || "–")}` : "Der Bot handelt nur simuliert"})}
     <div id="ppd" class="sub" ${c.broker === "paper" ? "" : "hidden"}>
       ${field("pb", "Startkapital Paper ($)", c.paper.start_balance, {attrs: {min: 1000, step: 1000}})}
       <div class="inline wrap-gap"><button class="btn ghost-danger" id="pr">Paper-Konto zurücksetzen</button></div>
-    </div>`)}
-
-  ${sec("mt5", "MetaTrader 5 & Copytrading", m5.accounts.length ? `${m5.accounts.length} ${m5.accounts.length === 1 ? "Konto" : "Konten"}${m5cc.enabled ? " · Copytrading an" : ""}${c.broker === "mt5" ? " · Bot handelt über MT5" : ""}` : "Mehrere Konten gleichzeitig handeln, z. B. FTMO", m5Chip, `
+    </div>
     <div class="cp-box">
       <div class="row" style="border:0;padding:0"><label for="m5ce"><b>Copytrading</b><small>Deine Trades auf dem Hauptkonto werden auf alle Konten mit „Kopiert“ übertragen (sobald sie einen Stop-Loss haben).</small></label><input id="m5ce" type="checkbox" class="chk" data-cfg ${m5cc.enabled ? "checked" : ""}></div>
       <div id="cpFlow"></div>
@@ -4298,7 +4283,7 @@ function settings() {
       <div class="inline wrap-gap"><button class="btn" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">FVG-Bridge laden</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage laden</a></div>
       </div></details>`; })()}`)}
 
-  ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, Kontrakte, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
+  ${sec("adv", "Erweitert", "Safe-Stop-Grenzen, Lernmodul, Paper, eigene Adresse", '<span class="chip mute">nur bei Bedarf</span>', `
     <span class="lbl">Safe-Stop-Grenzen (Punkte)</span>
     ${field("nqmin", "NQ Minimum", ss.NQ.min, {attrs: {step: 0.25, min: 0.25}})}
     ${field("nqmax", "NQ Maximum", ss.NQ.max, {attrs: {step: 0.25, min: 1}})}
@@ -4313,9 +4298,6 @@ function settings() {
     ${field("psl", "Slippage (Ticks)", c.paper.slippage_ticks, {attrs: {min: 0, step: 1}})}
     ${field("pc", "Gebühr Mini (NQ/ES) pro Kontrakt & Seite ($)", c.paper.commission, {attrs: {min: 0, step: 0.01}, help: "Alles zusammen: Kommission, Börse, Clearing, NFA. Bei Prop-Firmen steht der Wert in deren Hilfe-Center."})}
     ${field("pcm", "Gebühr Micro (MNQ/MES) pro Kontrakt & Seite ($)", c.paper.commission_micro ?? 0.75, {attrs: {min: 0, step: 0.01}, help: "Gilt auch für den Strategie-Finder und die Session-Ziele"})}
-    <span class="lbl">Kontrakte (Topstep)</span>
-    ${field("cnq", "Kontrakt NQ / MNQ", c.contracts.NQ, {type: "text", attrs: {placeholder: "automatisch"}})}
-    ${field("ces", "Kontrakt ES / MES", c.contracts.ES, {type: "text", attrs: {placeholder: "automatisch"}})}
     <span class="lbl">Verbindung & Updates</span>
     ${field("pu", "Eigene feste Adresse", c.public_url, {type: "url", attrs: {placeholder: "leer = automatisch"}, help: "Nur mit ngrok o. Ä."})}
     <div class="inline wrap-gap"><button class="btn ghost-danger" id="rt">Neue Webhook-Adresse erzeugen</button>
@@ -4353,11 +4335,9 @@ function settings() {
       confluence: {enabled: v("cfE"), min: parseInt(v("cfM")), use: Object.fromEntries(Object.keys(CFN()).map(k => [k, v("cfU_" + k)]))},
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
-      topstep: {username: (v("tsu") || "").trim(), api_key: (v("tsk") || "").trim(), account: (v("tsa") || "").trim()},
       mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
         accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg),
           sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},
-      contracts: {NQ: v("cnq"), MNQ: v("cnq") ? v("cnq").replace(/^NQ/i, "MNQ") : "", ES: v("ces"), MES: v("ces") ? v("ces").replace(/^ES/i, "MES") : ""},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
       local_no_pw: v("lnp"),
@@ -4383,17 +4363,6 @@ function settings() {
   $("#m5Inst").onclick = async () => {
     try { const r = await api("/api/mt5/install", {}); toast(r.count ? `EA und Chart-Vorlage in ${r.count} MT5-Installation${r.count === 1 ? "" : "en"} gelegt. MT5 neu starten oder im Navigator aktualisieren.` : "Keine MT5-Installation gefunden. Bitte beide Dateien herunterladen und in MT5 über Datei → Datenordner öffnen → MQL5 → Experts bzw. Indicators ablegen."); }
     catch (e) { toast(e.message); }
-  };
-  $("#tsTest").onclick = async () => {
-    const box = $("#tsAccs");
-    try {
-      if (settingsDirty) await doSave();
-      const r = await api("/api/topstep/test", {});
-      toast(r.ok ? r.status : "Fehler: " + r.status);
-      box.innerHTML = (r.ok ? "" : `<p class="err-msg">${esc(r.status)}</p>`)
-        + (r.accounts && r.accounts.length ? `<div style="margin-top:8px">${r.accounts.map(a => `<div class="row"><label>${esc(a.name)}<small>${a.can_trade ? "darf handeln" : "gesperrt"}${a.balance != null ? " · " + usd(a.balance) : ""}</small></label><button type="button" class="btn tsPick" data-n="${esc(a.name)}">Dieses Konto nehmen</button></div>`).join("")}</div>` : "");
-      box.querySelectorAll(".tsPick").forEach(b => b.onclick = () => { $("#tsa").value = b.dataset.n; dirty(); toast("Konto eingetragen. Bitte speichern."); });
-    } catch (e) { toast(e.message); }
   };
   $("#dcTest").onclick = async () => {
     const b = $("#dcTest"); b.disabled = true; b.textContent = "Sende …";

@@ -199,7 +199,7 @@ PROP_PRESETS = {
             "markets": "Futures (NQ, ES, MNQ, MES …)",
             "platforms": "TopstepX (eigene Plattform), dazu NinjaTrader und weitere",
             "bots": "Über die TopstepX-API erlaubt, aber nur im Trading Combine und Express Funded, nicht im Live-Konto",
-            "app": "Ja, über die Topstep-Anbindung (Einstellungen → Konten & Broker)", "app_ok": True,
+            "app": "Nein, die Topstep-Anbindung wurde aus der App entfernt (du nutzt MetaTrader 5)", "app_ok": False,
             "extra": ["API kostet extra: etwa 29 $ im Monat (mit Rabattcode etwa 14,50 $)",
                       "Bot nur vom eigenen PC: gemieteter Server (VPS) und VPN sind verboten",
                       "Konsistenzregel 50 % im Trading Combine"],

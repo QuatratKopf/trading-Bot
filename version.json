@@ -1,6 +1,6 @@
 {
-  "version": "3.12.0",
-  "file": "releases/FVG-Trader-3.12.0.cmd",
-  "sha256": "6d2de4e12e5011411ddd4de7416720e4158248ff795c4dddfba53dac4c2d1ad7",
-  "notes": "MetaTrader-5-Bereich übersichtlicher: eine Karte pro Konto, Copytrading mit drei Knöpfen (Hauptkonto / Kopiert / Aus) und Übersicht oben, Technik & Fehlersuche zugeklappt, weniger Text"
+  "version": "3.12.1",
+  "file": "releases/FVG-Trader-3.12.1.cmd",
+  "sha256": "9905b68328de0874dfaf27298878816a7a35f5ec92a729144037a4913ffd7c80",
+  "notes": "Einstellungen: Bereich „Konten & Broker“ und Topstep entfernt; „Der Bot handelt über“ (MetaTrader 5 / Paper) steht jetzt oben bei MetaTrader 5 & Copytrading"
 }
