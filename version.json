@@ -1,6 +1,6 @@
 {
-  "version": "3.11.5",
-  "file": "releases/FVG-Trader-3.11.5.cmd",
-  "sha256": "3691656791d0e594617001c7a40f640c6ef28c323e79f4aeea37a3739a09c2c2",
-  "notes": "MT5-Starter: läuft die App als Dienst, startet MT5 jetzt im angemeldeten Windows-Konto (vorher lief es unsichtbar als SYSTEM und beendete sich oder meldete sich nicht); Serverliste und MT5-Bibliothek werden bei allen Windows-Benutzern gesucht"
+  "version": "3.11.6",
+  "file": "releases/FVG-Trader-3.11.6.cmd",
+  "sha256": "da10f5abd229587a9dccc11ef5e301d7c39d67d4269a0592d40108eb12bb285f",
+  "notes": "MT5-Starter: Ordner mit Leerzeichen (z. B. „Neuer Ordner“) funktionieren jetzt – MT5 liest die Start-Datei mit Login/Server und FVG-Bridge wird übersetzt; hängendes MT5 wird beim Neustart sicher beendet"
 }

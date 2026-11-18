@@ -798,8 +798,10 @@ class Mt5Terminals:
         st["step"] = "übersetze FVG-Bridge …"
         for sub, fn in (("Experts", "FVG-Bridge.mq5"), ("Indicators", "FVG-Chart.mq5")):
             try:
-                subprocess.run([me, "/portable", f"/compile:{os.path.join(dst, 'MQL5', sub, fn)}",
-                                f"/log:{os.path.join(dst, 'kompilieren.log')}"], timeout=120, creationflags=0x08000000)
+                # MetaEditor/MT5 lesen den Pfad nach „/compile:“ selbst aus: mit Leerzeichen (z. B. „Neuer Ordner“)
+                # nur in der Form /compile:"Pfad", sonst endet er beim ersten Leerzeichen
+                cl = f'"{me}" /portable /compile:"{os.path.join(dst, "MQL5", sub, fn)}" /log:"{os.path.join(dst, "kompilieren.log")}"'
+                subprocess.run(cl, timeout=120, creationflags=0x08000000)
             except (OSError, subprocess.SubprocessError) as e:
                 self._say(f"MT5 „{t['name']}“: Übersetzen von {fn} fehlgeschlagen: {e}", "warn")
         st["step"] = ""
@@ -849,7 +851,7 @@ class Mt5Terminals:
         last = {}
         for i, l in enumerate(lines):
             low = l.lower()
-            for k, pat in (("auth_fail", "authorization on"), ("auth_ok", "authorized on"), ("no_srv", "no connection"),
+            for k, pat in (("cfg", "cannot load config"), ("auth_fail", "authorization on"), ("auth_ok", "authorized on"), ("no_srv", "no connection"),
                            ("invalid", "invalid account"), ("ea_ok", "fvg-bridge"), ("algo_off", "automated trading is disabled"),
                            ("algo_off", "algo trading is disabled")):
                 if pat in low:
@@ -858,7 +860,9 @@ class Mt5Terminals:
                     if k == "ea_ok" and not ("loaded successfully" in low or "removed" in low or "cannot" in low):
                         continue
                     last[k] = (i, l)
-        if "auth_fail" in last and last["auth_fail"][0] > last.get("auth_ok", (-1,))[0] or "invalid" in last:
+        if "cfg" in last and last["cfg"][0] > last.get("auth_ok", (-1,))[0]:
+            hint = "MT5 konnte die Start-Datei mit Login und Server nicht lesen. Bitte „Neu starten“."
+        elif "auth_fail" in last and last["auth_fail"][0] > last.get("auth_ok", (-1,))[0] or "invalid" in last:
             hint = ("Anmeldung abgelehnt: Login, Passwort (Trading-/Master-Passwort, nicht Investor) oder Server stimmt nicht. "
                     "Unter „Bearbeiten“ prüfen.")
         elif "no_srv" in last and last["no_srv"][0] > last.get("auth_ok", (-1,))[0]:
@@ -978,7 +982,7 @@ class Mt5Terminals:
                 exe = self.exe_of(dst)
                 if os.name != "nt":
                     raise BrokerError("MT5 automatisch starten geht nur unter Windows")
-                cmd = [exe, "/portable", f"/config:{ini}"]
+                cmd = f'"{exe}" /portable /config:"{ini}"'   # Form /config:"Pfad", sonst stört ein Leerzeichen im Pfad
                 si = subprocess.STARTUPINFO()
                 si.dwFlags |= 0x00000001           # STARTF_USESHOWWINDOW
                 si.wShowWindow = 7                 # minimiert, ohne den Fokus zu nehmen
@@ -1017,7 +1021,7 @@ $o = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Select-Object
 if (-not $o -or -not $o.User) {{ Write-Output 'NOUSER'; exit 0 }}
 $u = if ($o.Domain) {{ $o.Domain + '\\' + $o.User }} else {{ $o.User }}
 & icacls {q(dst)} /grant ($u + ':(OI)(CI)F') /T /Q | Out-Null
-$a = New-ScheduledTaskAction -Execute {q(exe)} -Argument {q('/portable "/config:' + ini + '"')} -WorkingDirectory {q(dst)}
+$a = New-ScheduledTaskAction -Execute {q(exe)} -Argument {q('/portable /config:"' + ini + '"')} -WorkingDirectory {q(dst)}
 $p = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Highest
 $s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName {q(task)} -Action $a -Principal $p -Settings $s -Force | Out-Null
@@ -1053,6 +1057,18 @@ Write-Output ('OK ' + $u)
                     os.kill(pid, 15)
             except (OSError, subprocess.SubprocessError):
                 pass
+        if os.name == "nt" and pids:   # hängt MT5 z. B. in einem offenen Dialog, hart beenden
+            for _ in range(8):
+                time.sleep(1)
+                self._ps = (0, {})
+                if not self._running_map().get(os.path.normcase(self.folder(t))):
+                    break
+            else:
+                for pid in self._running_map().get(os.path.normcase(self.folder(t)), []):
+                    try:
+                        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=20, creationflags=0x08000000)
+                    except (OSError, subprocess.SubprocessError):
+                        pass
         self._ps = (0, {})
         st = self.state.setdefault(t["id"], {})
         st["stopped"] = time.time()
