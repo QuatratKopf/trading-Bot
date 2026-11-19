@@ -1317,6 +1317,25 @@ class Mt5Terminals:
         threading.Thread(target=scrub, daemon=True).start()
 
     def _start_as_user(self, t, exe, dst, ini):
+        """Als Dienst: MT5 direkt in der Windows-Sitzung des angemeldeten Benutzers starten (auch wenn das
+        Remotedesktop-Fenster zu ist). Klappt das nicht, über eine Windows-Aufgabe."""
+        import subprocess
+        try:   # vorher: angemeldete Benutzer dürfen die von SYSTEM angelegte Kopie beschreiben (Protokolle, Einstellungen)
+            subprocess.run(["icacls", dst, "/grant", "*S-1-5-11:(OI)(CI)M", "/T", "/Q"], capture_output=True, timeout=120,
+                           creationflags=0x08000000)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            user, pid = user_session_spawn(f'"{exe}" /portable /config:"{ini}"', dst)
+        except Exception as e:   # noqa: BLE001  (ctypes kann alles Mögliche werfen; dann Weg über die Aufgabe)
+            if getattr(e, "nouser", False):
+                raise BrokerError("Die App läuft als Dienst, aber niemand ist am PC/Server angemeldet. MT5 braucht ein angemeldetes "
+                                  "Windows-Konto: einmal per Remotedesktop anmelden, das Fenster danach nur schließen (nicht abmelden).")
+            self._say(f"MT5 „{t['name']}“: direkter Start in der Benutzer-Sitzung ging nicht ({e}), versuche Windows-Aufgabe", "info")
+            return self._start_via_task(t, exe, dst, ini)
+        return user
+
+    def _start_via_task(self, t, exe, dst, ini):
         """Die App läuft als Dienst (Konto SYSTEM, ohne Bildschirm). Ein von dort gestartetes MT5 hätte kein Fenster und
         schriebe in den Ordner von SYSTEM. Darum MT5 über eine Windows-Aufgabe im angemeldeten Benutzerkonto starten."""
         import subprocess
@@ -1417,6 +1436,83 @@ Write-Output ('OK ' + $u)
                 self.start(t, reason="Wächter")
             except BrokerError as e:
                 self._say(str(e), "error")
+
+
+def user_session_spawn(cmdline, cwd):
+    """Programm aus einem Windows-Dienst (SYSTEM) heraus in der Sitzung des angemeldeten Benutzers starten
+    (WTSQueryUserToken + CreateProcessAsUser). Nimmt die aktive Sitzung, sonst eine getrennte Remotedesktop-Sitzung.
+    Gibt (Benutzer, PID) zurück. OSError mit .nouser=True, wenn niemand angemeldet ist."""
+    import ctypes
+    from ctypes import wintypes as W
+    wts, adv, k32, uenv = ctypes.WinDLL("wtsapi32", use_last_error=True), ctypes.WinDLL("advapi32", use_last_error=True), \
+        ctypes.WinDLL("kernel32", use_last_error=True), ctypes.WinDLL("userenv", use_last_error=True)
+
+    class SessInfo(ctypes.Structure):
+        _fields_ = [("SessionId", W.DWORD), ("pWinStationName", W.LPWSTR), ("State", ctypes.c_int)]
+
+    class StartupInfo(ctypes.Structure):
+        _fields_ = [("cb", W.DWORD), ("lpReserved", W.LPWSTR), ("lpDesktop", W.LPWSTR), ("lpTitle", W.LPWSTR),
+                    ("dwX", W.DWORD), ("dwY", W.DWORD), ("dwXSize", W.DWORD), ("dwYSize", W.DWORD),
+                    ("dwXCountChars", W.DWORD), ("dwYCountChars", W.DWORD), ("dwFillAttribute", W.DWORD),
+                    ("dwFlags", W.DWORD), ("wShowWindow", W.WORD), ("cbReserved2", W.WORD),
+                    ("lpReserved2", ctypes.c_void_p), ("hStdInput", W.HANDLE), ("hStdOutput", W.HANDLE), ("hStdError", W.HANDLE)]
+
+    class ProcInfo(ctypes.Structure):
+        _fields_ = [("hProcess", W.HANDLE), ("hThread", W.HANDLE), ("dwProcessId", W.DWORD), ("dwThreadId", W.DWORD)]
+
+    def fail(what):
+        return OSError(f"{what} (Windows-Fehler {ctypes.get_last_error()})")
+
+    pinfo, count = ctypes.POINTER(SessInfo)(), W.DWORD()
+    if not wts.WTSEnumerateSessionsW(None, 0, 1, ctypes.byref(pinfo), ctypes.byref(count)):
+        raise fail("Sitzungen nicht lesbar")
+    try:
+        sess = [(pinfo[i].SessionId, pinfo[i].State) for i in range(count.value)]
+    finally:
+        wts.WTSFreeMemory(pinfo)
+    token, user = None, ""
+    for sid, state in sorted([x for x in sess if x[1] in (0, 4)], key=lambda x: x[1]):   # 0 = aktiv, 4 = getrennt
+        tk = W.HANDLE()
+        if wts.WTSQueryUserToken(W.ULONG(sid), ctypes.byref(tk)):
+            buf, n = W.LPWSTR(), W.DWORD()
+            name = dom = ""
+            if wts.WTSQuerySessionInformationW(None, sid, 5, ctypes.byref(buf), ctypes.byref(n)):   # Benutzername
+                name = buf.value or ""
+                wts.WTSFreeMemory(buf)
+            if wts.WTSQuerySessionInformationW(None, sid, 7, ctypes.byref(buf), ctypes.byref(n)):   # Domäne
+                dom = buf.value or ""
+                wts.WTSFreeMemory(buf)
+            token, user = tk, (dom + "\\" + name) if dom else name
+            break
+    if token is None:
+        e = OSError("niemand angemeldet")
+        e.nouser = True
+        raise e
+    primary, env = W.HANDLE(), ctypes.c_void_p()
+    try:
+        if not adv.DuplicateTokenEx(token, 0x02000000, None, 2, 1, ctypes.byref(primary)):
+            raise fail("Anmelde-Token nicht kopierbar")
+        if not uenv.CreateEnvironmentBlock(ctypes.byref(env), primary, False):
+            env = ctypes.c_void_p()
+        si = StartupInfo()
+        si.cb = ctypes.sizeof(StartupInfo)
+        si.lpDesktop = "winsta0\\default"
+        si.dwFlags = 0x00000001          # STARTF_USESHOWWINDOW
+        si.wShowWindow = 7               # minimiert, ohne Fokus
+        pi = ProcInfo()
+        cmd = ctypes.create_unicode_buffer(cmdline)
+        flags = 0x00000400 | 0x00000200   # CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP
+        if not adv.CreateProcessAsUserW(primary, None, cmd, None, None, False, flags, env, cwd, ctypes.byref(si), ctypes.byref(pi)):
+            raise fail("Start in der Benutzer-Sitzung abgelehnt")
+        k32.CloseHandle(pi.hThread)
+        k32.CloseHandle(pi.hProcess)
+        return user, pi.dwProcessId
+    finally:
+        if env:
+            uenv.DestroyEnvironmentBlock(env)
+        if primary:
+            k32.CloseHandle(primary)
+        k32.CloseHandle(token)
 
 
 def sys_executable():
@@ -8817,7 +8913,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.13.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.13.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 

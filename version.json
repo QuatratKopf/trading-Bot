@@ -1,6 +1,6 @@
 {
-  "version": "3.13.0",
-  "file": "releases/FVG-Trader-3.13.0.cmd",
-  "sha256": "deedbe0b52585387ff5eff3669dc4ecb3d11ba9db9e2b4048398be18ced4cbdf",
-  "notes": "Einstellungen aufgeräumt: eigene Bereiche „Lernmodul“ und „Sicherungen“, App/Handy/Updates schlanker, Anleitungen (Google Drive, Discord) zugeklappt, veraltete Texte entfernt"
+  "version": "3.13.1",
+  "file": "releases/FVG-Trader-3.13.1.cmd",
+  "sha256": "4cd1a31cd938ab36075f629d47b9a5af056a7f1dfed85b495d0fb6776469cbb5",
+  "notes": "MT5-Starter (App als Dienst): MT5 wird jetzt direkt in deiner Windows-Sitzung gestartet, auch bei geschlossenem Remotedesktop-Fenster; die Windows-Aufgabenplanung ist nur noch Notlösung (behebt „Der Thread wurde nicht gestartet“)"
 }
