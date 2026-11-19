@@ -17,7 +17,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine import Engine  # noqa: E402
+from engine import DISCORD_RE, Engine  # noqa: E402
 from brokers import BrokerError  # noqa: E402
 from tunnel import Tunnel  # noqa: E402
 from appshell import MANIFEST, SERVICE_WORKER, autostart_enabled, ensure_desktop_shortcut, icon_png, open_app_window, service_install, service_installed, service_remove, set_autostart, windowless_python  # noqa: E402,E501
@@ -1268,11 +1268,11 @@ def _discord_loop():
         time.sleep(1.5)
         if not engine.outbox:
             continue
-        url = (engine.cfg.get("discord") or {}).get("url")
-        if not url:
-            engine.outbox.clear()
-            continue
         msg = engine.outbox[0]
+        url = msg.get("url") or (engine.cfg.get("discord") or {}).get("url")
+        if not url:
+            engine.outbox.pop(0)
+            continue
         try:
             _discord_post(url, msg)
             engine.outbox.pop(0)
@@ -1294,22 +1294,34 @@ def _discord_loop():
 @route("POST", r"/api/discord/test")
 def discord_test(h):
     b = h._json()
-    url = (b.get("url") or "").strip()
-    if not url or url == "••••••••":
-        url = (engine.cfg.get("discord") or {}).get("url")
-    if not url:
-        raise ValueError("Bitte zuerst die Discord-Webhook-URL eintragen")
-    if not re.match(r"^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/\d+/[\w-]+$", url):
-        raise ValueError("Das ist keine Discord-Webhook-URL (https://discord.com/api/webhooks/…)")
-    try:
-        _discord_post(url, {"title": "✅ FVG Trader ist verbunden", "tone": "good",
-                            "text": "Ab jetzt bekommst du hier Nachrichten zu Trades, Fehlern, Tages-Stopp und den Berichten."})
-    except urllib.error.HTTPError as e:
-        raise ValueError(f"Discord lehnt ab (HTTP {e.code}). Ist die Webhook-URL vollständig und noch gültig?")
-    except Exception as e:  # noqa: BLE001
-        raise ValueError(f"Discord nicht erreichbar: {e}")
+    saved = engine.cfg.get("discord") or {}
+    names = {"url": ("Haupt-Kanal", "Tagesabschluss, Wochenbericht, Tages-Stopp, Lernmodul und alles ohne eigenen Kanal"),
+             "url_trades": ("Kanal Trades", "Einstieg und Ausstieg"), "url_bias": ("Kanal Bias", "Bias zu Beginn jeder Session"),
+             "url_errors": ("Kanal Fehler", "Fehlermeldungen und „TradingView schweigt“")}
+    urls = b.get("urls") if isinstance(b.get("urls"), dict) else {"url": b.get("url")}
+    sent, seen = [], set()
+    for k, (lbl, what) in names.items():
+        u = str(urls.get(k) or "").strip()
+        if not u or u == "••••••••":
+            u = saved.get(k) or ""
+        if not u:
+            continue
+        if not re.match(DISCORD_RE, u):
+            raise ValueError(f"{lbl}: das ist keine Discord-Webhook-URL (https://discord.com/api/webhooks/…)")
+        if u in seen:
+            continue
+        seen.add(u)
+        try:
+            _discord_post(u, {"title": f"✅ FVG Trader · {lbl}", "tone": "good", "text": f"Hier kommen: {what}."})
+        except urllib.error.HTTPError as e:
+            raise ValueError(f"{lbl}: Discord lehnt ab (HTTP {e.code}). Ist die Webhook-URL vollständig und noch gültig?")
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(f"{lbl}: Discord nicht erreichbar: {e}")
+        sent.append(lbl)
+    if not sent:
+        raise ValueError("Bitte zuerst eine Discord-Webhook-URL eintragen")
     engine.discord_state.update(last=time.time(), error="")
-    h._send(200, {"ok": True})
+    h._send(200, {"ok": True, "sent": sent})
 
 
 def server_health(s):
@@ -1360,11 +1372,11 @@ def report_week(h, off):
 def report_week_discord(h, off):
     with engine.lock:
         rep = engine.weekly_report(int(off))
-        if not (engine.cfg.get("discord") or {}).get("url"):
+        if not engine.discord_url("weekly"):
             raise ValueError("Discord ist noch nicht eingerichtet (Einstellungen → Benachrichtigungen)")
         engine.outbox.append({"title": f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
                               "text": engine.weekly_text(rep), "tone": "good" if rep["net"] > 0 else "bad" if rep["net"] < 0 else "info",
-                              "ts": time.time()})
+                              "ts": time.time(), "url": engine.discord_url("weekly")})
     h._send(200, {"ok": True})
 
 

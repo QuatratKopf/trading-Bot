@@ -1,6 +1,6 @@
 {
-  "version": "3.13.1",
-  "file": "releases/FVG-Trader-3.13.1.cmd",
-  "sha256": "4cd1a31cd938ab36075f629d47b9a5af056a7f1dfed85b495d0fb6776469cbb5",
-  "notes": "MT5-Starter (App als Dienst): MT5 wird jetzt direkt in deiner Windows-Sitzung gestartet, auch bei geschlossenem Remotedesktop-Fenster; die Windows-Aufgabenplanung ist nur noch Notlösung (behebt „Der Thread wurde nicht gestartet“)"
+  "version": "3.14.0",
+  "file": "releases/FVG-Trader-3.14.0.cmd",
+  "sha256": "03b1bc7f604b28875f653dc0761998e8303cb1f0e6ffd3619e35023564b6b6d5",
+  "notes": "Discord: eigene Kanäle für Trades, Bias und Fehler (je ein Webhook, leer = Haupt-Kanal); Bias-Meldung zu Sessionbeginn einzeln schaltbar; Testnachricht geht an alle Kanäle"
 }

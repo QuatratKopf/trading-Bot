@@ -4240,13 +4240,19 @@ function settings() {
       <div class="inline wrap-gap"><button class="btn" id="m5Inst">In MT5 installieren</button><a class="btn" href="/api/mt5/ea" download="FVG-Bridge.mq5">FVG-Bridge laden</a><a class="btn" href="/api/mt5/chart" download="FVG-Chart.mq5">Chart-Vorlage laden</a></div>
       </div></details>`; })()}`)}
 
-  ${sec("notify", "Benachrichtigungen (Discord)", dc.enabled && dc.url ? [dc.trades && "Trades", dc.errors && "Fehler", dc.silence && "Stille", dc.daystop && "Tages-Stopp", dc.daily && "Tagesabschluss", dc.weekly && "Wochenbericht", dc.learn && "Lernmodul"].filter(Boolean).join(" · ") : "aus", dc.enabled && dc.url ? '<span class="chip good">an</span>' : '<span class="chip mute">aus</span>', `
+  ${sec("notify", "Benachrichtigungen (Discord)", dc.enabled && dc.url ? [[dc.url_trades, dc.url_bias, dc.url_errors].filter(Boolean).length ? (1 + [dc.url_trades, dc.url_bias, dc.url_errors].filter(Boolean).length) + " Kanäle" : "", dc.trades && "Trades", dc.bias !== false && "Bias", dc.errors && "Fehler", dc.silence && "Stille", dc.daystop && "Tages-Stopp", dc.daily && "Tagesabschluss", dc.weekly && "Wochenbericht", dc.learn && "Lernmodul"].filter(Boolean).join(" · ") : "aus", dc.enabled && dc.url ? '<span class="chip good">an</span>' : '<span class="chip mute">aus</span>', `
     <details class="m5-more"><summary class="hint">Anleitung: Discord-Webhook anlegen</summary><p class="hint" style="margin:6px 0 0">In Discord einen eigenen Server oder Kanal anlegen → Kanal-Einstellungen (Zahnrad) → <b>Integrationen</b> → <b>Webhooks</b> → <b>Neuer Webhook</b> → <b>Webhook-URL kopieren</b> und hier einfügen.</p></details>
-    ${field("dcU", "Discord-Webhook-URL", dc.url, {type: "password", help: "Beginnt mit https://discord.com/api/webhooks/ – wie ein Passwort behandeln"})}
-    <div class="row"><label>Verbindung testen<small>Schickt eine Testnachricht in deinen Kanal.</small></label><button class="btn" id="dcTest">Testnachricht senden</button></div>
+    <span class="lbl">Kanäle</span>
+    ${field("dcU", "Haupt-Kanal", dc.url, {type: "password", help: "Für alles ohne eigenen Kanal: Tagesabschluss, Wochenbericht, Tages-Stopp, Lernmodul"})}
+    ${field("dcU2", "Kanal Trades", dc.url_trades, {type: "password", attrs: {placeholder: "leer = Haupt-Kanal"}, help: "Einstieg und Ausstieg"})}
+    ${field("dcU3", "Kanal Bias", dc.url_bias, {type: "password", attrs: {placeholder: "leer = Haupt-Kanal"}, help: "Bias zu Beginn jeder Session"})}
+    ${field("dcU4", "Kanal Fehler", dc.url_errors, {type: "password", attrs: {placeholder: "leer = Haupt-Kanal"}, help: "Fehlermeldungen und „TradingView schweigt“"})}
+    <p class="hint" style="margin:0">Jeder Kanal braucht in Discord einen eigenen Webhook. Die Adressen wie ein Passwort behandeln.</p>
+    <div class="row"><label>Verbindung testen<small>Schickt in jeden eingetragenen Kanal eine Testnachricht.</small></label><button class="btn" id="dcTest">Testnachricht senden</button></div>
     ${field("dcE", "Benachrichtigungen an", dc.enabled, {check: true})}
     <span class="lbl">Was soll ankommen?</span>
     ${field("dcT", "Einstieg und Ausstieg", dc.trades, {check: true, help: "Mit Preis, Stop, Ziel und Ergebnis in $ und R"})}
+    ${field("dcB", "Bias", dc.bias !== false, {check: true, help: "Zu Beginn jeder Session: Richtung des Tages und warum"})}
     ${field("dcF", "Fehler", dc.errors, {check: true, help: "z. B. Order abgelehnt, Broker getrennt (gleiche Meldung höchstens alle 30 Min)"})}
     ${field("dcS", "TradingView schweigt", dc.silence, {check: true, help: "Wenn bei offenem Markt keine Nachricht mehr kommt (Alert abgelaufen oder pausiert)"})}
     ${field("dcM", "Stille melden nach (Minuten)", dc.silence_min, {attrs: {min: 10, max: 600, step: 5}})}
@@ -4346,7 +4352,7 @@ function settings() {
       tunnel: {ngrok_token: (v("ngt") || "").trim()},
       local_no_pw: v("lnp"),
       backup: {enabled: v("bkE"), extra_dir: (v("bkX") || "").trim(), drive_url: (v("bkG") || "").trim(), keep_daily: parseInt(v("bkD")), keep_weekly: parseInt(v("bkW")), keep_monthly: parseInt(v("bkM"))},
-      discord: {url: (v("dcU") || "").trim(), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
+      discord: {url: (v("dcU") || "").trim(), url_trades: (v("dcU2") || "").trim(), url_bias: (v("dcU3") || "").trim(), url_errors: (v("dcU4") || "").trim(), bias: v("dcB"), enabled: v("dcE"), trades: v("dcT"), errors: v("dcF"), silence: v("dcS"), silence_min: parseInt(v("dcM")) || 30,
         daystop: v("dcD"), daily: v("dcA"), weekly: v("dcW"), learn: v("dcL")},
     };
     await api("/api/config", patch); settingsDirty = false;
@@ -4370,7 +4376,7 @@ function settings() {
   };
   $("#dcTest").onclick = async () => {
     const b = $("#dcTest"); b.disabled = true; b.textContent = "Sende …";
-    try { await api("/api/discord/test", {url: (v("dcU") || "").trim()}); toast("Testnachricht gesendet – schau in Discord"); } catch (e) { toast(e.message); }
+    try { const r = await api("/api/discord/test", {urls: {url: (v("dcU") || "").trim(), url_trades: (v("dcU2") || "").trim(), url_bias: (v("dcU3") || "").trim(), url_errors: (v("dcU4") || "").trim()}}); toast("Gesendet an: " + (r.sent || []).join(", ") + " – schau in Discord"); } catch (e) { toast(e.message); }
     b.disabled = false; b.textContent = "Testnachricht senden";
   };
   // Protokoll

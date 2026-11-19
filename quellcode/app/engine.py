@@ -103,7 +103,9 @@ DEFAULT_CONFIG = {
     },
     "discord": {               # Benachrichtigungen über einen Discord-Webhook
         "enabled": False, "url": "", "trades": True, "errors": True, "silence": True, "silence_min": 30,
-        "daystop": True, "daily": True, "weekly": True, "learn": True,
+        "daystop": True, "daily": True, "weekly": True, "learn": True, "bias": True,
+        # eigene Kanäle (leer = Haupt-Webhook „url“): Trades, Bias, Fehler
+        "url_trades": "", "url_bias": "", "url_errors": "",
     },
     "news": {                  # News-Pause aus dem Wirtschaftskalender
         "enabled": True, "before_min": 10, "after_min": 10, "impact": "high", "usd_only": True, "close_before": True,
@@ -252,7 +254,10 @@ PROP_RISK = {"vorsichtig": 0.25, "normal": 0.5, "offensiv": 1.0}
 POINT_VALUE = {"NQ": 20, "MNQ": 2, "ES": 50, "MES": 5, "YM": 5, "MYM": 0.5, "RTY": 50, "M2K": 5,
                "GC": 100, "MGC": 10, "CL": 1000, "MCL": 100, "SI": 5000, "SIL": 1000}
 SECRET_FIELDS = ("password", "secret")
-SECRET_PATHS = (("topstep", "api_key"), ("backup", "drive_url"), ("tunnel", "ngrok_token"), ("discord", "url"))
+SECRET_PATHS = (("topstep", "api_key"), ("backup", "drive_url"), ("tunnel", "ngrok_token"), ("discord", "url"),
+                ("discord", "url_trades"), ("discord", "url_bias"), ("discord", "url_errors"))
+DISCORD_RE = r"^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/\d+/[\w-]+$"
+DISCORD_CHANNEL = {"trades": "url_trades", "bias": "url_bias", "errors": "url_errors", "silence": "url_errors"}   # Art -> eigener Kanal
 MASK = "••••••••"
 
 
@@ -713,11 +718,12 @@ class Engine:
         if ch["enabled"] and (ch["start_balance"] <= 0 or ch["max_dd"] <= 0):
             raise ValueError("Fremdkapital: Kontogröße und maximaler Drawdown müssen größer als 0 sein")
         dc = c["discord"]
-        dc["url"] = str(dc.get("url") or "").strip()
-        if dc["url"] and not re.match(r"^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/\d+/[\w-]+$", dc["url"]):
-            raise ValueError("Discord: bitte die komplette Webhook-URL einfügen (https://discord.com/api/webhooks/…)")
+        for k, lbl in (("url", "Haupt-Webhook"), ("url_trades", "Webhook Trades"), ("url_bias", "Webhook Bias"), ("url_errors", "Webhook Fehler")):
+            dc[k] = str(dc.get(k) or "").strip()
+            if dc[k] and not re.match(DISCORD_RE, dc[k]):
+                raise ValueError(f"Discord ({lbl}): bitte die komplette Webhook-URL einfügen (https://discord.com/api/webhooks/…)")
         if dc["enabled"] and not dc["url"]:
-            raise ValueError("Discord: zuerst die Webhook-URL eintragen")
+            raise ValueError("Discord: zuerst den Haupt-Webhook eintragen (für alles, was keinen eigenen Kanal hat)")
         dc["silence_min"] = max(0, min(600, int(float(dc.get("silence_min") or 0))))
         rk = c["risk"]
         rk["daily_profit_stop"] = float(rk.get("daily_profit_stop") or 0)
@@ -1371,7 +1377,8 @@ class Engine:
             txt = (f"Bias {fam} zur Session {SESSION_NAMES.get(info['sess'], info['sess'])}: {self.BIAS_WORD[info['dir']]} "
                    f"({info['score']:+d} von {info['max']}). {why}")
             self.db.log(txt)
-            self.notify("daily", f"Bias {fam}: {self.BIAS_WORD[info['dir']]}", txt, "info")
+            self.notify("bias", f"Bias {fam}: {self.BIAS_WORD[info['dir']]}", txt,
+                        {"bullisch": "good", "bärisch": "bad"}.get(self.BIAS_WORD[info["dir"]], "info"))
         return info
 
     def _bias_stats(self, fam):
@@ -5046,9 +5053,15 @@ class Engine:
         return {"day": str(d), "items": out}
 
     # ───────── Discord ─────────
+    def discord_url(self, kind):
+        """Webhook für diese Art Nachricht: eigener Kanal (Trades, Bias, Fehler), sonst der Haupt-Webhook."""
+        dc = self.cfg.get("discord") or {}
+        return dc.get(DISCORD_CHANNEL.get(kind, "")) or dc.get("url") or ""
+
     def notify(self, kind, title, text, tone="info"):
         dc = self.cfg.get("discord") or {}
-        if not dc.get("enabled") or not dc.get("url") or (kind != "test" and not dc.get(kind, True)):
+        url = self.discord_url(kind)
+        if not dc.get("enabled") or not url or (kind != "test" and not dc.get(kind, True)):
             return
         key = (kind, title, text)
         now = time.time()
@@ -5056,7 +5069,7 @@ class Engine:
             return   # gleiche Fehlermeldung höchstens alle 30 Minuten
         self._notified[key] = now
         if len(self.outbox) < 200:
-            self.outbox.append({"title": title, "text": text, "tone": tone, "ts": now})
+            self.outbox.append({"title": title, "text": text, "tone": tone, "ts": now, "url": url})
 
     def _on_log(self, text, level):
         if level == "error":
