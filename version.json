@@ -1,6 +1,6 @@
 {
-  "version": "3.15.0",
-  "file": "releases/FVG-Trader-3.15.0.cmd",
-  "sha256": "afa34b5500d70b51183c44677d06668908da4a1cfdb7654fa49cf4cb08421201",
-  "notes": "Konsistenzregel pro MT5-Konto: % und Gewinnziel eintragen, Haken an/aus; erreicht ein Konto 80 % seines erlaubten Tagesgewinns, handelt der Bot dort für den Tag nicht mehr (auch keine Kopien), die anderen Konten handeln weiter; Meldung nach Discord"
+  "version": "3.16.0",
+  "file": "releases/FVG-Trader-3.16.0.cmd",
+  "sha256": "a92a6570df4b0ccc1e7ae54bb87befcb9702285d6baac74dca07bedec3c16a52",
+  "notes": "Fremdkapital → Konten: jedes MT5-Konto erscheint automatisch als Karte mit Kontostand, heutigem Ergebnis, offenen Positionen, Bot/Copytrading/Konsistenz; „Firmen-Regeln hinzufügen“ macht daraus die Challenge-Karte mit Ziel, Grenzen und Auszahlung"
 }

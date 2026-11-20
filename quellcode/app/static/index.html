@@ -2592,9 +2592,9 @@ function chChart(c) {
 function challenge(full) {
   const c = S.challenge, cfg = (S.config.challenge || {});
   if (full !== false || !$("#chWrap")) {
-    $("#main").innerHTML = `<div class="seg ch-view" role="group" aria-label="Ansicht"><button type="button" data-chv="konten" aria-pressed="${CHV === "konten"}">Meine Konten</button><button type="button" data-chv="konto" aria-pressed="${CHV === "konto"}">Bot-Challenge</button><button type="button" data-chv="regeln" aria-pressed="${CHV === "regeln"}">Regeln der Firmen</button></div>
+    $("#main").innerHTML = `<div class="seg ch-view" role="group" aria-label="Ansicht"><button type="button" data-chv="konten" aria-pressed="${CHV === "konten"}">Konten</button><button type="button" data-chv="konto" aria-pressed="${CHV === "konto"}">Bot-Challenge</button><button type="button" data-chv="regeln" aria-pressed="${CHV === "regeln"}">Regeln der Firmen</button></div>
       <div id="chRules" style="display:${CHV === "regeln" ? "contents" : "none"}"></div>
-      <div id="trkWrap" style="display:${CHV === "konten" ? "contents" : "none"}"><div id="trkList" style="display:contents"></div><details class="set-sec" id="trkAdd" ${(S.tracked || []).length ? "" : "open"}><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>Konto hinzufügen</b><span class="hint">Firma, Programm, Größe und woher die Daten kommen</span></span><span></span></summary><div class="set-b" id="trkForm"></div></details></div>
+      <div id="trkWrap" style="display:${CHV === "konten" ? "contents" : "none"}"><div id="trkList" style="display:contents"></div><details class="set-sec" id="trkAdd" ${(S.tracked || []).length || ((S.mt5 || {}).accounts || []).length ? "" : "open"}><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>Firmen-Regeln zu einem Konto hinzufügen</b><span class="hint">Firma, Programm und Größe: dann siehst du Ziel, Grenzen und Auszahlung</span></span><span></span></summary><div class="set-b" id="trkForm"></div></details></div>
       <div id="chWrap" style="display:${CHV === "konto" ? "contents" : "none"}"><section class="panel cp" id="chPick"></section><div id="chLive" style="display:contents"></div><section class="panel" id="mcBox" hidden></section>
       <details class="set-sec ch-form" id="chForm"><summary><span class="s-ic">${icon('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>')}</span>
         <span class="s-t"><b>Feineinstellungen</b><span class="hint">${c ? `${esc(cfg.name || "Konto")} · ${mUsd(cfg.start_balance)} · Ziel ${mUsd(cfg.profit_target)} · Drawdown ${mUsd(cfg.max_dd)} ${DDT[cfg.dd_type].split(" ")[0]}` : "Einmal eintragen, dann rechnet die App live mit"}</span></span><span></span></summary>
@@ -2747,14 +2747,41 @@ function trkSrcName(src) {
   const a = ((S.mt5 || {}).accounts || []).find(x => "mt5:" + x.login === src);
   return (a && a.label ? a.label + " · " : "") + "MT5 " + src.slice(4) + (a && a.company ? " · " + a.company : "");
 }
+// MT5-Konten ohne Firmen-Regeln: gleiche Karte, nur Kontostand und Status
+function trkMt5Card(a) {
+  const t = (((S.mt5 || {}).terminals || {}).list || []).find(x => String(x.login) === a.login);
+  const name = (t && t.name) || a.label || "MT5 " + a.login, K = a.cons || {};
+  const cc = (S.config.mt5 || {}).copy || {}, role = cc.enabled && String(cc.master) === a.login ? "Hauptkonto" : cc.enabled && a.copy ? "empfängt Kopien" : "aus";
+  const today = K.today, open = a.equity != null && a.balance != null ? a.equity - a.balance : null;
+  const rl = (ok, txt, val) => `<div class="tk-r ${ok === true ? "ok" : ok === false ? "no" : ""}"><span>${ok === true ? "✓" : ok === false ? "!" : "·"}</span><span>${txt}</span><b class="mono">${val}</b></div>`;
+  return `<article class="panel tk"><div class="tk-h"><div><span class="l">Konto · MetaTrader 5</span><b>${esc(name)}</b><small class="hint">noch ohne Firmen-Regeln</small></div><span class="chip ${a.online ? "good" : "bad"}">${a.online ? "verbunden" : "offline"}</span></div>
+    <small class="hint tk-src"><span class="dot ${a.online ? "ok" : "bad"}"></span>MT5 ${esc(a.login)}${a.company ? " · " + esc(a.company) : ""}${a.seen ? " · Stand " + new Date(a.seen * 1000).toLocaleTimeString("de-DE", {hour: "2-digit", minute: "2-digit"}) : ""}</small>
+    <div class="tk-n">
+      <div><span class="l">Kontostand</span><b>${mUsd(a.equity != null ? a.equity : a.balance)}</b><small class="${cls(today)}">${today != null ? sUsd(today) + " heute" : "–"}</small></div>
+      <div><span class="l">Offene Positionen</span><b>${a.positions || 0}</b><small class="${cls(open)}">${open ? sUsd(open) + " offen" : "nichts offen"}</small></div>
+    </div>
+    <div class="tk-rules">
+      ${rl(a.bot ? true : null, "Bot handelt hier", a.bot ? "ja" : "nein")}
+      ${rl(null, "Copytrading", role)}
+      ${K.on ? rl(!(K.cap != null && today != null && today >= K.cap), "Konsistenz-Grenze heute", mUsd(K.cap)) : ""}
+    </div>
+    <div class="inline wrap-gap"><button type="button" class="btn" data-trkadd="${esc(a.login)}" data-firm="${/ftmo/i.test(a.company || "") ? "ftmo" : /iq|beyond/i.test(a.company || "") ? "iq" : ""}">Firmen-Regeln hinzufügen</button></div>
+  </article>`;
+}
 function trkList() {
   const box = $("#trkList"); if (!box) return;
   const L = S.tracked || [];
-  if (!L.length) { box.innerHTML = `<section class="panel"><h2 style="font-size:17px;margin:0 0 6px;text-transform:none;letter-spacing:0;color:var(--fg)">Meine Konten</h2><p class="hint" style="margin:0;line-height:1.6">Füge unten deine Fremdkapital-Konten hinzu. Ist ein Konto mit MetaTrader 5 verbunden (FVG-Bridge läuft), nimmt die App Kontostand und Trades direkt von dort und zeigt dir live, wie weit du in der Challenge bist und wann deine Auszahlung möglich ist.</p></section>`; return; }
-  const key = JSON.stringify(L.map(t => Object.assign({}, t, {seen: 0})));
+  const linked = new Set(L.map(t => t.source || ""));
+  const M = ((S.mt5 || {}).accounts || []).filter(a => !linked.has("mt5:" + a.login));
+  if (!L.length && !M.length) { box.innerHTML = `<section class="panel"><h2 style="font-size:17px;margin:0 0 6px;text-transform:none;letter-spacing:0;color:var(--fg)">Konten</h2><p class="hint" style="margin:0;line-height:1.6">Lege deine Konten unter Einstellungen → MetaTrader 5 an, dann erscheinen sie hier automatisch mit Kontostand. Ist ein Konto mit MetaTrader 5 verbunden (FVG-Bridge läuft), nimmt die App Kontostand und Trades direkt von dort und zeigt dir live, wie weit du in der Challenge bist und wann deine Auszahlung möglich ist.</p></section>`; return; }
+  const key = JSON.stringify([L.map(t => Object.assign({}, t, {seen: 0})), M.map(a => [a.login, a.online, Math.round(a.equity || 0), a.positions, a.bot, a.copy, a.cons, a.label])]);
   if (box.dataset.k === key || (ARMED.key && String(ARMED.key).startsWith("trk") && armed(ARMED.key))) return;
   box.dataset.k = key;
-  box.innerHTML = `<div class="trk-grid">${L.map(trkCard).join("")}</div>`;
+  box.innerHTML = `<div class="trk-grid">${L.map(trkCard).join("")}${M.map(trkMt5Card).join("")}</div>`;
+  box.querySelectorAll("[data-trkadd]").forEach(b => b.onclick = () => {
+    TF.src = "mt5:" + b.dataset.trkadd; if (b.dataset.firm) { TF.firm = b.dataset.firm; TF.program = null; }
+    trkForm(); $("#trkAdd").open = true; $("#trkAdd").scrollIntoView({behavior: "smooth", block: "start"});
+  });
   box.querySelectorAll("[data-trkpay]").forEach(b => b.onclick = () => confirmBtn(b, "Wirklich ausgezahlt?", async () => { try { await api("/api/tracked", {action: "payout", id: b.dataset.trkpay}); toast("Auszahlung vermerkt, neuer Zeitraum beginnt"); S = await api("/api/state"); box.dataset.k = ""; trkList(); } catch (e) { toast(e.message); } }));
   box.querySelectorAll("[data-trkdel]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => { try { await api("/api/tracked", {action: "remove", id: b.dataset.trkdel}); toast("Konto entfernt (Trades bleiben erhalten)"); S = await api("/api/state"); box.dataset.k = ""; trkList(); } catch (e) { toast(e.message); } }));
 }
@@ -2803,7 +2830,7 @@ function trkForm() {
     <div class="row"><label for="tfF">Firma</label>${sel("tfF", Object.entries(P).map(([k, x]) => [k, x.name]), TF.firm)}</div>
     <div class="row"><label for="tfP">Programm</label>${sel("tfP", Object.entries(f.programs).map(([k, x]) => [k, x.label]), TF.program)}</div>
     <div class="row"><label for="tfS">Kontogröße</label>${sel("tfS", pg.sizes.map(v => [v, (v / 1000).toLocaleString("de-DE") + "K"]), TF.size)}</div>
-    <div class="row"><label for="tfQ">Daten kommen von<small>MT5: Konto muss in einem MT5-Fenster mit FVG-Bridge laufen. Dann sind Kontostand und Trades immer aktuell.</small></label>${sel("tfQ", srcs, srcs[0][0])}</div>
+    <div class="row"><label for="tfQ">Daten kommen von<small>MT5: Konto muss in einem MT5-Fenster mit FVG-Bridge laufen. Dann sind Kontostand und Trades immer aktuell.</small></label>${sel("tfQ", srcs, srcs.some(x => x[0] === TF.src) ? TF.src : srcs[0][0])}</div>
     <div class="row"><label for="tfD">Start dieses Kontos<small>Ab wann zählen Trades (z. B. Tag des Kaufs oder Beginn des Funded-Kontos). Leer = alle</small></label><input id="tfD" type="date"></div>
     <div class="row"><label for="tfN">Name (optional)</label><input id="tfN" type="text" maxlength="40" placeholder="z. B. FTMO Konto 2"></div>
     ${pg.no_bot ? '<p class="cp-warn">Bei diesem Programm gibt es keine Verbindung zum Konto (läuft über Tradovate). Wähle „Eigene Trades“ und trag deine Trades ein oder lies sie per CSV ein.</p>' : ""}
@@ -2814,7 +2841,7 @@ function trkForm() {
   $("#tfGo").onclick = async () => {
     try {
       await api("/api/tracked", {action: "add", firm: TF.firm, program: TF.program, size: +$("#tfS").value, source: $("#tfQ").value, start_day: $("#tfD").value, label: $("#tfN").value.trim()});
-      toast("Konto hinzugefügt"); S = await api("/api/state"); $("#trkAdd").open = false; $("#trkList").dataset.k = ""; trkList();
+      toast("Konto hinzugefügt"); TF.src = null; S = await api("/api/state"); $("#trkAdd").open = false; $("#trkList").dataset.k = ""; trkList();
     } catch (e) { toast(e.message); }
   };
 }
