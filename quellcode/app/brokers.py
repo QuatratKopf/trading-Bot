@@ -415,6 +415,40 @@ MT5_PV = {"NQ": 20.0, "MNQ": 2.0, "ES": 50.0, "MES": 5.0}
 MT5_ONLINE_SEC = 12
 
 
+MT5_CONS_SAFETY = 0.8        # Konsistenz: Bot hört schon bei 80 % des erlaubten Tagesgewinns auf (Puffer)
+
+
+def mt5_day_pnl(a):
+    """Heutiges Ergebnis eines MT5-Kontos (Tag des Broker-Servers): geschlossene Trades + offene Positionen."""
+    today = str(a.get("today") or "").replace(".", "-")
+    real = sum(float(d.get("pnl") or 0) for d in a.get("days") or [] if today and d.get("day") == today)
+    bal, eq = a.get("balance"), a.get("equity")
+    return round(real + ((eq - bal) if bal is not None and eq is not None else 0.0), 2)
+
+
+def mt5_cons_cap(c):
+    """Höchster Tagesgewinn, bis zu dem der Bot auf diesem Konto handelt (Konsistenzregel), oder None, wenn aus."""
+    try:
+        pct, tgt = float(c.get("cons_pct") or 0), float(c.get("cons_target") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not c.get("cons_on") or pct <= 0 or tgt <= 0:
+        return None
+    return round(tgt * pct / 100 * MT5_CONS_SAFETY, 2)
+
+
+def mt5_cons_block(c, a):
+    """Grund, warum heute auf diesem Konto kein neuer Trade mehr geht (Konsistenzregel), sonst ''."""
+    cap = mt5_cons_cap(c)
+    if cap is None or not a:
+        return ""
+    pnl = mt5_day_pnl(a)
+    if pnl >= cap:
+        p_, c_ = f"{pnl:+,.0f}".replace(",", "."), f"{cap:,.0f}".replace(",", ".")
+        return f"Konsistenzregel: heute schon {p_} $ (Grenze {c_} $), dort heute keine neuen Trades"
+    return ""
+
+
 def mt5_family(root):
     return "ES" if "ES" in str(root).upper() else "NQ"
 
@@ -1280,6 +1314,10 @@ class Mt5Broker:
             if not a["can_trade"]:
                 warnings.append(f"MT5-Konto {login}: Algo Trading ist aus, Trade dort ausgelassen")
                 continue
+            cb = mt5_cons_block(c, a)
+            if cb:
+                warnings.append(f"MT5-Konto {login}: {cb}")
+                continue
             sym_a = self.link.sym_for(login, mt5_family(root))
             spec = a["symbols"].get(sym_a)
             if not spec:
@@ -1490,6 +1528,11 @@ class Mt5Copier:
                     continue
                 st = accs.get(lg)
                 if not st or not st["online"] or not st["can_trade"]:
+                    continue
+                cb = mt5_cons_block(c, st)
+                if cb:
+                    entry.setdefault("failed", {})[lg] = "Konsistenzregel"
+                    self._say(f"Copytrading: Konto {lg} · {cb}", "warn")
                     continue
                 fam = self.link.fam_of(master, p["symbol"])
                 fsym = self.link.sym_for(lg, fam) if fam else p["symbol"]

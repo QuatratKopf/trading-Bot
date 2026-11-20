@@ -3470,6 +3470,10 @@ function mtListRender() {
         ${!a.online ? "" : e.found ? `<span class="chip good">✓</span>` : `<span class="chip ${fam === "NQ" ? "bad" : "mute"}" title="Dieses Konto kennt ${esc(e.name)} nicht">✗ fehlt</span>`}</label>`; }).join("");
     const chart = a.chart && a.chart.known ? `<small class="${a.chart.ok ? "hint" : "neg"}">Chart der Bridge: ${esc(a.chart.symbol)} · ${a.chart.minutes} Min ${a.chart.ok ? "✓" : `→ soll ${esc(a.chart.want_symbol)} · ${a.chart.want_minutes} Min`}</small>` : "";
     const symBad = a.online && ((a.eff || {}).NQ || {}).found === false;
+    const K = a.cons || {}, kHit = K.on && K.cap != null && K.today != null && K.today >= K.cap;
+    const trk = (S.tracked || []).find(x => x.source === "mt5:" + lg && (x.rules || {}).cons);
+    const kSug = trk ? {pct: trk.rules.cons, target: trk.rules.target || 0, name: (trk.label || trk.firm + " " + trk.program)} : null;
+    const kSum = K.on && K.cap != null ? `an · Bot stoppt ab ${usd(K.cap)} Tagesgewinn${K.today != null ? ` · heute ${K.today >= 0 ? "+" : ""}${usd(K.today)}` : ""}` : "aus";
     return `<div class="m5-acc" data-acc-card="${esc(lg)}">
       <div class="m5-h"><b>${esc(name)}</b><span class="mono hint">${esc(lg)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>${info ? `<small class="hint">${info}</small>` : ""}
         ${t && t.error ? `<small class="neg">${esc(t.error)}</small>` : ""}${t && t.hint ? `<small class="neg"><b>Grund:</b> ${esc(t.hint)}</small>` : ""}
@@ -3481,6 +3485,14 @@ function mtListRender() {
         <label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5b_${esc(lg)}" ${a.bot ? "checked" : ""}> Bot handelt hier</label>
         <label class="m5-c" title="1 = normale Größe, 0,5 = halb so groß, 2 = doppelt">Größe × <input type="number" data-cfg id="m5f_${esc(lg)}" value="${a.factor || 1}" min="0.01" max="100" step="0.1" style="width:72px"></label>
       </div>
+      ${kHit ? `<small class="cp-warn" style="margin:0">Konsistenzregel erreicht: heute ${usd(K.today)} Gewinn. Der Bot eröffnet hier heute nichts mehr, die anderen Konten handeln weiter.</small>` : ""}
+      <details class="m5-more m5-cons"><summary class="hint">Konsistenzregel · <span class="${K.on ? "pos" : ""}">${kSum}</span></summary>
+        <div class="m5-o" style="margin-top:8px"><label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5k_${esc(lg)}" ${K.on ? "checked" : ""}> beachten</label>
+          <label class="m5-c">höchstens <input type="number" data-cfg id="m5kp_${esc(lg)}" value="${K.pct || ""}" min="1" max="100" step="1" style="width:70px" placeholder="z. B. 40"> % pro Tag</label>
+          <label class="m5-c">vom Gewinnziel <input type="number" data-cfg id="m5kt_${esc(lg)}" value="${K.target || ""}" min="1" step="100" style="width:100px" placeholder="z. B. 4000"> $</label></div>
+        ${kSug ? `<button type="button" class="btn sm" data-ksug="${esc(lg)}" data-kp="${kSug.pct}" data-kt="${kSug.target}" style="margin-top:6px">Werte von „${esc(kSug.name)}“ übernehmen (${kSug.pct} %${kSug.target ? ", " + usd(kSug.target) : ""})</button>` : ""}
+        <small class="hint" style="display:block;margin-top:6px">Erreicht der Tagesgewinn auf diesem Konto 80 % der erlaubten Summe (Gewinnziel × %), eröffnet der Bot hier für den Rest des Tages nichts mehr. Kopien werden dann auch ausgelassen. Die anderen Konten handeln weiter.</small>
+      </details>
       <details class="m5-more" ${symBad ? "open" : ""}><summary class="hint">Symbole &amp; Chart${symBad ? ' · <span class="neg">Nasdaq-Symbol fehlt</span>' : ""}</summary><div class="m5-o m5-sym">${sym}</div>${chart}</details>
       ${t ? `<div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
         <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div>`
@@ -3488,6 +3500,10 @@ function mtListRender() {
   const act = async (b, a) => { try { b.disabled = true; await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
   box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
+  box.querySelectorAll("[data-ksug]").forEach(b => b.onclick = () => {
+    const lg = CSS.escape(b.dataset.ksug); $("#m5kp_" + lg).value = b.dataset.kp; if (+b.dataset.kt) $("#m5kt_" + lg).value = b.dataset.kt;
+    $("#m5k_" + lg).checked = true; $("#savebar").hidden = false; settingsDirty = true;
+  });
   box.querySelectorAll("[data-role]").forEach(b => b.onclick = () => {
     const lg = b.dataset.lg, k = b.dataset.role;
     if (k === "master") box.querySelectorAll('input[id^="m5r_"]').forEach(i => { if (i.value === "master") i.value = "none"; });   // nur ein Hauptkonto
@@ -4347,6 +4363,7 @@ function settings() {
       broker: v("bk"), public_url: v("pu").trim(),
       mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
         accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg),
+          cons_on: v("m5k_" + lg), cons_pct: v("m5kp_" + lg) || 0, cons_target: v("m5kt_" + lg) || 0,
           sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},

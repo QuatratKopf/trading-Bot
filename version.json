@@ -1,6 +1,6 @@
 {
-  "version": "3.14.0",
-  "file": "releases/FVG-Trader-3.14.0.cmd",
-  "sha256": "03b1bc7f604b28875f653dc0761998e8303cb1f0e6ffd3619e35023564b6b6d5",
-  "notes": "Discord: eigene Kanäle für Trades, Bias und Fehler (je ein Webhook, leer = Haupt-Kanal); Bias-Meldung zu Sessionbeginn einzeln schaltbar; Testnachricht geht an alle Kanäle"
+  "version": "3.15.0",
+  "file": "releases/FVG-Trader-3.15.0.cmd",
+  "sha256": "afa34b5500d70b51183c44677d06668908da4a1cfdb7654fa49cf4cb08421201",
+  "notes": "Konsistenzregel pro MT5-Konto: % und Gewinnziel eintragen, Haken an/aus; erreicht ein Konto 80 % seines erlaubten Tagesgewinns, handelt der Bot dort für den Tag nicht mehr (auch keine Kopien), die anderen Konten handeln weiter; Meldung nach Discord"
 }

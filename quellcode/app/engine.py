@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals
+from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals, mt5_cons_cap, mt5_day_pnl
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
 from discovery import BS_PARTS, bias_compute, bs_sess
@@ -801,8 +801,18 @@ class Engine:
                 if v and not re.match(r"^[A-Za-z0-9._#\-+!$]{1,40}$", v):
                     raise ValueError(f"MT5-Konto {lg}: Symbolname „{v}“ enthält ungültige Zeichen")
                 syms["sym_" + fam] = v
+            try:
+                cp_ = float(str(a.get("cons_pct") or 0).replace(",", "."))
+                ct_ = float(str(a.get("cons_target") or 0).replace(",", "."))
+            except ValueError:
+                raise ValueError(f"MT5-Konto {lg}: Konsistenzregel als Zahlen eingeben")
+            if not 0 <= cp_ <= 100 or ct_ < 0:
+                raise ValueError(f"MT5-Konto {lg}: Konsistenz in % (1–100) und Gewinnziel in $ eingeben")
+            if a.get("cons_on") and (cp_ <= 0 or ct_ <= 0):
+                raise ValueError(f"MT5-Konto {lg}: für die Konsistenzregel Prozent und Gewinnziel eintragen")
             accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f,
-                                  "label": str(a.get("label") or "").strip()[:40]}, **syms)
+                                  "label": str(a.get("label") or "").strip()[:40],
+                                  "cons_on": bool(a.get("cons_on")), "cons_pct": cp_, "cons_target": ct_}, **syms)
         m5["accounts"] = accs
         m5["chart_fix"] = bool(m5.get("chart_fix", True))
         try:
@@ -2277,6 +2287,30 @@ class Engine:
                 "auto_log": self.learning.get("auto_log", [])}
 
     # ───────── Hintergrund ─────────
+    def _cons_watch(self):
+        """Konsistenzregel je MT5-Konto: einmal am Tag melden, wenn ein Konto seine Tages-Gewinngrenze erreicht hat."""
+        if time.time() - getattr(self, "_cons_at", 0) < 20:
+            return
+        self._cons_at = time.time()
+        seen = getattr(self, "_cons_seen", None)
+        if seen is None:
+            seen = self._cons_seen = {}
+        accs = self.mt5_link.accounts()
+        for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items():
+            cap, a = mt5_cons_cap(c), accs.get(lg)
+            if cap is None or not a or not a.get("online"):
+                continue
+            pnl, day = mt5_day_pnl(a), str(a.get("today") or "")
+            if pnl >= cap and seen.get(lg) != day:
+                seen[lg] = day
+                name = c.get("label") or next((t["name"] for t in self.cfg["mt5"].get("terminals") or [] if t["login"] == lg), lg)
+                p_, c_ = f"{pnl:+,.0f}".replace(",", "."), f"{cap:,.0f}".replace(",", ".")
+                txt = (f"{name}: heute {p_} $ – Grenze für die Konsistenzregel ({c_} $) erreicht. "
+                       "Der Bot eröffnet dort heute keine neuen Trades mehr, die anderen Konten handeln weiter. "
+                       "Offene Positionen laufen normal zu Ende.")
+                self.db.log(txt)
+                self.notify("daystop", "Konsistenzregel erreicht", txt, "good")
+
     def _copy_loop(self):
         """Copytrading läuft getrennt vom Bot, jede Sekunde."""
         while True:
@@ -2286,6 +2320,10 @@ class Engine:
                 cp.tick()
             except Exception as e:   # darf nie sterben
                 cp.status["error"] = str(e)
+            try:
+                self._cons_watch()
+            except Exception:  # noqa: BLE001  (nur Meldung, darf nie stören)
+                pass
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
@@ -2339,6 +2377,8 @@ class Engine:
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
                          "factor": float(c.get("factor") or 1.0),
+                         "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
+                                  "cap": mt5_cons_cap(c), "today": mt5_day_pnl(a) if a else None},
                          "sym_NQ": c.get("sym_NQ") or "", "sym_ES": c.get("sym_ES") or "",
                          "chart": self._chart_check(lg, a) if a else None,
                          "eff": {fam: {"name": self.mt5_link.sym_for(lg, fam),
