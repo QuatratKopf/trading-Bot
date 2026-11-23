@@ -1,6 +1,6 @@
 {
-  "version": "3.19.0",
-  "file": "releases/FVG-Trader-3.19.0.cmd",
-  "sha256": "aeb147b068ffed4570cf43987a793273e4173863cfddde6e7dd946465f854cbb",
-  "notes": "Neue Firmen leichter einrichten: FVG-Bridge 2.07 sucht im Konto den Nasdaq-100 und die App schlägt den richtigen Symbolnamen mit einem Klick vor; Formular erklärt bei „Andere Firma“ die einmalige Anmeldung von Hand"
+  "version": "3.19.1",
+  "file": "releases/FVG-Trader-3.19.1.cmd",
+  "sha256": "36bd7eecc1cbc0fc4b9dd4f2cee5617dfbe242183ee6cda3fef0bf927ec6f70d",
+  "notes": "MT5: Konten, die nicht über den Starter laufen („MT5 von Hand geöffnet“), lassen sich jetzt entfernen (ausgeblendet, Bot und Kopieren dort aus; erscheint wieder, sobald sich das Konto aus MT5 meldet)"
 }

@@ -3542,8 +3542,11 @@ function mtListRender() {
       <details class="m5-more" ${symBad ? "open" : ""}><summary class="hint">Symbole &amp; Chart${symBad ? ' · <span class="neg">Nasdaq-Symbol fehlt</span>' : ""}</summary><div class="m5-o m5-sym">${sym}</div>${chart}</details>
       ${t ? `<div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
         <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div>`
-        : `<small class="hint">MT5 von Hand geöffnet (nicht über die App)</small>`}</div>`; }).join("");
+        : `<div class="inline wrap-gap"><small class="hint">MT5 von Hand geöffnet (nicht über die App)</small><button class="btn sm ghost-danger" data-mtrm="${esc(lg)}" data-key="mtrmh-${esc(lg)}" data-orig="Entfernen">Entfernen</button></div>`}</div>`; }).join("");
   const act = async (b, a) => { try { b.disabled = true; await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
+  box.querySelectorAll("[data-mtrm]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => {
+    try { await api("/api/mt5/terminal", {action: "remove", login: b.dataset.mtrm}); toast("Entfernt. Taucht wieder auf, sobald sich das Konto aus MT5 meldet."); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; }
+  }));
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
   box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
   const rrShow = lg => { const n = id => parseFloat(($("#" + id + CSS.escape(lg)) || {}).value) || 0, z = n("m5rs_"), el = $("#m5rr_" + CSS.escape(lg)); if (!el) return;

@@ -826,6 +826,7 @@ class Engine:
                                  label=str(a.get("label") or "").strip()[:40],
                                  cons_on=bool(a.get("cons_on")), cons_pct=cp_, cons_target=ct_, **syms)
         m5["accounts"] = accs
+        m5["hidden"] = list(dict.fromkeys(str(x) for x in (m5.get("hidden") or []) if str(x).isdigit()))[:200]
         m5["chart_fix"] = bool(m5.get("chart_fix", True))
         try:
             m5["chart_minutes"] = int(m5.get("chart_minutes") or 5)
@@ -2388,8 +2389,11 @@ class Engine:
         accs = self.mt5_link.accounts()
         conf = self.cfg["mt5"].get("accounts") or {}
         rows = []
+        hidden = set(self.cfg["mt5"].get("hidden") or [])
         for lg in sorted(set(accs) | set(conf), key=lambda x: (x not in accs, x)):
             a, c = accs.get(lg) or {}, conf.get(lg) or {}
+            if lg in hidden and not a.get("online"):
+                continue   # entfernt: erscheint erst wieder, wenn sich das Konto aus MT5 meldet
             rows.append({"login": lg, "server": a.get("server", ""), "company": a.get("company", ""),
                          "currency": a.get("currency", ""), "balance": a.get("balance"), "equity": a.get("equity"),
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
@@ -2510,14 +2514,15 @@ class Engine:
             if b.get("sym_NQ") is not None:
                 a["sym_NQ"] = str(b["sym_NQ"]).strip()
             accs[login] = a
-            self.update_cfg({"mt5": {"terminals": terms, "accounts": accs}})
+            hid = [x for x in (self.cfg.get("mt5") or {}).get("hidden") or [] if x != login]   # wieder angelegt: nicht mehr ausblenden
+            self.update_cfg({"mt5": {"terminals": terms, "accounts": accs, "hidden": hid}})
             t = next(x for x in self.cfg["mt5"]["terminals"] if x["login"] == login)
             self.db.log(f"MT5-Konto „{t['name']}“ ({login}) {'angelegt' if act == 'add' else 'geändert'}")
             if act == "add" and t["auto"]:
                 threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
             return {"ok": True, "id": t["id"]}
         t = next((x for x in self.cfg["mt5"]["terminals"] if x["id"] == b.get("id")), None)
-        if not t:
+        if not t and act != "remove":
             raise ValueError("Konto nicht gefunden")
         if act == "start":
             mt.state.setdefault(t["id"], {}).update(restarts=0)
@@ -2532,6 +2537,21 @@ class Engine:
             mt.state.setdefault(t["id"], {}).update(stopped=0, restarts=0)
             threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
             return {"ok": True, "background": True}
+        if act == "remove" and t is None:
+            # Konto ohne Starter (MT5 von Hand geöffnet): ausblenden und alles abschalten, nichts löschen
+            login = str(b.get("login") or "")
+            if not login.isdigit():
+                raise ValueError("Konto nicht gefunden")
+            if any(p["broker"] == "mt5" and login in self._acc_of(p) for p in self.db.open_positions()):
+                raise ValueError("Auf diesem Konto ist noch eine Position offen. Erst schließen, dann entfernen.")
+            m5 = self.cfg.get("mt5") or {}
+            acc = dict((m5.get("accounts") or {}).get(login) or {}, bot=False, copy=False)
+            patch = {"mt5": {"hidden": list(m5.get("hidden") or []) + [login], "accounts": {login: acc}}}
+            if str((m5.get("copy") or {}).get("master") or "") == login:
+                patch["mt5"]["copy"] = {"master": "", "enabled": False}   # Hauptkonto weg: Copytrading aus
+            self.update_cfg(patch)
+            self.db.log(f"MT5-Konto {login} aus der Liste entfernt (Bot und Kopieren dort aus). Es erscheint wieder, sobald es sich aus MT5 meldet.")
+            return {"ok": True}
         if act == "remove":
             if any(p["broker"] == "mt5" and t["login"] in self._acc_of(p) for p in self.db.open_positions()):
                 raise ValueError("Auf diesem Konto ist noch eine Position offen. Erst schließen, dann entfernen.")
