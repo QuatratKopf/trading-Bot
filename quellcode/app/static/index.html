@@ -3502,7 +3502,7 @@ function mtListRender() {
     const trk = (S.tracked || []).find(x => x.source === "mt5:" + lg && (x.rules || {}).cons);
     const kSug = trk ? {pct: trk.rules.cons, target: trk.rules.target || 0, name: (trk.label || trk.firm + " " + trk.program)} : null;
     const R = a.rules || {}, RL = R.limits, room = R.room || [];
-    const rSum = R.on && RL ? [RL.daily ? "Tag −" + usd(RL.daily) : "", RL.floor ? "Grenze " + usd(RL.floor) : "", RL.trade ? "pro Trade " + usd(RL.trade) : "", RL.target ? "Ziel " + usd(RL.target) : ""].filter(Boolean).join(" · ") : "aus";
+    const rSum = R.on && RL ? [RL.daily ? "Tag −" + usd(RL.daily) : "", RL.floor ? "Grenze " + usd(RL.floor) + (RL.trail ? " (mitlaufend)" : "") : "", RL.trade ? "pro Trade " + usd(RL.trade) : "", RL.target ? "Ziel " + usd(RL.target) : ""].filter(Boolean).join(" · ") : "aus";
     const rNow = R.on && room.length ? (room[0] === null ? "" : room[0] <= 0 ? `<small class="neg" style="display:block">${esc(room[1])}</small>` : `<small class="hint" style="display:block">Ein neuer Trade darf hier gerade höchstens <b>${usd(room[0])}</b> riskieren (engste Grenze: ${esc(room[1])}, 90 % davon).</small>`) : "";
     const kSum = K.on && K.cap != null ? `an · Bot stoppt ab ${usd(K.cap)} Tagesgewinn${K.today != null ? ` · heute ${K.today >= 0 ? "+" : ""}${usd(K.today)}` : ""}` : "aus";
     return `<div class="m5-acc" data-acc-card="${esc(lg)}">
@@ -3524,7 +3524,8 @@ function mtListRender() {
           <label class="m5-c">Kontogröße <input type="number" data-cfg data-rr="${esc(lg)}" id="m5rs_${esc(lg)}" value="${R.rule_size || ""}" min="1" step="1000" style="width:110px" placeholder="z. B. 10000"> $</label></div>
         <div class="m5-o" style="margin-top:6px">
           ${[["m5rd_", "rule_daily", "Tagesverlust"], ["m5rt_", "rule_total", "Gesamtverlust"], ["m5rx_", "rule_trade", "Verlust pro Trade"], ["m5rz_", "rule_target", "Gewinnziel"]].map(([id, k, l]) =>
-            `<label class="m5-c">${l} <input type="number" data-cfg data-rr="${esc(lg)}" id="${id}${esc(lg)}" value="${R[k] || ""}" min="0" max="100" step="0.1" style="width:72px" placeholder="%"> %</label>`).join("")}
+            `<label class="m5-c">${l} <input type="number" data-cfg data-rr="${esc(lg)}" id="${id}${esc(lg)}" value="${R[k] || ""}" min="0" max="100" step="0.1" style="width:72px" placeholder="%"> %</label>`
+            + (k === "rule_total" ? `<label class="m5-c" title="Die Grenze steigt mit dem höchsten Kontostand mit (Trailing Drawdown)"><input type="checkbox" class="chk" data-cfg data-rr="${esc(lg)}" id="m5rtr_${esc(lg)}" ${R.trail ? "checked" : ""}> mitlaufend</label>` : "")).join("")}
         </div>
         <small class="hint m5-rr" id="m5rr_${esc(lg)}" style="display:block;margin-top:6px"></small>
         <small class="hint" style="display:block;margin-top:4px">Prozente wie bei der Firma, jeweils von der Kontogröße. Leer = keine Grenze. Der Bot verkleinert jeden Trade so, dass er höchstens 90 % des noch erlaubten Verlusts riskiert (Verlust pro Trade, Tagesverlust, Gesamtverlust, offene Positionen zählen mit). Ist eine Grenze fast erreicht oder das Gewinnziel geschafft, eröffnet er hier nichts mehr. Gilt auch für Kopien. Andere Konten handeln normal weiter.</small>
@@ -3550,7 +3551,7 @@ function mtListRender() {
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
   box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
   const rrShow = lg => { const n = id => parseFloat(($("#" + id + CSS.escape(lg)) || {}).value) || 0, z = n("m5rs_"), el = $("#m5rr_" + CSS.escape(lg)); if (!el) return;
-    el.innerHTML = z > 0 ? [n("m5rd_") ? `Tagesverlust höchstens <b>${usd(z * n("m5rd_") / 100)}</b>` : "", n("m5rt_") ? `Kontostand nie unter <b>${usd(z * (1 - n("m5rt_") / 100))}</b>` : "", n("m5rx_") ? `pro Trade höchstens <b>${usd(z * n("m5rx_") / 100)}</b> Verlust` : "", n("m5rz_") ? `Ziel bei <b>${usd(z * (1 + n("m5rz_") / 100))}</b>` : ""].filter(Boolean).join(" · ") : ""; };
+    el.innerHTML = z > 0 ? [n("m5rd_") ? `Tagesverlust höchstens <b>${usd(z * n("m5rd_") / 100)}</b>` : "", n("m5rt_") ? (($("#m5rtr_" + CSS.escape(lg)) || {}).checked ? `Kontostand nie mehr als <b>${usd(z * n("m5rt_") / 100)}</b> unter dem Höchststand (mitlaufend${((((S.mt5 || {}).accounts || []).find(x => x.login === lg) || {}).rules || {}).limits ? ", jetzt Grenze " + usd(((S.mt5.accounts.find(x => x.login === lg).rules.limits.peak) || z) - z * n("m5rt_") / 100) : ""})` : `Kontostand nie unter <b>${usd(z * (1 - n("m5rt_") / 100))}</b>`) : "", n("m5rx_") ? `pro Trade höchstens <b>${usd(z * n("m5rx_") / 100)}</b> Verlust` : "", n("m5rz_") ? `Ziel bei <b>${usd(z * (1 + n("m5rz_") / 100))}</b>` : ""].filter(Boolean).join(" · ") : ""; };
   [...new Set([...box.querySelectorAll("[data-rr]")].map(i => i.dataset.rr))].forEach(lg => { rrShow(lg); box.querySelectorAll(`[data-rr="${CSS.escape(lg)}"]`).forEach(i => i.addEventListener("input", () => rrShow(lg))); });
   box.querySelectorAll("[data-nqc]").forEach(b => b.onclick = () => {
     $("#m5n_" + CSS.escape(b.dataset.nqc)).value = b.dataset.name; $("#savebar").hidden = false; settingsDirty = true;
@@ -4421,7 +4422,7 @@ function settings() {
       mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
         accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg),
           cons_on: v("m5k_" + lg), cons_pct: v("m5kp_" + lg) || 0, cons_target: v("m5kt_" + lg) || 0,
-          rules_on: v("m5ro_" + lg), rule_size: v("m5rs_" + lg) || 0, rule_daily: v("m5rd_" + lg) || 0, rule_total: v("m5rt_" + lg) || 0, rule_trade: v("m5rx_" + lg) || 0, rule_target: v("m5rz_" + lg) || 0,
+          rules_on: v("m5ro_" + lg), rule_trail: v("m5rtr_" + lg), rule_size: v("m5rs_" + lg) || 0, rule_daily: v("m5rd_" + lg) || 0, rule_total: v("m5rt_" + lg) || 0, rule_trade: v("m5rx_" + lg) || 0, rule_target: v("m5rz_" + lg) || 0,
           sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},

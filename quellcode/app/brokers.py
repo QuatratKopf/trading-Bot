@@ -452,8 +452,28 @@ def mt5_cons_block(c, a):
 MT5_RULE_SAFETY = 0.9        # Firmen-Regeln: höchstens 90 % des noch erlaubten Verlusts für einen neuen Trade
 
 
-def mt5_rule_limits(c):
-    """Firmen-Regeln eines MT5-Kontos in $ (aus Kontogröße und Prozenten) oder None, wenn aus."""
+MT5_PEAKS = {}                # login -> höchster bekannter Kontostand (für mitlaufende Gesamtgrenzen, von der Engine gepflegt)
+
+
+def mt5_peak(login, a=None, size=0.0):
+    """Höchster Stand eines Kontos: gemerkter Höchststand, Tagesend-Stände aus MT5 und der jetzige Stand."""
+    vals = [float(size or 0), float(MT5_PEAKS.get(str(login)) or 0)]
+    if a:
+        bal = a.get("balance")
+        for k in ("balance", "equity"):
+            if a.get(k) is not None:
+                vals.append(float(a[k]))
+        if bal is not None:   # Tagesend-Stände rückwärts aus den Tagesergebnissen
+            later = 0.0
+            for d in sorted(a.get("days") or [], key=lambda d: d.get("day") or "", reverse=True):
+                vals.append(float(bal) - later)
+                later += float(d.get("pnl") or 0) + float(d.get("cash") or 0)
+    return max(vals)
+
+
+def mt5_rule_limits(c, peak=None):
+    """Firmen-Regeln eines MT5-Kontos in $ (aus Kontogröße und Prozenten) oder None, wenn aus.
+    Mit „mitlaufend“ (rule_trail) liegt die Gesamtgrenze unter dem Höchststand statt unter der Kontogröße."""
     try:
         size = float(c.get("rule_size") or 0)
         pct = {k: float(c.get("rule_" + k) or 0) for k in ("daily", "total", "trade", "target")}
@@ -461,7 +481,9 @@ def mt5_rule_limits(c):
         return None
     if not c.get("rules_on") or size <= 0:
         return None
-    return {"size": size, "daily": size * pct["daily"] / 100, "floor": size * (1 - pct["total"] / 100) if pct["total"] > 0 else 0.0,
+    top = max(size, float(peak or 0)) if c.get("rule_trail") else size
+    return {"size": size, "trail": bool(c.get("rule_trail")), "peak": top,
+            "daily": size * pct["daily"] / 100, "floor": top - size * pct["total"] / 100 if pct["total"] > 0 else 0.0,
             "trade": size * pct["trade"] / 100, "target": size * (1 + pct["target"] / 100) if pct["target"] > 0 else 0.0}
 
 
@@ -481,7 +503,7 @@ def mt5_open_risk(a):
 def mt5_rule_room(c, a):
     """Wie viel $ ein neuer Trade auf diesem Konto höchstens riskieren darf (Firmen-Regeln), und warum.
     (None, '') = keine Regeln eingetragen; (0, Grund) = heute kein neuer Trade."""
-    L = mt5_rule_limits(c)
+    L = mt5_rule_limits(c, mt5_peak(a.get("login"), a, float(c.get("rule_size") or 0)) if a else None)
     if L is None or not a:
         return None, ""
     bal, eq = a.get("balance"), a.get("equity")

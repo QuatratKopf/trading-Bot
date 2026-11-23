@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals, mt5_cons_cap, mt5_day_pnl, mt5_rule_limits, mt5_rule_room
+from brokers import BROKERS, MT5_PEAKS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals, mt5_cons_cap, mt5_day_pnl, mt5_peak, mt5_rule_limits, mt5_rule_room
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
 from discovery import BS_PARTS, bias_compute, bs_sess
@@ -820,6 +820,7 @@ class Engine:
                 if rules[k] < 0 or (k != "rule_size" and rules[k] > 100):
                     raise ValueError(f"MT5-Konto {lg}: Firmen-Regeln in % zwischen 0 und 100")
             rules["rules_on"] = bool(a.get("rules_on"))
+            rules["rule_trail"] = bool(a.get("rule_trail"))
             if rules["rules_on"] and rules["rule_size"] <= 0:
                 raise ValueError(f"MT5-Konto {lg}: für die Firmen-Regeln die Kontogröße eintragen")
             accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f,
@@ -2300,6 +2301,33 @@ class Engine:
                 "auto_log": self.learning.get("auto_log", [])}
 
     # ───────── Hintergrund ─────────
+    def _peaks_update(self, accs):
+        """Höchststand je Konto merken (für mitlaufende Gesamtgrenzen), auch über einen Neustart der App hinweg."""
+        path = os.path.join(self.data_dir, "mt5_hoechststaende.json")
+        if not getattr(self, "_peaks_loaded", False):
+            self._peaks_loaded = True
+            try:
+                with open(path, encoding="utf-8") as f:
+                    MT5_PEAKS.update({str(k): float(v) for k, v in json.load(f).items()})
+            except (OSError, ValueError):
+                pass
+        changed = False
+        for lg, a in accs.items():
+            if not a.get("online"):
+                continue
+            pk = mt5_peak(lg, a)
+            if pk > MT5_PEAKS.get(lg, 0) + 0.005:
+                MT5_PEAKS[lg] = round(pk, 2)
+                changed = True
+        if changed:
+            try:
+                tmp = path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(MT5_PEAKS, f)
+                os.replace(tmp, path)
+            except OSError:
+                pass
+
     def _cons_watch(self):
         """Konsistenzregel je MT5-Konto: einmal am Tag melden, wenn ein Konto seine Tages-Gewinngrenze erreicht hat."""
         if time.time() - getattr(self, "_cons_at", 0) < 20:
@@ -2309,6 +2337,7 @@ class Engine:
         if seen is None:
             seen = self._cons_seen = {}
         accs = self.mt5_link.accounts()
+        self._peaks_update(accs)
         for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items():
             cap, a = mt5_cons_cap(c), accs.get(lg)
             if cap is None or not a or not a.get("online"):
@@ -2402,7 +2431,8 @@ class Engine:
                          "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
                                   "cap": mt5_cons_cap(c), "today": mt5_day_pnl(a) if a else None},
                          "rules": dict({k: c.get(k) or 0 for k in ("rule_size", "rule_daily", "rule_total", "rule_trade", "rule_target")},
-                                       on=bool(c.get("rules_on")), limits=mt5_rule_limits(c),
+                                       on=bool(c.get("rules_on")), trail=bool(c.get("rule_trail")),
+                                       limits=mt5_rule_limits(c, mt5_peak(lg, a, float(c.get("rule_size") or 0)) if a else None),
                                        room=mt5_rule_room(c, a) if a and c.get("rules_on") else None),
                          "sym_NQ": c.get("sym_NQ") or "", "sym_ES": c.get("sym_ES") or "",
                          "chart": self._chart_check(lg, a) if a else None,

@@ -1,6 +1,6 @@
 {
-  "version": "3.19.1",
-  "file": "releases/FVG-Trader-3.19.1.cmd",
-  "sha256": "36bd7eecc1cbc0fc4b9dd4f2cee5617dfbe242183ee6cda3fef0bf927ec6f70d",
-  "notes": "MT5: Konten, die nicht über den Starter laufen („MT5 von Hand geöffnet“), lassen sich jetzt entfernen (ausgeblendet, Bot und Kopieren dort aus; erscheint wieder, sobald sich das Konto aus MT5 meldet)"
+  "version": "3.20.0",
+  "file": "releases/FVG-Trader-3.20.0.cmd",
+  "sha256": "04d96af7830d90b7c2ea7e3bff37f0fe0ce645d43ec5f9c069d3b50da678c981",
+  "notes": "Firmen-Regeln: Gesamtverlust „mitlaufend“ (Trailing Drawdown) – die Grenze steigt mit dem höchsten Kontostand; die App merkt sich den Höchststand je Konto (auch nach Neustart) und rechnet ihn zusätzlich aus den Tagesergebnissen von MT5 nach"
 }
