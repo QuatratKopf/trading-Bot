@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.05"
+#property version   "2.06"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.05"
+#define BRIDGE_VERSION "2.06"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -307,9 +307,14 @@ void HandleCommand(string fname)
                else
                   if(action == "chart")
                      res += DoChart(keys, vals);
-               else
-                  res += Err("unbekannter Auftrag " + action);
+                  else
+                     if(action == "quit")
+                        res += "ok=1\r\n";
+                     else
+                        res += Err("unbekannter Auftrag " + action);
    WriteAtomic("res_" + IntegerToString(g_login) + "_" + id + ".txt", res);
+   if(action == "quit")
+      TerminalClose(0);   // MT5 sauber schliessen: Anmeldung und Serverliste werden dabei gespeichert
   }
 
 string DoOpen(string &keys[], string &vals[])

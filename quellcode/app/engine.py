@@ -557,6 +557,7 @@ class Engine:
         self.mt5_link = Mt5Link(self.cfg)
         self.mt5_sources = None   # wird vom Server gesetzt: () -> (Bridge-Quelltext, Chart-Quelltext)
         self.mt5_terms = Mt5Terminals(self.cfg, self.data_dir, lambda: self.mt5_sources())
+        self.mt5_terms.link = self.mt5_link   # zum sauberen Schließen über FVG-Bridge
         self._watch_at = 0
         self._ts_cache = {"at": 0}
         self.backup_state = {"last": None, "error": ""}

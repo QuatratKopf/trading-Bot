@@ -684,6 +684,7 @@ class Mt5Terminals:
         self._procs = {}                # id -> Popen (nur zum Prüfen, ob noch läuft)
         self._ps = (0, {})              # (Zeit, {Pfad: [PIDs]}) laufende terminal64.exe
         self._busy = set()
+        self.link = None                # Mt5Link (von der Engine gesetzt): MT5 sauber über FVG-Bridge schließen
 
     # ── Grundlagen ──
     @property
@@ -1140,8 +1141,31 @@ Write-Output ('OK ' + $u)
             raise BrokerError(f"Start im Benutzerkonto fehlgeschlagen: {err[:200]}")
         return last[3:]
 
+    def _quit_clean(self, t):
+        """MT5 über FVG-Bridge (ab 2.06) sauber schließen lassen. Nur so speichert MT5 eine neue Anmeldung und die
+        Serverliste. True, wenn MT5 danach wirklich zu ist."""
+        if self.link is None or os.environ.get("FVG_MT5_LAUNCH"):
+            return False
+        try:
+            a = self.link.accounts().get(str(t["login"])) or {}
+            if not a.get("online") or self.link._num(a.get("version"), 0) < 2.06:
+                return False
+            r = self.link.send([(str(t["login"]), {"action": "quit"})], wait=6.0)
+            if not r or not r[0].get("ok"):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        for _ in range(20):
+            time.sleep(1)
+            self._ps = (0, {})
+            if not self._running_map().get(os.path.normcase(self.folder(t))):
+                return True
+        return False
+
     def stop(self, t, manual=True):
         import subprocess
+        if self._quit_clean(t):
+            self._procs.pop(t["id"], None)
         pids = list(self._running_map().get(os.path.normcase(self.folder(t)), []))
         p = self._procs.pop(t["id"], None)
         if p is not None and p.poll() is None:

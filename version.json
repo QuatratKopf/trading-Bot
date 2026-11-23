@@ -1,6 +1,6 @@
 {
-  "version": "3.16.2",
-  "file": "releases/FVG-Trader-3.16.2.cmd",
-  "sha256": "5d38f9c54e216821b984ccd7b01d8f2b0ea588a48cab09b76d227c4f8ceb94ef",
-  "notes": "MT5-Starter: kennt die MT5-Kopie den Server des Kontos nicht (z. B. „Upcomers“), holt die App die Serverliste aus einem anderen MT5 nach, das ihn kennt (alte Liste wird gesichert); klarerer Hinweis auf der Konto-Karte"
+  "version": "3.17.0",
+  "file": "releases/FVG-Trader-3.17.0.cmd",
+  "sha256": "b44679cbd58a344f298086481870c553ff9f819eeff0a987ce688f1b27642ce0",
+  "notes": "MT5-Starter: „Neu starten“/„Beenden“ schließen MT5 jetzt sauber über FVG-Bridge 2.06, damit eine Anmeldung von Hand und neue Server gespeichert bleiben (vorher gingen sie beim harten Beenden verloren)"
 }
