@@ -2764,6 +2764,7 @@ function trkMt5Card(a) {
       ${rl(a.bot ? true : null, "Bot handelt hier", a.bot ? "ja" : "nein")}
       ${rl(null, "Copytrading", role)}
       ${K.on ? rl(!(K.cap != null && today != null && today >= K.cap), "Konsistenz-Grenze heute", mUsd(K.cap)) : ""}
+      ${(a.rules || {}).on && (a.rules.room || []).length && a.rules.room[0] !== null ? rl(a.rules.room[0] > 0, "Firmen-Regeln: Risiko für nächsten Trade", a.rules.room[0] > 0 ? "bis " + mUsd(a.rules.room[0]) : "gesperrt") : ""}
     </div>
     <div class="inline wrap-gap"><button type="button" class="btn" data-trkadd="${esc(a.login)}" data-firm="${/ftmo/i.test(a.company || "") ? "ftmo" : /iq|beyond/i.test(a.company || "") ? "iq" : ""}">Firmen-Regeln hinzufügen</button></div>
   </article>`;
@@ -3500,6 +3501,9 @@ function mtListRender() {
     const K = a.cons || {}, kHit = K.on && K.cap != null && K.today != null && K.today >= K.cap;
     const trk = (S.tracked || []).find(x => x.source === "mt5:" + lg && (x.rules || {}).cons);
     const kSug = trk ? {pct: trk.rules.cons, target: trk.rules.target || 0, name: (trk.label || trk.firm + " " + trk.program)} : null;
+    const R = a.rules || {}, RL = R.limits, room = R.room || [];
+    const rSum = R.on && RL ? [RL.daily ? "Tag −" + usd(RL.daily) : "", RL.floor ? "Grenze " + usd(RL.floor) : "", RL.trade ? "pro Trade " + usd(RL.trade) : "", RL.target ? "Ziel " + usd(RL.target) : ""].filter(Boolean).join(" · ") : "aus";
+    const rNow = R.on && room.length ? (room[0] === null ? "" : room[0] <= 0 ? `<small class="neg" style="display:block">${esc(room[1])}</small>` : `<small class="hint" style="display:block">Ein neuer Trade darf hier gerade höchstens <b>${usd(room[0])}</b> riskieren (engste Grenze: ${esc(room[1])}, 90 % davon).</small>`) : "";
     const kSum = K.on && K.cap != null ? `an · Bot stoppt ab ${usd(K.cap)} Tagesgewinn${K.today != null ? ` · heute ${K.today >= 0 ? "+" : ""}${usd(K.today)}` : ""}` : "aus";
     return `<div class="m5-acc" data-acc-card="${esc(lg)}">
       <div class="m5-h"><b>${esc(name)}</b><span class="mono hint">${esc(lg)}</span><span class="chip ${st[0]}">${esc(st[1])}</span>${info ? `<small class="hint">${info}</small>` : ""}
@@ -3513,6 +3517,18 @@ function mtListRender() {
         <label class="m5-c" title="1 = normale Größe, 0,5 = halb so groß, 2 = doppelt">Größe × <input type="number" data-cfg id="m5f_${esc(lg)}" value="${a.factor || 1}" min="0.01" max="100" step="0.1" style="width:72px"></label>
       </div>
       ${kHit ? `<small class="cp-warn" style="margin:0">Konsistenzregel erreicht: heute ${usd(K.today)} Gewinn. Der Bot eröffnet hier heute nichts mehr, die anderen Konten handeln weiter.</small>` : ""}
+      ${R.on && room.length && room[0] !== null && room[0] <= 0 ? `<small class="cp-warn" style="margin:0">${esc(room[1])}. Die anderen Konten handeln weiter.</small>` : ""}
+      <details class="m5-more m5-rules"><summary class="hint">Firmen-Regeln · <span class="${R.on ? "pos" : ""}">${rSum}</span></summary>
+        ${rNow}
+        <div class="m5-o" style="margin-top:8px"><label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5ro_${esc(lg)}" ${R.on ? "checked" : ""}> beachten</label>
+          <label class="m5-c">Kontogröße <input type="number" data-cfg data-rr="${esc(lg)}" id="m5rs_${esc(lg)}" value="${R.rule_size || ""}" min="1" step="1000" style="width:110px" placeholder="z. B. 10000"> $</label></div>
+        <div class="m5-o" style="margin-top:6px">
+          ${[["m5rd_", "rule_daily", "Tagesverlust"], ["m5rt_", "rule_total", "Gesamtverlust"], ["m5rx_", "rule_trade", "Verlust pro Trade"], ["m5rz_", "rule_target", "Gewinnziel"]].map(([id, k, l]) =>
+            `<label class="m5-c">${l} <input type="number" data-cfg data-rr="${esc(lg)}" id="${id}${esc(lg)}" value="${R[k] || ""}" min="0" max="100" step="0.1" style="width:72px" placeholder="%"> %</label>`).join("")}
+        </div>
+        <small class="hint m5-rr" id="m5rr_${esc(lg)}" style="display:block;margin-top:6px"></small>
+        <small class="hint" style="display:block;margin-top:4px">Prozente wie bei der Firma, jeweils von der Kontogröße. Leer = keine Grenze. Der Bot verkleinert jeden Trade so, dass er höchstens 90 % des noch erlaubten Verlusts riskiert (Verlust pro Trade, Tagesverlust, Gesamtverlust, offene Positionen zählen mit). Ist eine Grenze fast erreicht oder das Gewinnziel geschafft, eröffnet er hier nichts mehr. Gilt auch für Kopien. Andere Konten handeln normal weiter.</small>
+      </details>
       <details class="m5-more m5-cons"><summary class="hint">Konsistenzregel · <span class="${K.on ? "pos" : ""}">${kSum}</span></summary>
         <div class="m5-o" style="margin-top:8px"><label class="m5-c"><input type="checkbox" class="chk" data-cfg id="m5k_${esc(lg)}" ${K.on ? "checked" : ""}> beachten</label>
           <label class="m5-c">höchstens <input type="number" data-cfg id="m5kp_${esc(lg)}" value="${K.pct || ""}" min="1" max="100" step="1" style="width:70px" placeholder="z. B. 40"> % pro Tag</label>
@@ -3527,6 +3543,9 @@ function mtListRender() {
   const act = async (b, a) => { try { b.disabled = true; await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
   box.querySelectorAll("[data-mta]").forEach(b => b.onclick = () => b.dataset.mta === "remove" ? confirmBtn(b, "Sicher?", () => act(b, "remove")) : act(b, b.dataset.mta));
   box.querySelectorAll("[data-mte]").forEach(b => b.onclick = () => { MTF.edit = b.dataset.mte; MTF.viaEdit = true; $("#mtAdd").open = true; mtFormRender(); $("#mtAdd").scrollIntoView({behavior: "smooth", block: "start"}); });
+  const rrShow = lg => { const n = id => parseFloat(($("#" + id + CSS.escape(lg)) || {}).value) || 0, z = n("m5rs_"), el = $("#m5rr_" + CSS.escape(lg)); if (!el) return;
+    el.innerHTML = z > 0 ? [n("m5rd_") ? `Tagesverlust höchstens <b>${usd(z * n("m5rd_") / 100)}</b>` : "", n("m5rt_") ? `Kontostand nie unter <b>${usd(z * (1 - n("m5rt_") / 100))}</b>` : "", n("m5rx_") ? `pro Trade höchstens <b>${usd(z * n("m5rx_") / 100)}</b> Verlust` : "", n("m5rz_") ? `Ziel bei <b>${usd(z * (1 + n("m5rz_") / 100))}</b>` : ""].filter(Boolean).join(" · ") : ""; };
+  [...new Set([...box.querySelectorAll("[data-rr]")].map(i => i.dataset.rr))].forEach(lg => { rrShow(lg); box.querySelectorAll(`[data-rr="${CSS.escape(lg)}"]`).forEach(i => i.addEventListener("input", () => rrShow(lg))); });
   box.querySelectorAll("[data-ksug]").forEach(b => b.onclick = () => {
     const lg = CSS.escape(b.dataset.ksug); $("#m5kp_" + lg).value = b.dataset.kp; if (+b.dataset.kt) $("#m5kt_" + lg).value = b.dataset.kt;
     $("#m5k_" + lg).checked = true; $("#savebar").hidden = false; settingsDirty = true;
@@ -4391,6 +4410,7 @@ function settings() {
       mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
         accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg),
           cons_on: v("m5k_" + lg), cons_pct: v("m5kp_" + lg) || 0, cons_target: v("m5kt_" + lg) || 0,
+          rules_on: v("m5ro_" + lg), rule_size: v("m5rs_" + lg) || 0, rule_daily: v("m5rd_" + lg) || 0, rule_total: v("m5rt_" + lg) || 0, rule_trade: v("m5rx_" + lg) || 0, rule_target: v("m5rz_" + lg) || 0,
           sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},
       paper: {start_balance: num("pb") ?? c.paper.start_balance, slippage_ticks: parseInt(v("psl")), commission: num("pc"), commission_micro: num("pcm")},
       tunnel: {ngrok_token: (v("ngt") || "").trim()},

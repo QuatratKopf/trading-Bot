@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals, mt5_cons_cap, mt5_day_pnl
+from brokers import BROKERS, BrokerError, Mt5Copier, Mt5Link, Mt5Terminals, mt5_cons_cap, mt5_day_pnl, mt5_rule_limits, mt5_rule_room
 from db import DB
 from discovery import CF_BIT, CF_FACTORS, CF_KEYS, DC_DETECTORS, DC_ORIGIN, DC_OWN, DC_SESSIONS, DC_TPS, cf_compute, cf_keys, cf_mask, cf_reqs  # noqa: E501
 from discovery import BS_PARTS, bias_compute, bs_sess
@@ -811,9 +811,20 @@ class Engine:
                 raise ValueError(f"MT5-Konto {lg}: Konsistenz in % (1–100) und Gewinnziel in $ eingeben")
             if a.get("cons_on") and (cp_ <= 0 or ct_ <= 0):
                 raise ValueError(f"MT5-Konto {lg}: für die Konsistenzregel Prozent und Gewinnziel eintragen")
-            accs[str(lg)] = dict({"bot": bool(a.get("bot")), "copy": bool(a.get("copy")), "factor": f,
-                                  "label": str(a.get("label") or "").strip()[:40],
-                                  "cons_on": bool(a.get("cons_on")), "cons_pct": cp_, "cons_target": ct_}, **syms)
+            rules = {}
+            for k in ("rule_size", "rule_daily", "rule_total", "rule_trade", "rule_target"):
+                try:
+                    rules[k] = float(str(a.get(k) or 0).replace(",", "."))
+                except ValueError:
+                    raise ValueError(f"MT5-Konto {lg}: Firmen-Regeln als Zahlen eingeben")
+                if rules[k] < 0 or (k != "rule_size" and rules[k] > 100):
+                    raise ValueError(f"MT5-Konto {lg}: Firmen-Regeln in % zwischen 0 und 100")
+            rules["rules_on"] = bool(a.get("rules_on"))
+            if rules["rules_on"] and rules["rule_size"] <= 0:
+                raise ValueError(f"MT5-Konto {lg}: für die Firmen-Regeln die Kontogröße eintragen")
+            accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f,
+                                 label=str(a.get("label") or "").strip()[:40],
+                                 cons_on=bool(a.get("cons_on")), cons_pct=cp_, cons_target=ct_, **syms)
         m5["accounts"] = accs
         m5["chart_fix"] = bool(m5.get("chart_fix", True))
         try:
@@ -2380,6 +2391,9 @@ class Engine:
                          "factor": float(c.get("factor") or 1.0),
                          "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
                                   "cap": mt5_cons_cap(c), "today": mt5_day_pnl(a) if a else None},
+                         "rules": dict({k: c.get(k) or 0 for k in ("rule_size", "rule_daily", "rule_total", "rule_trade", "rule_target")},
+                                       on=bool(c.get("rules_on")), limits=mt5_rule_limits(c),
+                                       room=mt5_rule_room(c, a) if a and c.get("rules_on") else None),
                          "sym_NQ": c.get("sym_NQ") or "", "sym_ES": c.get("sym_ES") or "",
                          "chart": self._chart_check(lg, a) if a else None,
                          "eff": {fam: {"name": self.mt5_link.sym_for(lg, fam),

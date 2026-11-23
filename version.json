@@ -1,6 +1,6 @@
 {
-  "version": "3.17.0",
-  "file": "releases/FVG-Trader-3.17.0.cmd",
-  "sha256": "b44679cbd58a344f298086481870c553ff9f819eeff0a987ce688f1b27642ce0",
-  "notes": "MT5-Starter: „Neu starten“/„Beenden“ schließen MT5 jetzt sauber über FVG-Bridge 2.06, damit eine Anmeldung von Hand und neue Server gespeichert bleiben (vorher gingen sie beim harten Beenden verloren)"
+  "version": "3.18.0",
+  "file": "releases/FVG-Trader-3.18.0.cmd",
+  "sha256": "bf8e5abe4c77fcbdbe00a7eba75b30da3eed5debfdec81c397b8c79ee2434fa1",
+  "notes": "Firmen-Regeln pro MT5-Konto: Kontogröße, Tagesverlust %, Gesamtverlust %, Verlust pro Trade % und Gewinnziel % eintragen; der Bot verkleinert jeden Trade auf höchstens 90 % des noch erlaubten Verlusts und eröffnet nichts mehr, wenn eine Grenze fast erreicht oder das Ziel geschafft ist (auch für Kopien), andere Konten handeln weiter"
 }

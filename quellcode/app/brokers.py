@@ -449,6 +449,66 @@ def mt5_cons_block(c, a):
     return ""
 
 
+MT5_RULE_SAFETY = 0.9        # Firmen-Regeln: höchstens 90 % des noch erlaubten Verlusts für einen neuen Trade
+
+
+def mt5_rule_limits(c):
+    """Firmen-Regeln eines MT5-Kontos in $ (aus Kontogröße und Prozenten) oder None, wenn aus."""
+    try:
+        size = float(c.get("rule_size") or 0)
+        pct = {k: float(c.get("rule_" + k) or 0) for k in ("daily", "total", "trade", "target")}
+    except (TypeError, ValueError):
+        return None
+    if not c.get("rules_on") or size <= 0:
+        return None
+    return {"size": size, "daily": size * pct["daily"] / 100, "floor": size * (1 - pct["total"] / 100) if pct["total"] > 0 else 0.0,
+            "trade": size * pct["trade"] / 100, "target": size * (1 + pct["target"] / 100) if pct["target"] > 0 else 0.0}
+
+
+def mt5_open_risk(a):
+    """Möglicher Verlust aller offenen Positionen bis zu ihren Stops, ab dem jetzigen Kurs. None = Position ohne Stop."""
+    tot = 0.0
+    for p in a.get("positions") or []:
+        spec = (a.get("symbols") or {}).get(p["symbol"])
+        if p["sl"] <= 0 or not spec or spec["tick_size"] <= 0:
+            return None
+        px = spec["bid"] if p["side"] == "long" else spec["ask"]
+        dist = (px - p["sl"]) if p["side"] == "long" else (p["sl"] - px)
+        tot += max(0.0, dist) / spec["tick_size"] * spec["tick_value"] * p["volume"]
+    return tot
+
+
+def mt5_rule_room(c, a):
+    """Wie viel $ ein neuer Trade auf diesem Konto höchstens riskieren darf (Firmen-Regeln), und warum.
+    (None, '') = keine Regeln eingetragen; (0, Grund) = heute kein neuer Trade."""
+    L = mt5_rule_limits(c)
+    if L is None or not a:
+        return None, ""
+    bal, eq = a.get("balance"), a.get("equity")
+    eq = eq if eq is not None else bal
+    if eq is None:
+        return 0.0, "Firmen-Regeln: Kontostand unbekannt, kein neuer Trade"
+    if L["target"] and bal is not None and bal >= L["target"]:
+        return 0.0, "Firmen-Regeln: Gewinnziel erreicht (" + f"{bal:,.0f}".replace(",", ".") + " $), keine neuen Trades mehr"
+    open_r = mt5_open_risk(a)
+    if open_r is None:
+        return 0.0, "Firmen-Regeln: offene Position ohne Stop-Loss, deshalb kein neuer Trade"
+    rooms = []
+    if L["trade"] > 0:
+        rooms.append((L["trade"], "Verlust pro Trade"))
+    if L["daily"] > 0:
+        rooms.append((L["daily"] + min(0.0, mt5_day_pnl(a)) - open_r, "Tagesverlust"))
+    if L["floor"] > 0:
+        rooms.append((eq - L["floor"] - open_r, "Gesamtverlust"))
+    if not rooms:
+        return None, ""
+    room, what = min(rooms)
+    room = round(room * MT5_RULE_SAFETY, 2)
+    if room <= 0:
+        return 0.0, f"Firmen-Regeln: Grenze „{what}“ fast erreicht, heute kein neuer Trade"
+    return room, what
+
+
 def mt5_family(root):
     return "ES" if "ES" in str(root).upper() else "NQ"
 
@@ -1391,9 +1451,18 @@ class Mt5Broker:
             if not spec:
                 warnings.append(f"MT5-Konto {login}: Symbol {sym_a} nicht gefunden (Name prüfen unter Einstellungen → MetaTrader 5), Trade dort ausgelassen")
                 continue
-            lots = self.lots_for(spec, usd_pp, float(c.get("factor") or 1.0))
+            fac = float(c.get("factor") or 1.0)
+            room, why = mt5_rule_room(c, a)
+            if room is not None and room <= 0:
+                warnings.append(f"MT5-Konto {login}: {why}")
+                continue
+            risk_acc = usd_pp * fac * abs(price - sl)
+            if room is not None and risk_acc > room:
+                fac = fac * room / risk_acc   # Firmen-Regeln: Trade auf das erlaubte Risiko verkleinern
+                warnings.append(f"MT5-Konto {login}: wegen Firmen-Regel „{why}“ verkleinert auf höchstens {room:,.0f} $ Risiko".replace(",", "."))
+            lots = self.lots_for(spec, usd_pp, fac)
             if lots <= 0:
-                warnings.append(f"MT5-Konto {login}: Größe unter der Mindest-Lotgröße, Trade dort ausgelassen")
+                warnings.append(f"MT5-Konto {login}: Größe unter der Mindest-Lotgröße" + (" (Firmen-Regeln lassen nur wenig Risiko zu)" if room is not None else "") + ", Trade dort ausgelassen")
                 continue
             mid = (spec["bid"] + spec["ask"]) / 2
             if mid <= 0:
@@ -1619,6 +1688,16 @@ class Mt5Copier:
                 if fsym != p["symbol"] and mspec.get("bid") and spec["bid"]:
                     off = (spec["bid"] + spec["ask"]) / 2 - (mspec["bid"] + mspec["ask"]) / 2
                 d = spec["digits"]
+                room, why = mt5_rule_room(c, st)
+                if room is not None and p["sl"] > 0 and spec["tick_size"] > 0:
+                    risk_c = abs(p["price"] - p["sl"]) / spec["tick_size"] * spec["tick_value"] * lots
+                    if room <= 0:
+                        entry.setdefault("failed", {})[lg] = "Firmen-Regeln"
+                        self._say(f"Copytrading: Konto {lg} · {why}", "warn")
+                        continue
+                    if risk_c > room:
+                        lots = math.floor(lots * room / risk_c / step + 1e-9) * step
+                        self._say(f"Copytrading: Kopie für Konto {lg} wegen Firmen-Regel „{why}“ verkleinert", "info")
                 if lots < (spec["vol_min"] or step) - 1e-9:
                     entry.setdefault("failed", {})[lg] = "zu klein"
                     self._say(f"Copytrading: Kopie für Konto {lg} wäre kleiner als die Mindest-Lotgröße", "warn")
