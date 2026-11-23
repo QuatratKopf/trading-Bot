@@ -1,6 +1,6 @@
 {
-  "version": "3.16.1",
-  "file": "releases/FVG-Trader-3.16.1.cmd",
-  "sha256": "4b43becfd5e462db973b72c63e62cf60acdf3e95a915530c50a4ed8c7be4ad11",
-  "notes": "MT5-Starter: erkennt, wenn MT5 den eingetragenen Server nicht kennt und sich gar nicht erst anmeldet, und sagt das auf der Konto-Karte"
+  "version": "3.16.2",
+  "file": "releases/FVG-Trader-3.16.2.cmd",
+  "sha256": "5d38f9c54e216821b984ccd7b01d8f2b0ea588a48cab09b76d227c4f8ceb94ef",
+  "notes": "MT5-Starter: kennt die MT5-Kopie den Server des Kontos nicht (z. B. „Upcomers“), holt die App die Serverliste aus einem anderen MT5 nach, das ihn kennt (alte Liste wird gesichert); klarerer Hinweis auf der Konto-Karte"
 }

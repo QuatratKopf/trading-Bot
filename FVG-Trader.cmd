@@ -1149,10 +1149,48 @@ class Mt5Terminals:
             self._say(f"MT5 „{t['name']}“: FVG-Bridge ließ sich noch nicht übersetzen, nächster Versuch beim nächsten Start", "warn")
 
     def _ensure_servers(self, t):
+        """Serverliste der Kopie: fehlt sie, übernehmen. Kennt sie den Server des Kontos nicht, aber ein anderes MT5
+        auf diesem Rechner schon, dessen Liste nachholen (z. B. nachdem man sich dort einmal angemeldet hat)."""
+        import shutil
         dst = self.folder(t)
-        if not any(os.path.isfile(os.path.join(dst, c, "servers.dat")) for c in ("Config", "config")):
+        cur = next((os.path.join(dst, c, "servers.dat") for c in ("Config", "config") if os.path.isfile(os.path.join(dst, c, "servers.dat"))), None)
+        if not cur:
             if self.copy_servers(t):
                 self._say(f"MT5 „{t['name']}“: Serverliste der Firma übernommen")
+            return
+        if self._knows_server(cur, t):
+            return
+        src = self._server_file_knowing(t)
+        if src and os.path.normcase(src) != os.path.normcase(cur):
+            try:
+                shutil.copy2(cur, cur + ".vorher")   # nichts still überschreiben
+                shutil.copy2(src, cur)
+                self._say(f"MT5 „{t['name']}“: Serverliste mit „{t.get('server')}“ aus einem anderen MT5 übernommen")
+            except OSError:
+                pass
+
+    @staticmethod
+    def _knows_server(path, t):
+        name = str(t.get("server") or "").strip()
+        if not name:
+            return True
+        try:
+            raw = open(path, "rb").read()
+        except OSError:
+            return False
+        return any(name.encode(enc) in raw for enc in ("utf-16-le", "utf-8"))
+
+    def _server_file_knowing(self, t):
+        """servers.dat eines installierten MT5, das den Server des Kontos kennt (neueste zuerst), sonst None."""
+        best = None
+        for data, _origin in self.data_folders():
+            for c in ("config", "Config"):
+                f = os.path.join(data, c, "servers.dat")
+                if os.path.isfile(f) and self._knows_server(f, t):
+                    if not best or os.path.getmtime(f) > os.path.getmtime(best):
+                        best = f
+                    break
+        return best
 
     @staticmethod
     def _read_log(path, tail=400):
@@ -1214,9 +1252,9 @@ class Mt5Terminals:
         elif lines and "auth_ok" not in last:
             tried = any(k in l.lower() for l in lines for k in ("authoriz", "connection to", "network"))
             if not tried:
-                hint = (f"MT5 versucht gar nicht, sich anzumelden: Den Server „{t.get('server') or '?'}“ kennt es nicht. "
-                        "Unter „Bearbeiten“ den Server-Namen genau wie in den Zugangsdaten der Firma eintragen (meist mit Bindestrich, "
-                        "z. B. Firma-Server oder Firma-Live), dann „Neu starten“.")
+                hint = (f"MT5 versucht gar nicht, sich anzumelden: Diese MT5-Kopie kennt den Server „{t.get('server') or '?'}“ noch nicht. "
+                        "Einmal im MT5-Fenster dieses Kontos über Datei → „Bei Handelskonto anmelden“ den Server suchen und mit "
+                        "Login und Passwort anmelden. Stimmt der Server-Name nicht genau mit den Zugangsdaten überein, unter „Bearbeiten“ korrigieren.")
             else:
                 hint = "MT5 hat sich noch nicht beim Server angemeldet."
         keys = ("authoriz", "connection", "fvg-bridge", "account", "trading", "error", "failed", "expert")
@@ -9015,7 +9053,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.16.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.16.2"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
