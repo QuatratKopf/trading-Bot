@@ -906,7 +906,13 @@ class Mt5Terminals:
         elif "algo_off" in last:
             hint = "In diesem MT5 ist Algo Trading aus. Bitte „Neu starten“ oder im MT5-Fenster oben „Algo Trading“ einschalten."
         elif lines and "auth_ok" not in last:
-            hint = "MT5 hat sich noch nicht beim Server angemeldet."
+            tried = any(k in l.lower() for l in lines for k in ("authoriz", "connection to", "network"))
+            if not tried:
+                hint = (f"MT5 versucht gar nicht, sich anzumelden: Den Server „{t.get('server') or '?'}“ kennt es nicht. "
+                        "Unter „Bearbeiten“ den Server-Namen genau wie in den Zugangsdaten der Firma eintragen (meist mit Bindestrich, "
+                        "z. B. Firma-Server oder Firma-Live), dann „Neu starten“.")
+            else:
+                hint = "MT5 hat sich noch nicht beim Server angemeldet."
         keys = ("authoriz", "connection", "fvg-bridge", "account", "trading", "error", "failed", "expert")
         rel = [l for l in lines if any(k in l.lower() for k in keys)][-4:] or lines[-4:]
         ea = self._newest(os.path.join(dst, "MQL5", "Logs"))

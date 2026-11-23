@@ -1,6 +1,6 @@
 {
-  "version": "3.16.0",
-  "file": "releases/FVG-Trader-3.16.0.cmd",
-  "sha256": "a92a6570df4b0ccc1e7ae54bb87befcb9702285d6baac74dca07bedec3c16a52",
-  "notes": "Fremdkapital → Konten: jedes MT5-Konto erscheint automatisch als Karte mit Kontostand, heutigem Ergebnis, offenen Positionen, Bot/Copytrading/Konsistenz; „Firmen-Regeln hinzufügen“ macht daraus die Challenge-Karte mit Ziel, Grenzen und Auszahlung"
+  "version": "3.16.1",
+  "file": "releases/FVG-Trader-3.16.1.cmd",
+  "sha256": "4b43becfd5e462db973b72c63e62cf60acdf3e95a915530c50a4ed8c7be4ad11",
+  "notes": "MT5-Starter: erkennt, wenn MT5 den eingetragenen Server nicht kennt und sich gar nicht erst anmeldet, und sagt das auf der Konto-Karte"
 }
