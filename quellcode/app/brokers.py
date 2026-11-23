@@ -610,7 +610,7 @@ class Mt5Link:
             return d
 
     def _parse(self, raw):
-        a = {"positions": [], "symbols": {}, "deals": [], "days": []}
+        a = {"positions": [], "symbols": {}, "deals": [], "days": [], "nqc": []}
         for line in raw.splitlines():
             k, _, v = line.strip().partition("=")
             if not _:
@@ -630,6 +630,10 @@ class Mt5Link:
                                           "vol_min": self._num(f[7]), "vol_step": self._num(f[8]), "vol_max": self._num(f[9])}
                 elif f:
                     a["symbols"].setdefault(f[0], None)
+            elif k == "nqc":   # Nasdaq-Kandidaten dieses Kontos (FVG-Bridge ab 2.07)
+                f = v.split("|")
+                if f and f[0]:
+                    a["nqc"].append({"name": f[0], "desc": f[1] if len(f) > 1 else "", "trade": (f[2] if len(f) > 2 else "1") == "1"})
             elif k == "chart":
                 sym, _, mins = v.partition("|")
                 a["chart"] = {"symbol": sym, "minutes": int(self._num(mins, 0))}

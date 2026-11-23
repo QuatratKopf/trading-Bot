@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.06"
+#property version   "2.07"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.06"
+#define BRIDGE_VERSION "2.07"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -32,6 +32,8 @@ long     g_login = 0;
 int      g_tick = 0;
 string   g_dsum = "";
 datetime g_dsum_at = 0;
+string   g_nqc = "";          // Nasdaq-Kandidaten dieses Kontos (fuer den Vorschlag in der App)
+datetime g_nqc_at = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -532,6 +534,38 @@ string DaySummary()
 //+------------------------------------------------------------------+
 //| Statusmeldung (jede Sekunde)                                      |
 //+------------------------------------------------------------------+
+//| Welche Symbole dieses Kontos sind der Nasdaq 100? (alle 10 Min)  |
+string NqCandidates()
+  {
+   if(g_nqc_at > 0 && TimeLocal() - g_nqc_at < 600)
+      return(g_nqc);
+   g_nqc_at = TimeLocal();
+   g_nqc = "";
+   int found = 0;
+   int total = SymbolsTotal(false);
+   for(int i = 0; i < total && found < 6; i++)
+     {
+      string name = SymbolName(i, false);
+      string desc = SymbolInfoString(name, SYMBOL_DESCRIPTION);
+      string path = SymbolInfoString(name, SYMBOL_PATH);
+      string u = name + " " + desc;
+      string up = path;
+      StringToUpper(u);
+      StringToUpper(up);
+      if(StringFind(up, "STOCK") >= 0 || StringFind(up, "SHARE") >= 0 || StringFind(up, "ETF") >= 0)
+         continue;
+      bool hit = (StringFind(u, "NASDAQ") >= 0 && StringFind(u, "100") >= 0) || StringFind(u, "US100") >= 0 ||
+                 StringFind(u, "USTEC") >= 0 || StringFind(u, "NAS100") >= 0 || StringFind(u, "US TECH") >= 0 ||
+                 StringFind(u, "NDX") >= 0 || StringFind(u, "NQ100") >= 0;
+      if(!hit || StringFind(u, "ETF") >= 0 || StringFind(u, "FUND") >= 0 || StringFind(u, "SHARES") >= 0)
+         continue;
+      long tm = SymbolInfoInteger(name, SYMBOL_TRADE_MODE);
+      g_nqc += "nqc=" + name + "|" + Clean(desc) + "|" + (tm == SYMBOL_TRADE_MODE_DISABLED ? "0" : "1") + "\r\n";
+      found++;
+     }
+   return(g_nqc);
+  }
+
 string SymLine(string sym)
   {
    if(!SymbolSelect(sym, true))
@@ -612,6 +646,7 @@ void WriteStatus()
      }
    for(int k = 0; k < nw; k++)
       s += SymLine(wanted[k]);
+   s += NqCandidates();
    // abgeschlossene Deals der letzten 3 Tage
    datetime now = TimeCurrent();
    if(HistorySelect(now - 3 * 86400, now + 86400))

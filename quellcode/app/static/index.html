@@ -3536,6 +3536,9 @@ function mtListRender() {
         ${kSug ? `<button type="button" class="btn sm" data-ksug="${esc(lg)}" data-kp="${kSug.pct}" data-kt="${kSug.target}" style="margin-top:6px">Werte von „${esc(kSug.name)}“ übernehmen (${kSug.pct} %${kSug.target ? ", " + usd(kSug.target) : ""})</button>` : ""}
         <small class="hint" style="display:block;margin-top:6px">Erreicht der Tagesgewinn auf diesem Konto 80 % der erlaubten Summe (Gewinnziel × %), eröffnet der Bot hier für den Rest des Tages nichts mehr. Kopien werden dann auch ausgelassen. Die anderen Konten handeln weiter.</small>
       </details>
+      ${symBad && (a.nqc || []).length ? `<div class="cp-warn" style="margin:0">Dieses Konto kennt „${esc(((a.eff || {}).NQ || {}).name || "")}“ nicht. Der Nasdaq heißt hier wahrscheinlich:
+        <div class="inline wrap-gap" style="margin-top:6px">${a.nqc.map(x => `<button type="button" class="btn sm" data-nqc="${esc(lg)}" data-name="${esc(x.name)}" title="${esc(x.desc)}">${esc(x.name)} übernehmen</button>`).join("")}</div>
+        <small class="hint">Danach unten „Änderungen speichern“.</small></div>` : ""}
       <details class="m5-more" ${symBad ? "open" : ""}><summary class="hint">Symbole &amp; Chart${symBad ? ' · <span class="neg">Nasdaq-Symbol fehlt</span>' : ""}</summary><div class="m5-o m5-sym">${sym}</div>${chart}</details>
       ${t ? `<div class="inline wrap-gap">${t.running ? `<button class="btn sm" data-mta="restart" data-id="${t.id}">Neu starten</button><button class="btn sm" data-mta="stop" data-id="${t.id}">Beenden</button>` : `<button class="btn sm primary" data-mta="start" data-id="${t.id}" ${t.busy ? "disabled" : ""}>Starten</button>`}
         <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div>`
@@ -3546,6 +3549,10 @@ function mtListRender() {
   const rrShow = lg => { const n = id => parseFloat(($("#" + id + CSS.escape(lg)) || {}).value) || 0, z = n("m5rs_"), el = $("#m5rr_" + CSS.escape(lg)); if (!el) return;
     el.innerHTML = z > 0 ? [n("m5rd_") ? `Tagesverlust höchstens <b>${usd(z * n("m5rd_") / 100)}</b>` : "", n("m5rt_") ? `Kontostand nie unter <b>${usd(z * (1 - n("m5rt_") / 100))}</b>` : "", n("m5rx_") ? `pro Trade höchstens <b>${usd(z * n("m5rx_") / 100)}</b> Verlust` : "", n("m5rz_") ? `Ziel bei <b>${usd(z * (1 + n("m5rz_") / 100))}</b>` : ""].filter(Boolean).join(" · ") : ""; };
   [...new Set([...box.querySelectorAll("[data-rr]")].map(i => i.dataset.rr))].forEach(lg => { rrShow(lg); box.querySelectorAll(`[data-rr="${CSS.escape(lg)}"]`).forEach(i => i.addEventListener("input", () => rrShow(lg))); });
+  box.querySelectorAll("[data-nqc]").forEach(b => b.onclick = () => {
+    $("#m5n_" + CSS.escape(b.dataset.nqc)).value = b.dataset.name; $("#savebar").hidden = false; settingsDirty = true;
+    toast(b.dataset.name + " eingetragen – jetzt unten speichern");
+  });
   box.querySelectorAll("[data-ksug]").forEach(b => b.onclick = () => {
     const lg = CSS.escape(b.dataset.ksug); $("#m5kp_" + lg).value = b.dataset.kp; if (+b.dataset.kt) $("#m5kt_" + lg).value = b.dataset.kt;
     $("#m5k_" + lg).checked = true; $("#savebar").hidden = false; settingsDirty = true;
@@ -3590,6 +3597,7 @@ function mtFormRender() {
   box.innerHTML = `
     ${e ? `<p class="cp-warn" style="margin:0">Du bearbeitest <b>${esc(e.name)}</b> (${esc(e.login)}). <button type="button" class="btn sm" id="mtNew">Neues Konto anlegen</button></p>` : '<p class="hint" style="margin:0"><b>Neues Konto</b></p>'}
     <div class="row"><label for="mtF">Firma<small>trägt Server, Symbol und MT5-Vorlage automatisch ein, du kannst alles danach noch ändern</small></label><select id="mtF">${Object.entries(MT_FIRMS).map(([k, f]) => `<option value="${k}" ${k === firm ? "selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="" ${firm ? "" : "selected"}>Andere Firma</option></select></div>
+    ${!e && !F ? `<p class="cp-warn" style="margin:0"><b>Neue Firma:</b> MT5 kennt deren Server beim ersten Mal noch nicht. Nach „Konto anlegen“ deshalb einmalig im MT5-Fenster dieses Kontos <b>Datei → Handelskonto eröffnen</b> → Firma suchen → „Mit bestehendem Konto verbinden“ → Login, Passwort, Server. Dann MT5 normal schließen (X) und hier „Starten“ drücken. Den Nasdaq-Namen schlägt dir die App danach selbst vor.</p>` : ""}
     <div class="row"><label for="mtN">Name<small>wie das Konto in der App heißen soll, z. B. „IQ Challenge 1“</small></label><input id="mtN" type="text" maxlength="40" value="${esc(e ? e.name : "")}"></div>
     <div class="row"><label for="mtL">Login (Kontonummer)</label><input id="mtL" type="text" inputmode="numeric" value="${esc(e ? e.login : "")}" ${e ? "readonly" : ""}></div>
     <div class="row"><label for="mtP">Passwort<small>das Trading-/Master-Passwort aus den Zugangsdaten der Firma (nicht das Investor-Passwort)</small></label><input id="mtP" type="password" autocomplete="new-password" placeholder="${e && e.has_pw ? "unverändert lassen" : ""}"></div>

@@ -2405,7 +2405,8 @@ class Engine:
                          "eff": {fam: {"name": self.mt5_link.sym_for(lg, fam),
                                        "found": bool((a.get("symbols") or {}).get(self.mt5_link.sym_for(lg, fam))) if a else None}
                                  for fam in ("NQ", "ES")},
-                         "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()}})
+                         "symbols": {k: bool(v) for k, v in (a.get("symbols") or {}).items()},
+                         "nqc": [x for x in (a.get("nqc") or []) if x.get("trade")][:4]})
         st = self.mt5_copier.status
         names = {t["login"]: t["name"] for t in (self.cfg["mt5"].get("terminals") or [])}
         for r in rows:
