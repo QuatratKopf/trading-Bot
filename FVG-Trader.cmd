@@ -1738,6 +1738,12 @@ class Mt5Broker:
         conf = self._bot_accounts()
         if not conf:
             raise BrokerError("Kein MT5-Konto für den Bot angehakt (Einstellungen → MetaTrader 5)")
+        need = [(lg, self.link.sym_for(lg, mt5_family(root))) for lg, _ in conf]
+        for _ in range(6):   # neu eingetragenes Symbol: kurz warten, bis FVG-Bridge es meldet
+            if all(not (accs.get(lg) or {}).get("online") or s_ in ((accs.get(lg) or {}).get("symbols") or {}) for lg, s_ in need):
+                break
+            time.sleep(0.5)
+            accs = self.link.accounts()
         usd_pp = qty * MT5_PV.get(root, 2.0)
         jobs, plan, warnings = [], {}, []
         for login, c in conf:
@@ -5346,6 +5352,12 @@ class Engine:
                 self._cons_watch()
             except Exception:  # noqa: BLE001  (nur Meldung, darf nie stören)
                 pass
+            if time.time() - getattr(self, "_syms_at", 0) > 5:
+                self._syms_at = time.time()
+                try:   # Symbol-Liste für FVG-Bridge aktuell halten (neu eingetragene Symbole sofort prüfen lassen)
+                    self.mt5_link.write_symbols()
+                except Exception:  # noqa: BLE001
+                    pass
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)
@@ -9171,7 +9183,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.18.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.18.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 

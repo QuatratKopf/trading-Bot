@@ -1,6 +1,6 @@
 {
-  "version": "3.18.0",
-  "file": "releases/FVG-Trader-3.18.0.cmd",
-  "sha256": "bf8e5abe4c77fcbdbe00a7eba75b30da3eed5debfdec81c397b8c79ee2434fa1",
-  "notes": "Firmen-Regeln pro MT5-Konto: Kontogröße, Tagesverlust %, Gesamtverlust %, Verlust pro Trade % und Gewinnziel % eintragen; der Bot verkleinert jeden Trade auf höchstens 90 % des noch erlaubten Verlusts und eröffnet nichts mehr, wenn eine Grenze fast erreicht oder das Ziel geschafft ist (auch für Kopien), andere Konten handeln weiter"
+  "version": "3.18.1",
+  "file": "releases/FVG-Trader-3.18.1.cmd",
+  "sha256": "9301687a8f528167898e4cadb948d634b61499c326594a69efc27e4c612ead92",
+  "notes": "MT5: neu eingetragene Symbole (z. B. NACUSD.c) werden FVG-Bridge sofort zum Prüfen gemeldet, statt erst beim nächsten Trade; beim Trade wartet die App kurz, bis das Symbol bestätigt ist"
 }

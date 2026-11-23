@@ -2336,6 +2336,12 @@ class Engine:
                 self._cons_watch()
             except Exception:  # noqa: BLE001  (nur Meldung, darf nie stören)
                 pass
+            if time.time() - getattr(self, "_syms_at", 0) > 5:
+                self._syms_at = time.time()
+                try:   # Symbol-Liste für FVG-Bridge aktuell halten (neu eingetragene Symbole sofort prüfen lassen)
+                    self.mt5_link.write_symbols()
+                except Exception:  # noqa: BLE001
+                    pass
             while cp.log:
                 level, msg = cp.log.pop(0)
                 self.db.log(msg, level)

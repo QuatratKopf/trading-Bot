@@ -1432,6 +1432,12 @@ class Mt5Broker:
         conf = self._bot_accounts()
         if not conf:
             raise BrokerError("Kein MT5-Konto für den Bot angehakt (Einstellungen → MetaTrader 5)")
+        need = [(lg, self.link.sym_for(lg, mt5_family(root))) for lg, _ in conf]
+        for _ in range(6):   # neu eingetragenes Symbol: kurz warten, bis FVG-Bridge es meldet
+            if all(not (accs.get(lg) or {}).get("online") or s_ in ((accs.get(lg) or {}).get("symbols") or {}) for lg, s_ in need):
+                break
+            time.sleep(0.5)
+            accs = self.link.accounts()
         usd_pp = qty * MT5_PV.get(root, 2.0)
         jobs, plan, warnings = [], {}, []
         for login, c in conf:
