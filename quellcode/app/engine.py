@@ -4547,7 +4547,7 @@ class Engine:
                 t0 = p["bar_time"] + (self.chart_tf.get(fam) or 300000)
             t1 = (p["closed"] or time.time()) * 1000
             r_ = self._r_of(p) if p["status"] == "geschlossen" else None
-            trades.append({"id": p["id"], "t0": t0, "t1": t1, "side": p["side"], "setup": p["setup"], "qty": p["qty"], "root": p["root"],
+            trades.append({"id": p["id"], "signal_id": p.get("signal_id"), "t0": t0, "t1": t1, "side": p["side"], "setup": p["setup"], "qty": p["qty"], "root": p["root"],
                            "entry": p["entry"], "exit": p["exit"], "sl0": p.get("initial_sl") or p["sl"], "sl": p["sl"], "tp": p["tp"],
                            "pnl": p["pnl"], "r": round(r_, 2) if r_ is not None else None, "reason": p["close_reason"],
                            "status": p["status"], "broker": p["broker"], "test": bool(p["is_test"]), "mgmt": p.get("mgmt"),

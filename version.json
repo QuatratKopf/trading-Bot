@@ -1,6 +1,6 @@
 {
-  "version": "3.20.0",
-  "file": "releases/FVG-Trader-3.20.0.cmd",
-  "sha256": "04d96af7830d90b7c2ea7e3bff37f0fe0ce645d43ec5f9c069d3b50da678c981",
-  "notes": "Firmen-Regeln: Gesamtverlust „mitlaufend“ (Trailing Drawdown) – die Grenze steigt mit dem höchsten Kontostand; die App merkt sich den Höchststand je Konto (auch nach Neustart) und rechnet ihn zusätzlich aus den Tagesergebnissen von MT5 nach"
+  "version": "3.21.0",
+  "file": "releases/FVG-Trader-3.21.0.cmd",
+  "sha256": "d4485de3371a895e2afd13ceb3e524c263f950a8af47eafb4dbdbb4ba749d4d6",
+  "notes": "Cockpit: Entscheidungen des Bots anklickbar – springt in den Chart genau zu diesem Trade/Signal; Stop und Ziel wie bei TradingView als rotes/grünes Feld mit Preis-Schildern; Chart standardmäßig aufgeräumt (nur Trades, Signale, Sessions)"
 }

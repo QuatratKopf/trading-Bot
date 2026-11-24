@@ -731,6 +731,10 @@ input,select{background:var(--sunk);border-color:var(--line2);border-radius:8px}
 .tl-o small{font-size:11px;color:var(--muted)}
 .tl-old summary{cursor:pointer;margin:4px 0}
 #sigBox{max-height:560px;overflow:auto}
+.tl-go{cursor:pointer;border-radius:10px;transition:background .15s}
+.tl-go:hover,.tl-go:focus-visible{background:var(--fill);outline:none}
+.cv-leg summary{cursor:pointer;list-style:none}
+.cv-leg summary::-webkit-details-marker{display:none}
 .flags .chip.wrapc{white-space:normal;text-align:left;line-height:1.45}
 /* Journal */
 .jr{display:flex;flex-direction:column;gap:6px;margin-top:6px}
@@ -1613,7 +1617,7 @@ function tlItems(items, withDate) {
     }
     const flags = (s.flags || []).filter(f => !/^(Ausstieg |Bestätigungen: )/.test(f));
     if (s.status === "blockiert" && /Bestätigungen \(/.test(s.reason || "")) what = esc((s.reason || "").replace(/\s*\([^)]*\)\s*–/, " –"));
-    return `<div class="tl-i ${kind}"><time class="mono">${withDate ? dtm(s.ts) : tm(s.ts)}</time><span class="tl-d"></span>
+    return `<div class="tl-i ${kind} tl-go" data-sig="${esc(s.id)}" data-ts="${s.ts}" data-root="${esc(s.root || "")}" role="button" tabindex="0" title="Im Chart ansehen"><time class="mono">${withDate ? dtm(s.ts) : tm(s.ts)}</time><span class="tl-d"></span>
       <div class="tl-c"><div class="tl-h"><b class="side ${s.side}" style="font-size:12px">${s.side === "long" ? "L" : "S"}</b> ${esc(s.root)} <span class="chip">${esc(s.setup)}</span>
         <span class="chip ${chip[s.status] ?? "mute"}">${s.status === "blockiert" && s.cat ? "nicht genommen · " + esc(s.cat) : esc(s.status)}</span>${s.is_test ? ' <span class="chip mute">Test</span>' : ""} ${confChips(s.confs)}</div>
         <div class="tl-w">${what}${flags.length ? `<span class="hint"> · ${esc(flags.join(" · "))}</span>` : ""}</div></div>
@@ -1690,10 +1694,33 @@ const CV_LAYERS = [
   ["fvg", "FVGs / Inversionen", "#38bdf8"],
   ["sessions", "Sessions & Eröffnungen", "#6b7280"],
 ];
-const CV = {fam: "auto", day: "last", tf: 5, data: null, v: null, sel: null, hover: null, err: null, busy: false, timer: null,
-  layers: (() => { try { return JSON.parse(localStorage.getItem("cvLayers")) || null; } catch (e) { return null; } })()
-    || {trades: true, seen: true, pools: true, sweeps: true, structure: true, zigzag: true, breaks: true, ob: false, fvg: false, sessions: true}};
-const cvSaveLayers = () => { try { localStorage.setItem("cvLayers", JSON.stringify(CV.layers)); } catch (e) {} };
+const CV_CLEAN = {trades: true, seen: true, sessions: true, pools: false, sweeps: false, structure: false, zigzag: false, breaks: false, ob: false, fvg: false};
+const CV = {fam: "auto", day: "last", tf: 5, data: null, v: null, sel: null, hover: null, err: null, busy: false, timer: null, focus: null,
+  layers: (() => { try { return JSON.parse(localStorage.getItem("cvLayers2")) || null; } catch (e) { return null; } })() || Object.assign({}, CV_CLEAN)};
+const cvSaveLayers = () => { try { localStorage.setItem("cvLayers2", JSON.stringify(CV.layers)); } catch (e) {} };
+// Aus der Entscheidungs-Liste: Signal im Chart öffnen (Handelstag beginnt um 18:00 New York)
+function sigChartDay(ts) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23"}).formatToParts(new Date(ts * 1000)).map(x => [x.type, x.value]));
+  const d = new Date(Date.UTC(+p.year, +p.month - 1, +p.day));
+  if (+p.hour >= 18) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function openSigChart(el) {
+  CV.fam = (el.dataset.root || "NQ").replace(/^M(?=NQ|ES)/, "").slice(0, 2) === "ES" ? "ES" : "NQ";
+  CV.day = sigChartDay(+el.dataset.ts); CV.focus = el.dataset.sig; CV.sel = null; CV.data = null; CV.v = null;
+  CV.layers.trades = CV.layers.seen = true;
+  TAB = "chart"; setHash(TAB); window.scrollTo({top: 0}); render(true);
+}
+function cvFocus() {
+  const d = CV.data, id = CV.focus; CV.focus = null;
+  if (!d || !id || !d.candles.length) return;
+  const t = d.layers.trades.find(x => x.signal_id === id), s = t ? null : d.layers.seen.find(x => x.id === id);
+  if (!t && !s) { toast("Dieses Signal ist im Chart nicht zu finden (keine Kerzen gespeichert?)"); return; }
+  CV.sel = t ? {kind: "★ Trade", o: t, more: 0} : {kind: "Setup gesehen (nicht genommen)", o: s, more: 0};
+  const k = cvIdx(t ? t.t0 : s.t), n = d.candles.length, half = innerWidth < 700 ? 25 : 45;
+  CV.v = {i0: Math.max(-2, k - half), i1: Math.min(n + 2, k + half), y: null};
+  if (CV.v.i1 - CV.v.i0 < 40) CV.v.i1 = CV.v.i0 + 40;
+}
 
 function chartPage() {
   const d = CV.data;
@@ -1704,14 +1731,13 @@ function chartPage() {
       <div class="cv-f"><span>Tag</span><button class="ibtn" id="cvPrev" aria-label="Vortag">‹</button><input type="date" id="cvDay" value="${d ? d.day : ""}" ${d && d.first ? `min="${d.first}" max="${d.last}"` : ""}><button class="ibtn" id="cvNext" aria-label="Nächster Tag">›</button></div>
       <div class="cv-f"><span>TF</span><div class="cv-tf">${[1, 2, 3, 5, 15, 30, 60, 240].map(t => `<button type="button" data-tf="${t}" aria-pressed="${CV.tf === t}">${t < 60 ? t + "m" : t / 60 + "h"}</button>`).join("")}</div></div>
       <span class="cv-info mono" id="cvInfo"></span>
-      <span class="cv-hint">Mausrad Zoom · Ziehen verschieben · Preisachse ziehen = Höhe · ←/→ Tage · Doppelklick zurück · Klick = Details</span>
     </div>
     <div class="cv-main">
       <div class="cv-wrap" id="cvWrap"><canvas id="cvC" tabindex="0" aria-label="Kerzen-Chart"></canvas><div class="cv-ohlc mono" id="cvO"></div><div class="cv-msg" id="cvMsg" hidden></div></div>
       <aside class="cv-side">
-        <div class="cv-sec"><h3>Inspector</h3><div id="cvI" class="cv-insp"><p class="hint">Etwas im Chart anklicken: Trade, Signal, Zone, Level, Sweep oder Struktur – hier stehen dann alle Details.</p></div></div>
+        <div class="cv-sec"><h3>Details</h3><div id="cvI" class="cv-insp"><p class="hint">Einen Trade oder ein Signal anklicken, dann siehst du hier alles dazu. Tipp: Im Cockpit unter „Entscheidungen des Bots“ auf einen Eintrag klicken, dann springt der Chart direkt dorthin.</p></div></div>
         <div class="cv-sec"><h3>Ebenen</h3><div class="cv-lay" id="cvL"></div></div>
-        <div class="cv-sec"><h3>Legende</h3><p class="hint" style="margin:0 0 8px;line-height:1.6">Mausrad = Zoom · Ziehen = verschieben · Preisachse ziehen = Höhe · ←/→ = Tage · Doppelklick = zurück · Klick = Details</p><p class="hint" style="margin:0;line-height:1.6">Grün/Rot hinter einem Trade = Ziel- und Stop-Bereich. ○ = Signal gesehen, nicht genommen (Farbe: hätte gewonnen/verloren). × = Sweep. Gestrichelt = Liquidität, endet beim Sweep. BOS = Bruch mit dem Trend, MSS = Richtungswechsel.</p></div>
+        <details class="cv-sec cv-leg"><summary><h3 style="display:inline">Bedienung &amp; Legende</h3></summary><p class="hint" style="margin:8px 0;line-height:1.6">Mausrad = Zoom · Ziehen = verschieben · Preisachse ziehen = Höhe · ←/→ = Tage · Doppelklick = zurück · Klick = Details</p><p class="hint" style="margin:0;line-height:1.6">Grünes Feld = Ziel, rotes Feld = Stop (wie bei TradingView). ○ = Signal gesehen, nicht genommen (grün/rot: hätte gewonnen/verloren). × = Sweep. Gestrichelt = Liquidität. BOS = Bruch mit dem Trend, MSS = Richtungswechsel.</p></details>
       </aside>
     </div>
   </section>`;
@@ -1726,7 +1752,7 @@ function cvLayersPanel() {
     + `<div class="cv-lb"><button class="btn" id="cvAll">alles</button><button class="btn" id="cvClean">aufgeräumt</button></div>`;
   $("#cvL").querySelectorAll("[data-ly]").forEach(x => x.onchange = () => { CV.layers[x.dataset.ly] = x.checked; cvSaveLayers(); cvDraw(); });
   $("#cvAll").onclick = () => { CV_LAYERS.forEach(([k]) => CV.layers[k] = true); cvSaveLayers(); cvLayersPanel(); cvDraw(); };
-  $("#cvClean").onclick = () => { CV.layers = {trades: true, seen: true, pools: true, sweeps: true, structure: false, zigzag: true, breaks: true, ob: false, fvg: false, sessions: true}; cvSaveLayers(); cvLayersPanel(); cvDraw(); };
+  $("#cvClean").onclick = () => { CV.layers = Object.assign({}, CV_CLEAN); cvSaveLayers(); cvLayersPanel(); cvDraw(); };
 }
 
 async function cvLoad(reset) {
@@ -1740,7 +1766,8 @@ async function cvLoad(reset) {
     const same = CV.data && CV.data.day === d.day && CV.data.tf === d.tf && CV.data.fam === d.fam;
     CV.data = d; CV.err = null;
     if (CV.day === "last") CV.day = d.day;
-    if (!same || reset || !CV.v) cvResetView();
+    if (CV.focus) cvFocus();
+    else if (!same || reset || !CV.v) cvResetView();
     else if (keepRight) { const w = CV.v.i1 - CV.v.i0; CV.v.i1 = d.candles.length + 2; CV.v.i0 = CV.v.i1 - w; }
   } catch (e) { CV.err = e.message; }
   CV.busy = false;
@@ -1758,7 +1785,7 @@ async function cvLoad(reset) {
   msg.hidden = !(CV.err || (d && (!d.candles.length || d.note)));
   msg.textContent = CV.err || (d && !d.candles.length ? "Für diesen Tag sind keine Kerzen gespeichert." : d && d.note ? d.note : "");
   cvLayersPanel();
-  cvResize(); cvDraw();
+  cvResize(); cvDraw(); if (CV.sel) cvInspector();
   clearTimeout(CV.timer);
   const inTrade = d && (S.positions || []).some(p => p.root && (p.root === d.fam || p.root === "M" + d.fam));
   if (d && d.live) CV.timer = setTimeout(() => { if (TAB === "chart" && !document.hidden) cvLoad(false); },
@@ -1891,7 +1918,9 @@ function cvDraw() {
   let lo = Infinity, hi = -Infinity;
   for (let i = Math.max(0, Math.floor(i0)); i < Math.min(cs.length, Math.ceil(i1)); i++) { lo = Math.min(lo, cs[i][3]); hi = Math.max(hi, cs[i][2]); }
   if (!isFinite(lo)) { lo = cs[cs.length - 1][3]; hi = cs[cs.length - 1][2]; }
-  const pad = (hi - lo) * 0.08 || 5;
+  const sb = cvSelBox();
+  if (sb) for (const p of [sb.entry, sb.sl, sb.tp]) if (p) { lo = Math.min(lo, p); hi = Math.max(hi, p); }
+  const pad = (hi - lo) * (sb ? 0.16 : 0.08) || 5;   // mit gewähltem Trade mehr Luft für die Beschriftung
   let yr = CV.v.y || [lo - pad, hi + pad];
   const Y = p => ph - (p - yr[0]) / (yr[1] - yr[0]) * ph;
   CV.g = {pw, ph, yr, X, XT, Y, bw, W, H};
@@ -1908,7 +1937,7 @@ function cvDraw() {
   // Sessions
   if (on("sessions")) for (const s of L.sessions) {
     const a = XT(s.t0), b = XT(s.t1); if (b < 0 || a > pw) continue;
-    ctx.fillStyle = {asia: "rgba(99,102,241,.06)", london: "rgba(56,189,248,.05)", ny_am: "rgba(240,86,43,.05)", ny_lunch: "rgba(160,160,160,.035)", ny_pm: "rgba(45,212,191,.05)"}[s.key] || "rgba(255,255,255,.03)";
+    ctx.fillStyle = {asia: "rgba(99,102,241,.03)", london: "rgba(56,189,248,.025)", ny_am: "rgba(240,86,43,.025)", ny_lunch: "rgba(160,160,160,.02)", ny_pm: "rgba(45,212,191,.025)"}[s.key] || "rgba(255,255,255,.02)";
     ctx.fillRect(a, 0, b - a, ph);
     ctx.strokeStyle = hl(s) ? C.acc : C.sessLine; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(Math.round(a) + .5, 0); ctx.lineTo(Math.round(a) + .5, ph); ctx.stroke(); ctx.setLineDash([]);
     const sn = {asia: "Asien", london: "London", ny_am: "NY AM", ny_lunch: "NY Mittag", ny_pm: "NY PM"}[s.key] || s.name;
@@ -1937,8 +1966,9 @@ function cvDraw() {
   if (on("trades")) for (const t of L.trades) {
     const a = XT(t.t0), b = Math.max(a + 3, XT(t.t1)); if (b < 0 || a > pw) continue;
     const ye = Y(t.entry);
-    if (t.tp) { const yt = Y(t.tp); ctx.fillStyle = "rgba(63,191,127,.16)"; ctx.fillRect(a, Math.min(ye, yt), b - a, Math.abs(yt - ye)); }
-    if (t.sl0) { const ys = Y(t.sl0); ctx.fillStyle = "rgba(229,83,75,.16)"; ctx.fillRect(a, Math.min(ye, ys), b - a, Math.abs(ys - ye)); }
+    if (hl(t)) continue;   // der gewählte Trade wird groß im TradingView-Stil gezeichnet
+    if (t.tp) { const yt = Y(t.tp); ctx.fillStyle = "rgba(8,153,129,.14)"; ctx.fillRect(a, Math.min(ye, yt), b - a, Math.abs(yt - ye)); }
+    if (t.sl0) { const ys = Y(t.sl0); ctx.fillStyle = "rgba(242,54,69,.14)"; ctx.fillRect(a, Math.min(ye, ys), b - a, Math.abs(ys - ye)); }
     ctx.strokeStyle = hl(t) ? C.acc : C.trade; ctx.lineWidth = hl(t) ? 2 : 1.2;
     ctx.beginPath(); ctx.moveTo(a, ye); ctx.lineTo(b, ye); ctx.stroke();
     if (t.sl !== t.sl0 && t.sl) { ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(229,83,75,.8)"; const y = Y(t.sl); ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke(); ctx.setLineDash([]); }
@@ -1988,6 +2018,7 @@ function cvDraw() {
     ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.stroke(); ctx.lineWidth = 1;
     ctx.fillStyle = C.muted; ctx.fillText(s.side === "long" ? "↑" : "↓", x + 7, y + 4);
   }
+  if (sb) cvPosBox(ctx, sb, C, X, XT, Y, bw, pw, ph, pfmt, tf);
   ctx.restore();
   // Achsen
   ctx.fillStyle = C.bg; ctx.fillRect(pw, 0, AX, H); ctx.fillRect(0, ph, W, TX);
@@ -2009,6 +2040,10 @@ function cvDraw() {
   // letzter Kurs
   const lc = d.live_px ? d.live_px.price : cs[cs.length - 1][4], yl = Y(lc);
   if (yl > 0 && yl < ph) { ctx.fillStyle = C.acc; ctx.fillRect(pw, yl - 8, AX, 16); ctx.fillStyle = "#fff"; ctx.fillText(pfmt(lc), pw + 6, yl + 4); ctx.strokeStyle = C.accA; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(0, Math.round(yl) + .5); ctx.lineTo(pw, Math.round(yl) + .5); ctx.stroke(); ctx.setLineDash([]); }
+  if (sb) {   // Preis-Schilder rechts wie bei TradingView
+    const tag = (p, bg) => { const y = Y(p); if (y < -8 || y > ph + 8) return; ctx.fillStyle = bg; ctx.fillRect(pw, y - 8, AX, 16); ctx.fillStyle = "#fff"; ctx.fillText(pfmt(p), pw + 6, y + 4); };
+    if (sb.tp) tag(sb.tp, "#089981"); if (sb.sl) tag(sb.sl, "#f23645"); tag(sb.entry, C.dk ? "#5d606b" : "#787b86");
+  }
   // Fadenkreuz + OHLC
   let k = cs.length - 1;
   if (CV.hover && CV.hover[0] < pw && CV.hover[1] < ph) {
@@ -2024,6 +2059,39 @@ function cvDraw() {
   const [t, o, h, l, c] = cs[k];
   $("#cvO").innerHTML = `<b>${esc(d.fam)} ${d.tf < 60 ? d.tf + "m" : d.tf / 60 + "h"}</b> ${new Date(t).toLocaleString("de-DE", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}
     &nbsp; O <span>${pfmt(o)}</span> H <span>${pfmt(h)}</span> L <span>${pfmt(l)}</span> C <span class="${c >= o ? "pos" : "neg"}">${pfmt(c)}</span>${k >= (d.real ?? cs.length) ? ' <span class="acc">läuft (Live-Kurs)</span>' : ""}`;
+}
+
+// Gewählter Trade oder gesehenes Signal als Positions-Box (Einstieg, Stop, Ziel, Zeitraum)
+function cvSelBox() {
+  const s = CV.sel; if (!s || !s.o || !CV.data) return null;
+  const o = s.o, tf = CV.data.tf * 60000;
+  if (s.kind.startsWith("★")) return {o, side: o.side, entry: o.entry, sl: o.sl0 || o.sl, sl2: o.sl !== o.sl0 ? o.sl : null, tp: o.tp, t0: o.t0, t1: o.status === "offen" ? null : o.t1,
+    exit: o.status === "geschlossen" ? o.exit : null, r: o.r, label: `${o.side === "long" ? "LONG" : "SHORT"} · ${o.setup || ""}`, res: o.r != null ? (o.r > 0 ? "+" : "") + num2(o.r) + " R" : o.status === "offen" ? "läuft" : ""};
+  if (s.kind.startsWith("Setup")) { const sh = o.shadow || {};
+    return {o, side: o.side, entry: o.entry, sl: o.sl, tp: o.tp, t0: o.t, t1: sh.t1 || null, exit: sh.exit || null, r: sh.r, ghost: true,
+      label: `${o.side === "long" ? "LONG" : "SHORT"} · ${o.setup || ""} · nicht genommen`, res: sh.r != null ? "hätte " + (sh.r > 0 ? "+" : "") + num2(sh.r) + " R" : "Schatten läuft"}; }
+  return null;
+}
+function cvPosBox(ctx, b, C, X, XT, Y, bw, pw, ph, pfmt, tf) {
+  const a = XT(b.t0), e = Math.max(a + 12 * bw, b.t1 ? XT(b.t1) + bw : a + 24 * bw);
+  const ye = Y(b.entry), G = "8,153,129", R = "242,54,69";
+  const box = (p, rgb) => { if (!p) return; const y = Y(p); ctx.fillStyle = `rgba(${rgb},${b.ghost ? .16 : .24})`; ctx.fillRect(a, Math.min(ye, y), e - a, Math.abs(y - ye));
+    ctx.strokeStyle = `rgba(${rgb},.85)`; ctx.lineWidth = 1; if (b.ghost) ctx.setLineDash([5, 4]); ctx.strokeRect(a + .5, Math.min(ye, y) + .5, e - a, Math.abs(y - ye)); ctx.setLineDash([]); };
+  box(b.tp, G); box(b.sl, R);
+  ctx.strokeStyle = C.dk ? "rgba(209,212,220,.9)" : "rgba(19,23,34,.75)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(a, ye); ctx.lineTo(e, ye); ctx.stroke(); ctx.lineWidth = 1;
+  if (b.sl2) { const y = Y(b.sl2); ctx.strokeStyle = `rgba(${R},.9)`; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(e, y); ctx.stroke(); ctx.setLineDash([]); }
+  const risk = Math.abs(b.entry - b.sl) || 1, pts = p => Math.abs(p - b.entry);
+  const room = Math.min(e, pw) - a - 8;
+  const lab = (txt, x, y, rgb) => { ctx.font = `600 11px ${C.mono}`; if (ctx.measureText(txt).width + 10 > room) txt = txt.split(" · ").slice(0, 2).join(" · "); const w = ctx.measureText(txt).width + 10; ctx.fillStyle = `rgba(${rgb},.92)`; ctx.fillRect(x, y - 12, w, 17); ctx.fillStyle = "#fff"; ctx.fillText(txt, x + 5, y); ctx.font = `11px ${C.mono}`; };
+  const up = b.side === "long", lx = a + 4;
+  if (b.tp) lab(`Ziel ${pfmt(b.tp)} · ${num2(pts(b.tp) / risk)} R · ${pfmt(pts(b.tp))} Pkt`, lx, up ? Y(b.tp) + 16 : Y(b.tp) - 6, G);
+  if (b.sl) lab(`Stop ${pfmt(b.sl)} · −1 R · ${pfmt(pts(b.sl))} Pkt`, lx, up ? Y(b.sl) - 6 : Y(b.sl) + 16, R);
+  { ctx.font = `600 11px ${C.mono}`; let t = `${b.label}  ${b.res}`; if (ctx.measureText(t).width + 10 > room) t = `${b.side === "long" ? "LONG" : "SHORT"}  ${b.res}`;
+    const w = ctx.measureText(t).width + 10, y = up ? ye - 6 : ye + 15;
+    ctx.fillStyle = C.dk ? "rgba(30,30,34,.92)" : "rgba(255,255,255,.94)"; ctx.fillRect(lx, y - 12, w, 17);
+    ctx.strokeStyle = C.line; ctx.strokeRect(lx + .5, y - 11.5, w, 17); ctx.fillStyle = C.fg; ctx.fillText(t, lx + 5, y); ctx.font = `11px ${C.mono}`; }
+  const up2 = b.side === "long"; ctx.fillStyle = C.acc; ctx.beginPath(); ctx.moveTo(a, ye); ctx.lineTo(a - 6, ye + (up2 ? 9 : -9)); ctx.lineTo(a + 6, ye + (up2 ? 9 : -9)); ctx.closePath(); ctx.fill();
+  if (b.exit != null && b.t1) { const x = XT(b.t1) + bw / 2, y = Y(b.exit); ctx.fillStyle = b.r > 0 ? "#089981" : b.r < 0 ? "#f23645" : C.muted; ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 7); ctx.fill(); }
 }
 
 function cvNice(x) {
@@ -3058,6 +3126,9 @@ function cockpit(full) {
 
   const tlKey = JSON.stringify([S.timeline, S.signals.length && S.signals[0].id]);
   if (tlKey !== cockpit._tlKey || full) { cockpit._tlKey = tlKey; const op = $("#sigBox .tl-old") && $("#sigBox .tl-old").open; $("#sigBox").innerHTML = timelinePanel(); if (op && $("#sigBox .tl-old")) $("#sigBox .tl-old").open = true; }
+  if (!$("#sigBox").dataset.b) { $("#sigBox").dataset.b = 1;
+    $("#sigBox").addEventListener("click", e => { const el = e.target.closest(".tl-go"); if (el && !e.target.closest("a,button,summary")) openSigChart(el); });
+    $("#sigBox").addEventListener("keydown", e => { const el = e.target.closest(".tl-go"); if (el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openSigChart(el); } }); }
   const dt = $("#delTests");
   if (dt) {
     dt.hidden = !(S.signals.some(x => x.is_test) || S.positions.some(x => x.is_test) || S.has_tests);
