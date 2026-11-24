@@ -2635,6 +2635,25 @@ class Engine:
             except Exception as e:   # Hintergrundschleife darf nie sterben
                 self.db.log(f"Hintergrundfehler: {e}", "error")
 
+    def _eval_day(self, set_day=None):
+        """Tag des letzten Tagesabschlusses (Datei im Datenordner, übersteht Neustarts)."""
+        path = os.path.join(self.data_dir, "letzter_tagesabschluss.txt")
+        if set_day:
+            self._eval_day_v = set_day
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(set_day)
+            except OSError:
+                pass
+            return set_day
+        if getattr(self, "_eval_day_v", None) is None:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    self._eval_day_v = f.read().strip()
+            except OSError:   # erstes Mal nach dem Update: bisherigen Stand übernehmen, nichts doppelt senden
+                self._eval_day_v = self.learning.get("last_day") or ""
+        return self._eval_day_v
+
     def tick(self):
         with self.lock:
             now = time.time()
@@ -2648,7 +2667,17 @@ class Engine:
                     self.db.log(f"Vorschlag {s['side'].upper()} {s['root']} verfallen")
             r = self.cfg["risk"]
             t = ny_time()
-            if t.weekday() < 5 and t.strftime("%H:%M") >= "16:00" and self.learning.get("last_day") != str(t.date()):
+            if t.weekday() < 5 and now - getattr(self, "_bias_tick", 0) > 60:
+                # Bias auch ohne Signal und ohne offenes App-Fenster zu Session-Beginn bestimmen (und nach Discord melden)
+                self._bias_tick = now
+                for fam_ in sorted(self.last_bar or {}):
+                    try:
+                        if self.cfg["bias"]["mode"] != "aus":
+                            self._bias_get(fam_)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if t.weekday() < 5 and t.strftime("%H:%M") >= "16:00" and self._eval_day() != str(t.date()):
+                self._eval_day(str(t.date()))   # eigener Merker: ein Neu-Bewerten im Lernmodul darf den Tagesabschluss nicht verhindern
                 for sh in self.db.open_shadows():
                     last = (self.last_bar.get(sh["fam"]) or {}).get("close")
                     if last:
@@ -2657,10 +2686,16 @@ class Engine:
                     last = (self.last_bar.get(v["fam"]) or {}).get("close")
                     if last:
                         self._close_variant(v, last)
-                self.learn()
-                self.learn_paths_async(adopt=True)   # Kursverläufe, Smart-Ausstieg, Session-Ziele, dann selbst übernehmen
-                self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
-                self.notify("daily", f"Tagesabschluss {t.strftime('%d.%m.')}", self.day_report_text(), "info")
+                try:
+                    self.notify("daily", f"Tagesabschluss {t.strftime('%d.%m.')}", self.day_report_text(), "info")
+                except Exception as e:  # noqa: BLE001
+                    self.db.log(f"Tagesabschluss konnte nicht erstellt werden: {e}", "error")
+                try:
+                    self.learn()
+                    self.learn_paths_async(adopt=True)   # Kursverläufe, Smart-Ausstieg, Session-Ziele, dann selbst übernehmen
+                    self.db.log("Lernmodul: Tagesauswertung abgeschlossen")
+                except Exception as e:  # noqa: BLE001
+                    self.db.log(f"Lernmodul: Tagesauswertung fehlgeschlagen: {e}", "error")
                 if t.weekday() == 4:
                     rep = self.weekly_report()
                     self.notify("weekly", f"Wochenbericht {rep['monday'][8:10]}.{rep['monday'][5:7]}.–{rep['friday'][8:10]}.{rep['friday'][5:7]}.",
