@@ -1,6 +1,6 @@
 {
-  "version": "3.22.1",
-  "file": "releases/FVG-Trader-3.22.1.cmd",
-  "sha256": "afe0ef015a1643a01c6d839bad4679c4cc910c34023ccb08c6fb9a5cbcef4434",
-  "notes": "MT5: FVG-Bridge 2.08 verkleinert die Lots selbst, wenn die freie Margin nicht reicht (statt „not enough money“); Wächter startet MT5 nicht mehr neu, solange sich das Konto meldet (vorher alle 30–80 Min. grundlos); unplausibler Einstiegskurs wird erkannt und mit dem Signalkurs gerechnet"
+  "version": "3.23.0",
+  "file": "releases/FVG-Trader-3.23.0.cmd",
+  "sha256": "4936bd1876273eabed4e866346dbe29aa84bfb54caf35d6343565a1e880bf9b3",
+  "notes": "Kalender bei MT5: Tageszahlen kommen direkt aus MT5 (wie in der MT5-Historie, inkl. Gebühren und eigener Trades auf den Konten, mit Konten-Filter); Trades zählen am Tag des MT5-Servers statt New York (Nacht-Trades nicht mehr am Vortag); FVG-Bridge 2.08 rechnet die Einstiegsgebühr zum Trade"
 }

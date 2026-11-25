@@ -610,6 +610,7 @@ void WriteStatus()
    s += "trade_allowed=" + (can ? "1" : "0") + "\r\n";
    s += "connected=" + (TerminalInfoInteger(TERMINAL_CONNECTED) != 0 ? "1" : "0") + "\r\n";
    s += "time=" + IntegerToString((long)TimeGMT()) + "\r\n";
+   s += "srv=" + IntegerToString((long)TimeTradeServer()) + "\r\n";   // Serverzeit: daraus rechnet die App den Handelstag wie in MT5
    s += "chart=" + _Symbol + "|" + IntegerToString(PeriodSeconds(_Period) / 60) + "\r\n";
    // Symbole, die die App kennen moechte
    string wanted[];
@@ -679,6 +680,19 @@ void WriteStatus()
          long reason = HistoryDealGetInteger(d, DEAL_REASON);
          string why = reason == DEAL_REASON_SL ? "sl" : (reason == DEAL_REASON_TP ? "tp" : (reason == DEAL_REASON_SO ? "so" : "other"));
          double pnl = HistoryDealGetDouble(d, DEAL_PROFIT) + HistoryDealGetDouble(d, DEAL_COMMISSION) + HistoryDealGetDouble(d, DEAL_SWAP);
+         // Gebuehr beim Einstieg gehoert zum Trade dazu (steht in MT5 beim Eroeffnungs-Deal)
+         long posid = HistoryDealGetInteger(d, DEAL_POSITION_ID);
+         for(int j = i - 1; j >= start; j--)
+           {
+            ulong d2 = HistoryDealGetTicket(j);
+            if(d2 == 0 || HistoryDealGetInteger(d2, DEAL_POSITION_ID) != posid)
+               continue;
+            if(HistoryDealGetInteger(d2, DEAL_ENTRY) == DEAL_ENTRY_IN)
+              {
+               pnl += HistoryDealGetDouble(d2, DEAL_COMMISSION) + HistoryDealGetDouble(d2, DEAL_SWAP);
+               break;
+              }
+           }
          s += "deal=" + IntegerToString((long)d) + "|" +
               IntegerToString(HistoryDealGetInteger(d, DEAL_POSITION_ID)) + "|" + sym + "|" +
               DoubleToString(HistoryDealGetDouble(d, DEAL_PRICE), digits) + "|" +

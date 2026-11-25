@@ -3438,7 +3438,9 @@ class Engine:
                 t["pnl"] = self._acc_pnl(t, sel)
             else:
                 continue
-            t["day"] = t.get("trade_day") or str(ny_date(t["closed"]))
+            off = self._mt5_srv_offset() if t["broker"] == "mt5" else None
+            t["day"] = t.get("trade_day") or (str(dt.datetime.fromtimestamp(t["closed"] + off, dt.timezone.utc).date())
+                                              if off is not None and t.get("closed") else str(ny_date(t["closed"])))
             out.append(t)
         return out
 
@@ -3509,8 +3511,38 @@ class Engine:
             "daily_hit": daily_left is not None and daily_left <= 0, "days": days[-120:], "n_trades": len(trades),
         }
 
+    def _mt5_srv_offset(self):
+        """Zeitversatz des MT5-Servers zu UTC in Sekunden (MT5 zählt Handelstage nach Serverzeit), oder None."""
+        c = getattr(self, "_srv_off", (0, None))
+        if time.time() - c[0] < 60:
+            return c[1]
+        vals = []
+        for a in self.mt5_link.accounts().values():
+            try:
+                vals.append(round((float(a["srv"]) - float(a["time"])) / 900) * 900)
+            except (KeyError, TypeError, ValueError):
+                pass
+        off = sorted(vals)[len(vals) // 2] if vals else None
+        self._srv_off = (time.time(), off)
+        return off
+
+    def _mt5_days(self):
+        """Tagesergebnisse direkt aus MT5 (wie in der MT5-Historie): {Tag: {pnl, n}} für die Konten im Filter, oder {}."""
+        if self.broker.name != "mt5":
+            return {}
+        accs = self.mt5_link.accounts()
+        hidden = set((self.cfg.get("mt5") or {}).get("hidden") or [])
+        sel = self._view() or [lg for lg in accs if lg not in hidden]
+        out = {}
+        for lg in sel:
+            for d in (accs.get(lg) or {}).get("days") or []:
+                x = out.setdefault(d["day"], {"pnl": 0.0, "n": 0})
+                x["pnl"] += d["pnl"]
+                x["n"] += d.get("n") or 0
+        return out
+
     def daily(self):
-        """P&L je Handelstag, getrennt nach Bot und eigenen Trades."""
+        """P&L je Handelstag, getrennt nach Bot und eigenen Trades. Bei MT5 kommen die Tageswerte direkt aus MT5."""
         days = {}
         for t in self._calendar_trades(include_tests=True):
             d = days.setdefault(t["day"], {s: {"pnl": 0.0, "n": 0, "w": 0} for s in ("bot", "eigen")})
@@ -3518,6 +3550,23 @@ class Engine:
             b["pnl"] += t["pnl"] or 0
             b["n"] += 1
             b["w"] += (t["pnl"] or 0) > 0
+        mt = self._mt5_days()
+        if mt:
+            first = min(mt)   # ab hier kennt MT5 jeden Tag: dann gelten nur noch die MT5-Zahlen (auch eigene Trades auf dem Konto)
+            cut = self.cfg.get("calendar_from") or ""
+            ts = float(self.cfg.get("calendar_from_ts") or 0)
+            cut_ts = str(dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()) if ts else ""
+            wins = {}
+            for k in [k for k in days if k >= first]:
+                wins[k] = days[k]["bot"]["w"]
+                days[k]["bot"] = {"pnl": 0.0, "n": 0, "w": 0}
+            for k, x in mt.items():
+                if (cut and k < cut) or (cut_ts and k < cut_ts) or (not x["n"] and not x["pnl"]):
+                    continue
+                d = days.setdefault(k, {s: {"pnl": 0.0, "n": 0, "w": 0} for s in ("bot", "eigen")})
+                d["bot"] = {"pnl": x["pnl"], "n": x["n"], "w": min(x["n"], wins.get(k, int(x["pnl"] > 0))), "mt5": True}
+            for k in [k for k, d in days.items() if not any(b["n"] or b["pnl"] for b in d.values())]:
+                del days[k]
         for d in days.values():
             for b in d.values():
                 b["pnl"] = round(b["pnl"], 2)
