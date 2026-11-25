@@ -1734,6 +1734,11 @@ class Engine:
             self.db.update_signal(sig["id"], status="fehler", reason=str(e))
             self.db.log(f"Order fehlgeschlagen: {e}", "error")
             return {"ok": False, "status": "fehler", "reason": str(e)}
+        if fill is not None and sig["sl"] and (abs(fill - price) > abs(price - sig["sl"]) * 0.5
+                                               or (sig["side"] == "long" and fill <= sig["sl"]) or (sig["side"] == "short" and fill >= sig["sl"])):
+            # unplausibler Einstiegskurs (z. B. veralteter Kurs bei der Umrechnung): mit dem Signalkurs rechnen, damit R und Stop stimmen
+            self.db.log(f"Einstiegskurs {fill:.2f} unplausibel (Signal {price:.2f}, Stop {sig['sl']:.2f}), rechne mit dem Signalkurs", "warn")
+            fill = price
         warns = (ref.pop("warnings", None) or []) if isinstance(ref, dict) else []
         for w in warns:
             self.db.log(w, "warn")

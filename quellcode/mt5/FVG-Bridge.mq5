@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.07"
+#property version   "2.08"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.07"
+#define BRIDGE_VERSION "2.08"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -340,6 +340,19 @@ string DoOpen(string &keys[], string &vals[])
       return(Err("Ohne Stop-Loss wird keine Order geschickt"));
    if(side != "buy" && side != "sell")
       return(Err("Richtung fehlt"));
+   // Margin pruefen: reicht das freie Geld nicht, die Lotgroesse passend verkleinern (statt "not enough money")
+   double px = side == "buy" ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
+   double need = 0.0;
+   double freeM = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   string note = "";
+   if(px > 0 && OrderCalcMargin(side == "buy" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, sym, vol, px, need) && need > freeM * 0.9 && need > 0)
+     {
+      double fit = NormVol(sym, vol * freeM * 0.9 / need);
+      if(fit <= 0)
+         return(Err("zu wenig freie Margin: " + DoubleToString(need, 0) + " noetig, frei " + DoubleToString(freeM, 0)));
+      note = "margin_cut=" + DoubleToString(vol, 2) + ">" + DoubleToString(fit, 2) + "\r\n";
+      vol = fit;
+     }
    trade.SetExpertMagicNumber((ulong)(magic > 0 ? magic : InpMagic));
    trade.SetTypeFillingBySymbol(sym);
    bool sent;
@@ -383,7 +396,7 @@ string DoOpen(string &keys[], string &vals[])
       price = PositionGetDouble(POSITION_PRICE_OPEN);
       vol = PositionGetDouble(POSITION_VOLUME);
      }
-   return("ok=1\r\nticket=" + IntegerToString((long)ticket) + "\r\nprice=" + DoubleToString(price, digits) +
+   return("ok=1\r\n" + note + "ticket=" + IntegerToString((long)ticket) + "\r\nprice=" + DoubleToString(price, digits) +
           "\r\nvolume=" + DoubleToString(vol, 2) + "\r\n");
   }
 

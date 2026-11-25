@@ -1,6 +1,6 @@
 {
-  "version": "3.22.0",
-  "file": "releases/FVG-Trader-3.22.0.cmd",
-  "sha256": "377f388ffa4a78d6cd6d03cfc3f596debc0c23dd961ebef54594afad1a96d744",
-  "notes": "Discord: Einstieg zeigt jedes MT5-Konto mit Lots oder dem Grund, warum dort nicht gehandelt wurde; Ausstieg zeigt das echte Ergebnis je Konto aus MT5 (Ziel/Stop, $); ob Ziel oder Stop gegriffen hat, kommt jetzt direkt von MT5"
+  "version": "3.22.1",
+  "file": "releases/FVG-Trader-3.22.1.cmd",
+  "sha256": "afe0ef015a1643a01c6d839bad4679c4cc910c34023ccb08c6fb9a5cbcef4434",
+  "notes": "MT5: FVG-Bridge 2.08 verkleinert die Lots selbst, wenn die freie Margin nicht reicht (statt „not enough money“); Wächter startet MT5 nicht mehr neu, solange sich das Konto meldet (vorher alle 30–80 Min. grundlos); unplausibler Einstiegskurs wird erkannt und mit dem Signalkurs gerechnet"
 }

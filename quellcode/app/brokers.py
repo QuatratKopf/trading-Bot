@@ -1055,6 +1055,7 @@ class Mt5Terminals:
         if time.time() - ts < 10:
             return m
         m = {}
+        failed = False
         if os.name == "nt":
             try:
                 out = subprocess.run(["powershell", "-NoProfile", "-Command",
@@ -1066,7 +1067,9 @@ class Mt5Terminals:
                     if path:
                         m.setdefault(os.path.normcase(os.path.dirname(path)), []).append(int(pid))
             except (OSError, ValueError, subprocess.SubprocessError):
-                pass
+                failed = True
+        if os.name == "nt" and (failed or not m) and ts and time.time() - ts < 300 and self._ps[1]:
+            return self._ps[1]   # Abfrage hing oder kam leer zurück: lieber den letzten Stand nehmen als alles neu zu starten
         self._ps = (time.time(), m)
         return m
 
@@ -1294,6 +1297,10 @@ Write-Output ('OK ' + $u)
             if time.time() - st.get("started", 0) < 180 or time.time() - st.get("stopped", 0) < 60:
                 continue   # gerade gestartet oder von Hand beendet: abwarten
             a = accounts.get(str(t["login"])) or {}
+            if a.get("online"):   # meldet sich gerade: läuft sicher, egal was die Prozess-Abfrage sagt
+                st["restarts"] = 0
+                st["error"] = ""
+                continue
             alive = self.running(t)
             if alive and a.get("online"):
                 st["restarts"] = 0
@@ -1528,6 +1535,8 @@ class Mt5Broker:
                     r["ok"] = False
                     r["error"] = ("Order wurde in MT5 ausgeführt, aber die Position ist der App unbekannt. "
                                   "Bitte in MT5 prüfen und bei Bedarf von Hand schließen")
+            if r.get("ok") and r.get("margin_cut"):
+                warnings.append(f"MT5-Konto {lg}: zu wenig freie Margin, Lots verkleinert ({r['margin_cut'].replace('>', ' → ')})")
             if r.get("ok") and r.get("ticket") and r.get("ticket") != "0":
                 p = plan[lg]
                 entry = self.link._num(r.get("price"), 0) or None
