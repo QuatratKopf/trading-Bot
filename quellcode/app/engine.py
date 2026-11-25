@@ -823,7 +823,12 @@ class Engine:
             rules["rule_trail"] = bool(a.get("rule_trail"))
             if rules["rules_on"] and rules["rule_size"] <= 0:
                 raise ValueError(f"MT5-Konto {lg}: für die Firmen-Regeln die Kontogröße eintragen")
-            accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f, no_allday=bool(a.get("no_allday")),
+            try:
+                dw_ = max(0.0, float(str(a.get("day_win") or 0).replace(",", ".")))
+                dl_ = max(0.0, float(str(a.get("day_loss") or 0).replace(",", ".")))
+            except ValueError:
+                raise ValueError(f"MT5-Konto {lg}: Tagesziel und Tagesverlust als Zahl in $ eingeben")
+            accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f, no_allday=bool(a.get("no_allday")), day_win=dw_, day_loss=dl_,
                                  label=str(a.get("label") or "").strip()[:40],
                                  cons_on=bool(a.get("cons_on")), cons_pct=cp_, cons_target=ct_, **syms)
         m5["accounts"] = accs
@@ -2363,7 +2368,17 @@ class Engine:
         accs = self.mt5_link.accounts()
         self._peaks_update(accs)
         for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items():
-            cap, a = mt5_cons_cap(c), accs.get(lg)
+            a = accs.get(lg)
+            if a and a.get("online") and (c.get("day_win") or c.get("day_loss")):
+                room, why = mt5_rule_room(dict(c, rules_on=False), a)
+                key = "d" + lg
+                if room == 0 and seen.get(key) != str(a.get("today") or ""):
+                    seen[key] = str(a.get("today") or "")
+                    name = c.get("label") or next((t["name"] for t in self.cfg["mt5"].get("terminals") or [] if t["login"] == lg), lg)
+                    txt = f"{name}: {why}. Die anderen Konten handeln weiter, offene Positionen laufen normal zu Ende."
+                    self.db.log(txt)
+                    self.notify("daystop", "Tages-Stopp für ein Konto", txt, "good" if "ziel" in why.lower() else "bad")
+            cap = mt5_cons_cap(c)
             if cap is None or not a or not a.get("online"):
                 continue
             pnl, day = mt5_day_pnl(a), str(a.get("today") or "")
@@ -2452,6 +2467,8 @@ class Engine:
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
                          "factor": float(c.get("factor") or 1.0), "no_allday": bool(c.get("no_allday")),
+                         "day_win": c.get("day_win") or 0, "day_loss": c.get("day_loss") or 0,
+                         "day_block": mt5_rule_room(dict(c, rules_on=False), a)[1] if a and (c.get("day_win") or c.get("day_loss")) and mt5_rule_room(dict(c, rules_on=False), a)[0] == 0 else "",
                          "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
                                   "cap": mt5_cons_cap(c), "today": mt5_day_pnl(a) if a else None},
                          "rules": dict({k: c.get(k) or 0 for k in ("rule_size", "rule_daily", "rule_total", "rule_trade", "rule_target")},

@@ -1,6 +1,6 @@
 {
-  "version": "3.24.0",
-  "file": "releases/FVG-Trader-3.24.0.cmd",
-  "sha256": "0c661a0431eea1ab98afe76282a0125d4b59ec501639a4b3b2c5ddc135f36cf2",
-  "notes": "MT5: Haken „nur in Sessions“ pro Konto – dieses Konto handelt nur in den angehakten Sessions, auch wenn „Ganztägig handeln“ an ist; die anderen Konten handeln weiter ganztägig"
+  "version": "3.25.0",
+  "file": "releases/FVG-Trader-3.25.0.cmd",
+  "sha256": "b7d029e96f087087b1e1986f67725577020bd0411e6367de511001836bb6c4cd",
+  "notes": "MT5: Tagesziel $ und Tagesverlust $ pro Konto – erreicht ein Konto sein Tagesziel oder (fast) seinen Tagesverlust, handelt nur dieses Konto heute nicht mehr (Bot und Kopien), Trades werden vorher passend verkleinert, Meldung nach Discord; die anderen Konten handeln weiter"
 }

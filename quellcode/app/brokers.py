@@ -504,8 +504,18 @@ def mt5_rule_room(c, a):
     """Wie viel $ ein neuer Trade auf diesem Konto höchstens riskieren darf (Firmen-Regeln), und warum.
     (None, '') = keine Regeln eingetragen; (0, Grund) = heute kein neuer Trade."""
     L = mt5_rule_limits(c, mt5_peak(a.get("login"), a, float(c.get("rule_size") or 0)) if a else None)
-    if L is None or not a:
+    try:
+        d_win, d_loss = float(c.get("day_win") or 0), float(c.get("day_loss") or 0)
+    except (TypeError, ValueError):
+        d_win = d_loss = 0.0
+    if (L is None and not d_win and not d_loss) or not a:
         return None, ""
+    day = mt5_day_pnl(a)
+    if d_win > 0 and day >= d_win:   # eigenes Tagesziel dieses Kontos erreicht
+        return 0.0, "Tagesziel erreicht (heute " + f"{day:+,.0f}".replace(",", ".") + " $), dieses Konto handelt heute nicht mehr"
+    if d_loss > 0 and day <= -d_loss * MT5_RULE_SAFETY:
+        return 0.0, "Tagesverlust-Grenze erreicht (heute " + f"{day:+,.0f}".replace(",", ".") + " $), dieses Konto handelt heute nicht mehr"
+    L = L or {"target": 0, "trade": 0, "daily": 0, "floor": 0}
     bal, eq = a.get("balance"), a.get("equity")
     eq = eq if eq is not None else bal
     if eq is None:
@@ -522,12 +532,14 @@ def mt5_rule_room(c, a):
         rooms.append((L["daily"] + min(0.0, mt5_day_pnl(a)) - open_r, "Tagesverlust"))
     if L["floor"] > 0:
         rooms.append((eq - L["floor"] - open_r, "Gesamtverlust"))
+    if d_loss > 0:
+        rooms.append((d_loss + min(0.0, day) - open_r, "Tagesverlust des Kontos"))
     if not rooms:
         return None, ""
     room, what = min(rooms)
     room = round(room * MT5_RULE_SAFETY, 2)
     if room <= 0:
-        return 0.0, f"Firmen-Regeln: Grenze „{what}“ fast erreicht, heute kein neuer Trade"
+        return 0.0, f"Grenze „{what}“ fast erreicht, heute kein neuer Trade auf diesem Konto"
     return room, what
 
 
