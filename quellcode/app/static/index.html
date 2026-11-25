@@ -3563,7 +3563,8 @@ function mtListRender() {
     const name = (t && t.name) || a.label || lg, r = role(lg);
     const st = t && (t.busy || t.step) ? ["warn", t.step || "wird eingerichtet …"] : a.online ? (a.can_trade ? ["good", "verbunden"] : ["warn", "Algo Trading aus"])
       : t && t.running ? ["warn", "startet / meldet sich nicht"] : ["bad", t ? "gestoppt" : "nicht verbunden"];
-    const info = [esc(a.company || (t && t.server) || a.server || ""), a.balance != null ? usd2(a.balance) : "", a.positions ? a.positions + " offen" : ""].filter(Boolean).join(" · ");
+    const bv = (t && t.version) || a.version || "", bNew = ((m5.terminals || {}).bridge) || "", bOld = bv && bNew && parseFloat(bv) < parseFloat(bNew) - 1e-9;
+    const info = [esc(a.company || (t && t.server) || a.server || ""), bv ? (bOld ? `<span class="neg">FVG-Bridge ${esc(bv)} (neu: ${esc(bNew)})</span>` : `FVG-Bridge ${esc(bv)}`) : "", a.balance != null ? usd2(a.balance) : "", a.positions ? a.positions + " offen" : ""].filter(Boolean).join(" · ");
     const sym = [["NQ", "Nasdaq", "m5n_"], ["ES", "S&amp;P 500", "m5e_"]].map(([fam, lbl, pre]) => { const e = (a.eff || {})[fam] || {};
       return `<label class="m5-c">${lbl} <input type="text" data-cfg id="${pre}${esc(lg)}" value="${esc(a["sym_" + fam] || "")}" placeholder="${esc(fam === "NQ" ? m5c.sym_NQ : m5c.sym_ES)}" maxlength="40" style="width:130px" autocomplete="off">
         ${!a.online ? "" : e.found ? `<span class="chip good">✓</span>` : `<span class="chip ${fam === "NQ" ? "bad" : "mute"}" title="Dieses Konto kennt ${esc(e.name)} nicht">✗ fehlt</span>`}</label>`; }).join("");
@@ -3623,6 +3624,10 @@ function mtListRender() {
         <button class="btn sm" data-mte="${t.id}">Bearbeiten</button><button class="btn sm ghost-danger" data-mta="remove" data-id="${t.id}" data-key="mtrm-${t.id}" data-orig="Entfernen">Entfernen</button></div>`
         : `<div class="inline wrap-gap"><small class="hint">MT5 von Hand geöffnet (nicht über die App)</small><button class="btn sm ghost-danger" data-mtrm="${esc(lg)}" data-key="mtrmh-${esc(lg)}" data-orig="Entfernen">Entfernen</button></div>`}</div>`; }).join("");
   const act = async (b, a) => { try { b.disabled = true; await api("/api/mt5/terminal", {action: a, id: b.dataset.id}); toast({start: "Startet … (beim ersten Mal 1 bis 2 Minuten)", restart: "Startet neu …", stop: "Beendet", remove: "Entfernt. Der MT5-Ordner bleibt erhalten."}[a]); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; } };
+  if ($("#mtAll")) $("#mtAll").onclick = () => confirmBtn($("#mtAll"), "Wirklich alle?", async () => {
+    try { const r = await api("/api/mt5/terminal", {action: "restart_all"}); toast(`${r.count} MT5 starten nacheinander neu (je ein paar Sekunden). Offene Positionen behalten Stop und Ziel beim Broker.`); setTimeout(() => refresh(true), 4000); }
+    catch (e) { toast(e.message); }
+  });
   box.querySelectorAll("[data-mtrm]").forEach(b => b.onclick = () => confirmBtn(b, "Sicher?", async () => {
     try { await api("/api/mt5/terminal", {action: "remove", login: b.dataset.mtrm}); toast("Entfernt. Taucht wieder auf, sobald sich das Konto aus MT5 meldet."); await refresh(true); } catch (e) { toast(e.message); b.disabled = false; }
   }));
@@ -4379,7 +4384,8 @@ function settings() {
       <div id="cpFlow"></div>
       ${m5cc.enabled && (m5.copy.error || (m5.copy.waiting || []).length) ? `<small class="${m5.copy.error ? "neg" : "hint"}">${m5.copy.error ? esc(m5.copy.error) : "Wartet auf Stop-Loss im Hauptkonto: " + esc(m5.copy.waiting.join(", "))}</small>` : m5cc.enabled && m5.copy.last ? `<small class="hint">läuft · ${m5.copy.copies || 0} Kopien seit Start</small>` : ""}
     </div>
-    <span class="lbl">Konten</span>
+    <div class="inline" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span class="lbl" style="margin:0">Konten</span>
+      ${((m5.terminals || {}).list || []).length ? `<button type="button" class="btn sm" id="mtAll" data-key="mtall" data-orig="Alle MT5 neu starten" title="Startet alle MT5 aus dem Starter nacheinander neu und spielt dabei die neueste FVG-Bridge ein">Alle MT5 neu starten</button>` : ""}</div>
     <div id="mtList" class="m5-list"></div>
     <details class="set-sec mt-add" id="mtAdd"><summary><span class="s-ic">${icon('<path d="M12 5v14M5 12h14"/>')}</span><span class="s-t"><b>MT5-Konto hinzufügen</b><span class="hint">Die App richtet MT5 ein und startet es selbst</span></span><span></span></summary><div class="set-b" id="mtForm"></div></details>
     ${(() => { const g = m5.diag || {}; const ok = g.files && g.age != null && g.age < 15;

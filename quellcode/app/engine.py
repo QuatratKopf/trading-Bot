@@ -2407,6 +2407,10 @@ class Engine:
             seen = self._cons_seen = {}
         accs = self.mt5_link.accounts()
         self._peaks_update(accs)
+        try:
+            self._bridge_autoupdate(accs)
+        except Exception:  # noqa: BLE001
+            pass
         for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items():
             a = accs.get(lg)
             if a and a.get("online") and (c.get("day_win") or c.get("day_loss")):
@@ -2584,12 +2588,13 @@ class Engine:
                     self._diag_cache[t["id"]] = dc
                 if dc:
                     hint, lines = dc[1], dc[2]
-            out.append({"hint": hint, "lines": lines, "user": st.get("user", ""),"id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
+            out.append({"hint": hint, "lines": lines, "user": st.get("user", ""), "version": a.get("version") or "","id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
                         "auto": t["auto"], "has_pw": bool(t.get("password")), "running": run,
                         "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
                         "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),
                         "folder": mt.folder(t), "busy": t["id"] in mt._busy})
-        return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH"))}
+        return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH")),
+                "bridge": self.bridge_version()}
 
     _diag_cache = {}
 
@@ -2634,6 +2639,12 @@ class Engine:
             if act == "add" and t["auto"]:
                 threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
             return {"ok": True, "id": t["id"]}
+        if act == "restart_all":
+            terms_ = list(self.cfg["mt5"].get("terminals") or [])
+            if not terms_:
+                raise ValueError("Keine Konten im MT5-Starter")
+            threading.Thread(target=self._restart_all_bg, args=(terms_, "von Hand"), daemon=True).start()
+            return {"ok": True, "count": len(terms_)}
         t = next((x for x in self.cfg["mt5"]["terminals"] if x["id"] == b.get("id")), None)
         if not t and act != "remove":
             raise ValueError("Konto nicht gefunden")
@@ -2647,7 +2658,7 @@ class Engine:
             return mt.stop(t)
         if act == "restart":
             mt.stop(t, manual=False)
-            mt.state.setdefault(t["id"], {}).update(stopped=0, restarts=0)
+            mt.state.setdefault(t["id"], {}).update(stopped=0, restarts=0, ready=False)   # ready=False: neueste FVG-Bridge einspielen
             threading.Thread(target=self._term_start_bg, args=(t,), daemon=True).start()
             return {"ok": True, "background": True}
         if act == "remove" and t is None:
@@ -2673,6 +2684,50 @@ class Engine:
             self.db.log(f"MT5-Konto „{t['name']}“ entfernt. Der MT5-Ordner bleibt erhalten: {mt.folder(t)}")
             return {"ok": True, "folder": mt.folder(t)}
         raise ValueError("Unbekannte Aktion")
+
+    def bridge_version(self):
+        """Version der FVG-Bridge, die in dieser App steckt (aus dem Quelltext)."""
+        try:
+            m = re.search(r'#define BRIDGE_VERSION "([\d.]+)"', self.mt5_sources()[0])
+            return m.group(1) if m else ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _restart_all_bg(self, terms, why):
+        """MT5-Konten nacheinander neu starten (mit neuester FVG-Bridge), damit nicht alle gleichzeitig weg sind."""
+        mt = self.mt5_terms
+        for t in terms:
+            try:
+                mt.stop(t, manual=False)
+                mt.state.setdefault(t["id"], {}).update(stopped=0, restarts=0, ready=False)
+                mt.start(t, reason=why)
+            except Exception as e:  # noqa: BLE001
+                self.db.log(f"MT5 „{t.get('name')}“ neu starten: {e}", "warn")
+            time.sleep(3)
+
+    def _bridge_autoupdate(self, accs):
+        """Nach einem App-Update: Konten mit veralteter FVG-Bridge neu starten, sobald dort keine Position offen ist."""
+        cur = self.bridge_version()
+        if not cur:
+            return
+        done = getattr(self, "_bridge_done", None)
+        if done is None:
+            done = self._bridge_done = set()
+        todo = []
+        for t in (self.cfg.get("mt5") or {}).get("terminals") or []:
+            a = accs.get(str(t["login"])) or {}
+            if t["id"] in done or not a.get("online") or a.get("positions"):
+                continue
+            try:
+                old = float(a.get("version") or 0) < float(cur) - 1e-9
+            except ValueError:
+                old = False
+            if old and t.get("auto", True) and t["id"] not in self.mt5_terms._busy:
+                done.add(t["id"])
+                todo.append(t)
+                self.db.log(f"MT5 „{t['name']}“: FVG-Bridge {a.get('version')} ist veraltet, starte mit {cur} neu")
+        if todo:
+            threading.Thread(target=self._restart_all_bg, args=(todo, "neue FVG-Bridge"), daemon=True).start()
 
     def _term_start_bg(self, t):
         try:

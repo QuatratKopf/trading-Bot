@@ -1,6 +1,6 @@
 {
-  "version": "3.27.1",
-  "file": "releases/FVG-Trader-3.27.1.cmd",
-  "sha256": "9a6434b1913fcece5f3d9219370571559180eeea2676a6c422b9339a9b4bc427",
-  "notes": "Discord-Tagesabschluss: Liste aller MT5-Konten mit heutigem +/- laut MT5, Anzahl Abschlüsse und Kontostand, dazu die Summe"
+  "version": "3.28.0",
+  "file": "releases/FVG-Trader-3.28.0.cmd",
+  "sha256": "6e1bf8413d1c701b472536eb0b7c2a0643cdc375efa9a3432ec2c914a1578df1",
+  "notes": "MT5-Starter: Knopf „Alle MT5 neu starten“ (nacheinander, mit neuester FVG-Bridge); nach App-Updates startet die App Konten mit veralteter FVG-Bridge selbst neu, sobald dort keine Position offen ist; Konto-Karte zeigt die Bridge-Version"
 }
