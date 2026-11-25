@@ -823,7 +823,7 @@ class Engine:
             rules["rule_trail"] = bool(a.get("rule_trail"))
             if rules["rules_on"] and rules["rule_size"] <= 0:
                 raise ValueError(f"MT5-Konto {lg}: für die Firmen-Regeln die Kontogröße eintragen")
-            accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f,
+            accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f, no_allday=bool(a.get("no_allday")),
                                  label=str(a.get("label") or "").strip()[:40],
                                  cons_on=bool(a.get("cons_on")), cons_pct=cp_, cons_target=ct_, **syms)
         m5["accounts"] = accs
@@ -1728,6 +1728,17 @@ class Engine:
         if (long_ and price <= sig["sl"]) or (not long_ and price >= sig["sl"]):
             self.db.update_signal(sig["id"], status="verfallen", reason="Kurs hat den Stop bereits erreicht")
             return {"ok": False, "status": "verfallen", "reason": "Kurs hat den Stop bereits erreicht"}
+        if self.broker.name == "mt5":
+            # Konten, die nur in den angehakten Sessions handeln (für sie ist „ganztägig“ aus)
+            on = self.cfg["risk"].get("sessions") or {}
+            in_sess = any(on.get(k) and in_session(k, ny_time()) for k in TRADING_SESSIONS)
+            conf = {lg: c for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items() if c.get("bot")}
+            skip = {} if in_sess else {lg: "nur in den angehakten Sessions (ganztägig für dieses Konto aus)" for lg, c in conf.items() if c.get("no_allday")}
+            if conf and set(conf) <= set(skip):
+                why = "Außerhalb der Sessions: alle Bot-Konten handeln nur in den angehakten Sessions"
+                self.db.update_signal(sig["id"], status="blockiert", reason=why)
+                return {"ok": False, "status": "blockiert", "reason": why}
+            self.broker.skip_accounts = skip
         try:
             fill, ref = self.broker.open(sig["contract"], sig["side"], sig["qty"], price, sig["sl"], sig["tp"], tick)
         except BrokerError as e:
@@ -2440,7 +2451,7 @@ class Engine:
                          "currency": a.get("currency", ""), "balance": a.get("balance"), "equity": a.get("equity"),
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
-                         "factor": float(c.get("factor") or 1.0),
+                         "factor": float(c.get("factor") or 1.0), "no_allday": bool(c.get("no_allday")),
                          "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
                                   "cap": mt5_cons_cap(c), "today": mt5_day_pnl(a) if a else None},
                          "rules": dict({k: c.get(k) or 0 for k in ("rule_size", "rule_daily", "rule_total", "rule_trade", "rule_target")},

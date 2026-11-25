@@ -1473,8 +1473,13 @@ class Mt5Broker:
             accs = self.link.accounts()
         usd_pp = qty * MT5_PV.get(root, 2.0)
         jobs, plan, warnings = [], {}, []
+        skip = getattr(self, "skip_accounts", None) or {}
+        self.skip_accounts = {}
         for login, c in conf:
             a = accs.get(login)
+            if login in skip:
+                warnings.append(f"MT5-Konto {login}: {skip[login]}, Trade dort ausgelassen")
+                continue
             if not a or not a["online"]:
                 warnings.append(f"MT5-Konto {login}: nicht verbunden, Trade dort ausgelassen")
                 continue
