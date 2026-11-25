@@ -6490,7 +6490,7 @@ class Engine:
         rows = self.db.rows("SELECT * FROM positions WHERE broker='mt5' AND status='geschlossen' AND closed>=?", (since,))
         for p in (self.db._decode_pos(r) for r in rows):
             ref = p.get("broker_ref") or {}
-            todo = [lg for lg, a in (ref.get("accounts") or {}).items() if a.get("pnl") is None]
+            todo = [lg for lg, a in (ref.get("accounts") or {}).items() if a.get("pnl") is None or a.get("srv_t") is None]
             if not todo:
                 continue
             accs = accs if accs is not None else self.mt5_link.accounts()
@@ -6500,6 +6500,7 @@ class Engine:
                 deals = [d for d in (accs.get(lg) or {}).get("deals", []) if d["position"] == a.get("ticket")]
                 if deals:
                     a["pnl"] = round(sum(d["pnl"] for d in deals), 2)
+                    a["srv_t"] = max(d["time"] for d in deals)   # Schlusszeit in MT5-Serverzeit: daraus der Handelstag wie in MT5
                     changed = True
             if changed:
                 self.db.update_position(p["id"], broker_ref=ref)
@@ -6555,8 +6556,11 @@ class Engine:
                 t["pnl"] = self._acc_pnl(t, sel)
             else:
                 continue
-            off = self._mt5_srv_offset() if t["broker"] == "mt5" else None
-            t["day"] = t.get("trade_day") or (str(dt.datetime.fromtimestamp(t["closed"] + off, dt.timezone.utc).date())
+            srv_t = next((a.get("srv_t") for a in ((t.get("broker_ref") or {}).get("accounts") or {}).values() if a.get("srv_t")), None) \
+                if t["broker"] == "mt5" and isinstance(t.get("broker_ref"), dict) else None
+            off = self._mt5_srv_offset() if t["broker"] == "mt5" and not srv_t else None
+            t["day"] = t.get("trade_day") or (str(dt.datetime.fromtimestamp(srv_t, dt.timezone.utc).date()) if srv_t
+                                              else str(dt.datetime.fromtimestamp(t["closed"] + off, dt.timezone.utc).date())
                                               if off is not None and t.get("closed") else str(ny_date(t["closed"])))
             out.append(t)
         return out
@@ -6673,15 +6677,17 @@ class Engine:
             cut = self.cfg.get("calendar_from") or ""
             ts = float(self.cfg.get("calendar_from_ts") or 0)
             cut_ts = str(dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()) if ts else ""
-            wins = {}
+            app = {}
             for k in [k for k in days if k >= first]:
-                wins[k] = days[k]["bot"]["w"]
+                app[k] = (days[k]["bot"]["n"], days[k]["bot"]["w"])
                 days[k]["bot"] = {"pnl": 0.0, "n": 0, "w": 0}
             for k, x in mt.items():
                 if (cut and k < cut) or (cut_ts and k < cut_ts) or (not x["n"] and not x["pnl"]):
                     continue
                 d = days.setdefault(k, {s: {"pnl": 0.0, "n": 0, "w": 0} for s in ("bot", "eigen")})
-                d["bot"] = {"pnl": x["pnl"], "n": x["n"], "w": min(x["n"], wins.get(k, int(x["pnl"] > 0))), "mt5": True}
+                an, aw = app.get(k, (0, 0))
+                # Punkte im Kalender: je Bot-Trade einer (nicht je Konto); ohne Bot-Trades die Abschlüsse aus MT5
+                d["bot"] = {"pnl": x["pnl"], "n": an or x["n"], "w": aw if an else (x["n"] if x["pnl"] > 0 else 0), "mt5": True}
             for k in [k for k, d in days.items() if not any(b["n"] or b["pnl"] for b in d.values())]:
                 del days[k]
         for d in days.values():
@@ -9437,7 +9443,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.26.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.26.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
