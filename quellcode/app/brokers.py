@@ -1594,6 +1594,22 @@ class Mt5Broker:
     def modify_target(self, pos, new_tp):
         return self._modify(pos, "tp", new_tp)
 
+    def acc_name(self, login):
+        lg = str(login)
+        t = next((x for x in self.mcfg.get("terminals") or [] if str(x.get("login")) == lg), None)
+        return (t and t.get("name")) or ((self.mcfg.get("accounts") or {}).get(lg) or {}).get("label") or lg
+
+    def close_results(self, pos, accs=None):
+        """Echtes Ergebnis je Konto aus den MT5-Deals: [{login, name, lots, pnl, why, price}] (why: tp/sl/other)."""
+        accs = accs or self.link.accounts()
+        out = []
+        for lg, a in (pos["broker_ref"].get("accounts") or {}).items():
+            deals = sorted([d for d in (accs.get(lg) or {}).get("deals", []) if d["position"] == a["ticket"]], key=lambda d: d["time"])
+            out.append({"login": lg, "name": self.acc_name(lg), "lots": a.get("lots"), "found": bool(deals),
+                        "pnl": round(sum(d["pnl"] for d in deals), 2) if deals else None,
+                        "why": deals[-1]["reason"] if deals else "", "price": deals[-1]["price"] if deals else None})
+        return out
+
     def _exit_from_deals(self, pos, accs=None):
         accs = accs or self.link.accounts()
         for lg, a in (pos["broker_ref"].get("accounts") or {}).items():
@@ -1623,6 +1639,9 @@ class Mt5Broker:
                 else:
                     a["open"] = False
             if not still:
+                if not hasattr(self, "close_info"):
+                    self.close_info = {}
+                self.close_info[pos["id"]] = self.close_results(pos, accs)
                 closed.append((pos, self._exit_from_deals(pos, accs)))
         return closed
 

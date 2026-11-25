@@ -1,6 +1,6 @@
 {
-  "version": "3.21.1",
-  "file": "releases/FVG-Trader-3.21.1.cmd",
-  "sha256": "1b5e946308e4b5f8388a7c94b071b6c00ace5c7f1a97cfeaef82be448472258d",
-  "notes": "Discord: Bias-Meldung kommt jetzt zu jedem Session-Beginn, auch ohne Signal und ohne offenes App-Fenster; Tagesabschluss kommt zuverlässig (wurde ausgelassen, wenn das Lernmodul tagsüber neu bewertet wurde) und vor der Lern-Auswertung"
+  "version": "3.22.0",
+  "file": "releases/FVG-Trader-3.22.0.cmd",
+  "sha256": "377f388ffa4a78d6cd6d03cfc3f596debc0c23dd961ebef54594afad1a96d744",
+  "notes": "Discord: Einstieg zeigt jedes MT5-Konto mit Lots oder dem Grund, warum dort nicht gehandelt wurde; Ausstieg zeigt das echte Ergebnis je Konto aus MT5 (Ziel/Stop, $); ob Ziel oder Stop gegriffen hat, kommt jetzt direkt von MT5"
 }

@@ -1734,8 +1734,13 @@ class Engine:
             self.db.update_signal(sig["id"], status="fehler", reason=str(e))
             self.db.log(f"Order fehlgeschlagen: {e}", "error")
             return {"ok": False, "status": "fehler", "reason": str(e)}
-        for w in (ref.pop("warnings", None) or []) if isinstance(ref, dict) else []:
+        warns = (ref.pop("warnings", None) or []) if isinstance(ref, dict) else []
+        for w in warns:
             self.db.log(w, "warn")
+        acc_lines = ""
+        if isinstance(ref, dict) and ref.get("accounts") and hasattr(self.broker, "acc_name"):
+            acc_lines = "".join(f"\n• {self.broker.acc_name(lg)}: {_fmt(a.get('lots'), '.2f')} Lots" for lg, a in ref["accounts"].items())
+            acc_lines += "".join("\n• " + re.sub(r"^MT5-Konto (\d+)", lambda m: self.broker.acc_name(m.group(1)), w) for w in warns)
         pid = uuid.uuid4().hex[:10]
         self.db.add_position({
             "id": pid, "signal_id": sig["id"], "broker": self.broker.name, "root": root, "contract": sig["contract"],
@@ -1749,8 +1754,8 @@ class Engine:
             risk_usd = abs(fill - sig["sl"]) * sig["qty"] * pv
             self.notify("trades", f"{'🟢 LONG' if sig['side'] == 'long' else '🔴 SHORT'} {sig['qty']}× {root} · {sig['setup']}" + (" (Test)" if sig.get("is_test") else ""),
                         f"Einstieg **{_fmt(fill, '.2f')}** · Stop {_fmt(sig['sl'], '.2f')} ({_fmt(-risk_usd, ',.0f')} $)"
-                        + (f" · Ziel {_fmt(sig['tp'], '.2f')} (+{_fmt(abs(sig['tp'] - fill) * sig['qty'] * pv, ',.0f')} $)" if sig["tp"] else f" · {sig.get('mgmt')}"),
-                        "info")
+                        + (f" · Ziel {_fmt(sig['tp'], '.2f')} (+{_fmt(abs(sig['tp'] - fill) * sig['qty'] * pv, ',.0f')} $)" if sig["tp"] else f" · {sig.get('mgmt')}")
+                        + acc_lines, "info")
         self.db.log(f"{sig['side'].upper()} {sig['qty']}× {root} gefüllt @ {fill:.2f} · Stop {sig['sl']:.2f} · "
                     + (f"Ziel {sig['tp']:.2f}" if sig["tp"] else f"ohne festes Ziel ({sig.get('mgmt')})"))
         return {"ok": True, "status": "ausgeführt", "position": pid}
@@ -1807,7 +1812,7 @@ class Engine:
         d = 1 if pos["side"] == "long" else -1
         return (price - pos["entry"]) * d * pos["qty"] * INSTR[pos["root"]]["pv"]
 
-    def _finish(self, pos, exit_price, reason, slip=True):
+    def _finish(self, pos, exit_price, reason, slip=True, accounts=None):
         tick = INSTR[pos["root"]]["tick"]
         if pos["broker"] == "paper" and slip:
             exit_price = self.broker.close(pos, exit_price, tick) if self.broker.name == "paper" else exit_price
@@ -1825,6 +1830,9 @@ class Engine:
             r_ = self._r_of(dict(pos, pnl=pnl))
             self.notify("trades", f"{'✅' if pnl > 0 else '❌'} {pos['side'].upper()} {pos['qty']}× {pos['root']} geschlossen · {pos['setup']}" + (" (Test)" if pos.get("is_test") else ""),
                         f"{reason} · {_fmt(pos['entry'], '.2f')} → {_fmt(exit_price, '.2f')} · **{_fmt(pnl, '+,.0f')} $**" + (f" ({_fmt(r_, '+.2f')} R)" if r_ is not None else "")
+                        + (" *(Rechnung in MNQ-Punkten)*" if accounts else "")
+                        + "".join(f"\n• {x['name']}: " + (f"**{_fmt(x['pnl'], '+,.2f')} $** · {({'tp': 'Ziel', 'sl': 'Stop'}).get(x['why'], 'geschlossen')}"
+                                                         if x.get("found") else "Ergebnis noch nicht gemeldet") for x in accounts or [])
                         + f"\nHeute: {_fmt(self.today_pnl(), '+,.0f')} $", "good" if pnl > 0 else "bad")
 
     @staticmethod
@@ -2732,8 +2740,13 @@ class Engine:
                 mine = [p for p in self.db.open_positions() if p["broker"] == self.broker.name]
                 try:
                     for pos, exit_price in self.broker.sync(mine):
-                        reason = "Stop-Loss" if exit_price and abs(exit_price - pos["sl"]) <= abs(exit_price - (pos["tp"] or 0)) else "Ziel erreicht"
-                        self._finish(pos, exit_price or pos["sl"], reason + " (Broker)", slip=False)
+                        res = (getattr(self.broker, "close_info", None) or {}).pop(pos["id"], None) or []
+                        why = next((x["why"] for x in res if x.get("found")), "")
+                        if why in ("tp", "sl"):   # MT5 sagt selbst, ob Ziel oder Stop gegriffen hat
+                            reason = "Ziel erreicht" if why == "tp" else "Stop-Loss"
+                        else:
+                            reason = "Stop-Loss" if exit_price and abs(exit_price - pos["sl"]) <= abs(exit_price - (pos["tp"] or 0)) else "Ziel erreicht"
+                        self._finish(pos, exit_price or pos["sl"], reason + " (Broker)", slip=False, accounts=res)
                 except BrokerError as e:
                     self.broker_status = str(e)
 
