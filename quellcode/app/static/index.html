@@ -3588,7 +3588,10 @@ function mtListRender() {
         <label class="m5-c" title="1 = normale Größe, 0,5 = halb so groß, 2 = doppelt">Größe × <input type="number" data-cfg id="m5f_${esc(lg)}" value="${a.factor || 1}" min="0.01" max="100" step="0.1" style="width:72px"></label>
         <label class="m5-c" title="Ist dieses Konto heute so weit im Plus, eröffnet der Bot hier heute nichts mehr. Leer = aus">Tagesziel <input type="number" data-cfg id="m5dw_${esc(lg)}" value="${a.day_win || ""}" min="0" step="50" style="width:90px" placeholder="$"> $</label>
         <label class="m5-c" title="Höchstens so viel darf dieses Konto heute verlieren: Trades werden passend verkleinert, kurz davor eröffnet der Bot hier nichts mehr. Leer = aus">Tagesverlust <input type="number" data-cfg id="m5dl_${esc(lg)}" value="${a.day_loss || ""}" min="0" step="50" style="width:90px" placeholder="$"> $</label>
-        <label class="m5-c" title="Auf diesem Konto nur in den angehakten Sessions handeln (Einstellungen → Handelszeiten), auch wenn „Ganztägig handeln“ an ist"><input type="checkbox" class="chk" data-cfg id="m5na_${esc(lg)}" ${a.no_allday ? "checked" : ""}> nur in Sessions</label>
+      </div>
+      <div class="m5-o">
+        <label class="m5-c">Handelszeit <select data-cfg id="m5hm_${esc(lg)}" data-hm="${esc(lg)}">${[["all", "wie eingestellt"], ["sess", "nur in Sessions"], ["own", "eigene Uhrzeit"]].map(([k, l]) => `<option value="${k}" ${(a.hours_mode || "all") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <span class="m5-c" id="m5hw_${esc(lg)}" ${(a.hours_mode || "all") === "own" ? "" : "hidden"}>von <input type="time" data-cfg id="m5hf_${esc(lg)}" value="${esc(a.hours_from || "08:00")}" style="width:120px"> bis <input type="time" data-cfg id="m5ht_${esc(lg)}" value="${esc(a.hours_to || "22:00")}" style="width:120px"> Uhr</span>
       </div>
       ${a.day_block ? `<small class="cp-warn" style="margin:0">${esc(a.day_block)}. Die anderen Konten handeln weiter.</small>` : ""}
       ${kHit ? `<small class="cp-warn" style="margin:0">Konsistenzregel erreicht: heute ${usd(K.today)} Gewinn. Der Bot eröffnet hier heute nichts mehr, die anderen Konten handeln weiter.</small>` : ""}
@@ -3632,6 +3635,7 @@ function mtListRender() {
     $("#m5n_" + CSS.escape(b.dataset.nqc)).value = b.dataset.name; $("#savebar").hidden = false; settingsDirty = true;
     toast(b.dataset.name + " eingetragen – jetzt unten speichern");
   });
+  box.querySelectorAll("[data-hm]").forEach(s => s.onchange = () => { $("#m5hw_" + CSS.escape(s.dataset.hm)).hidden = s.value !== "own"; });
   box.querySelectorAll("[data-ksug]").forEach(b => b.onclick = () => {
     const lg = CSS.escape(b.dataset.ksug); $("#m5kp_" + lg).value = b.dataset.kp; if (+b.dataset.kt) $("#m5kt_" + lg).value = b.dataset.kt;
     $("#m5k_" + lg).checked = true; $("#savebar").hidden = false; settingsDirty = true;
@@ -4369,6 +4373,7 @@ function settings() {
       ${field("pb", "Startkapital Paper ($)", c.paper.start_balance, {attrs: {min: 1000, step: 1000}})}
       <div class="inline wrap-gap"><button class="btn ghost-danger" id="pr">Paper-Konto zurücksetzen</button></div>
     </div>
+    ${field("m5sb", "Spread-Puffer am Stop", m5c.spread_buf || "nacht", {select: [["nacht", "nur nachts (22–08 Uhr)"], ["immer", "immer"], ["aus", "aus"]], help: "Der Stop liegt um den aktuellen Spread des Kontos weiter weg, die Lots werden passend kleiner – das Risiko in $ bleibt gleich. Hilft gegen Spread-Spitzen, die den Stop auslösen."})}
     <div class="cp-box">
       <div class="row" style="border:0;padding:0"><label for="m5ce"><b>Copytrading</b><small>Deine Trades auf dem Hauptkonto werden auf alle Konten mit „Kopiert“ übertragen (sobald sie einen Stop-Loss haben).</small></label><input id="m5ce" type="checkbox" class="chk" data-cfg ${m5cc.enabled ? "checked" : ""}></div>
       <div id="cpFlow"></div>
@@ -4494,8 +4499,8 @@ function settings() {
       confluence: {enabled: v("cfE"), min: parseInt(v("cfM")), use: Object.fromEntries(Object.keys(CFN()).map(k => [k, v("cfU_" + k)]))},
       learning: {enabled: v("le"), auto_adopt: v("la"), window: v("lw"), min_trades: v("lm"), half_below_r: num("lh"), pause_below_r: num("lp")},
       broker: v("bk"), public_url: v("pu").trim(),
-      mt5: {sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
-        accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg), no_allday: v("m5na_" + lg), day_win: v("m5dw_" + lg) || 0, day_loss: v("m5dl_" + lg) || 0,
+      mt5: {spread_buf: v("m5sb") || "nacht", sym_NQ: (v("m5sn") || "").trim(), sym_ES: (v("m5se") || "").trim(), dir: (v("m5dir") || "").trim(), chart_fix: v("m5cf"), chart_minutes: parseInt(v("m5tf")) || 5, copy: {enabled: v("m5ce"), master: ([...document.querySelectorAll('input[id^="m5r_"]')].find(i => i.value === "master") || {id: "m5r_"}).id.slice(4)},
+        accounts: Object.fromEntries([...document.querySelectorAll('input[id^="m5r_"]')].map(i => i.id.slice(4)).map(lg => [lg, {bot: v("m5b_" + lg), copy: v("m5r_" + lg) === "copy", factor: v("m5f_" + lg), no_allday: false, hours_mode: v("m5hm_" + lg) || "all", hours_from: v("m5hf_" + lg) || "", hours_to: v("m5ht_" + lg) || "", day_win: v("m5dw_" + lg) || 0, day_loss: v("m5dl_" + lg) || 0,
           cons_on: v("m5k_" + lg), cons_pct: v("m5kp_" + lg) || 0, cons_target: v("m5kt_" + lg) || 0,
           rules_on: v("m5ro_" + lg), rule_trail: v("m5rtr_" + lg), rule_size: v("m5rs_" + lg) || 0, rule_daily: v("m5rd_" + lg) || 0, rule_total: v("m5rt_" + lg) || 0, rule_trade: v("m5rx_" + lg) || 0, rule_target: v("m5rz_" + lg) || 0,
           sym_NQ: (v("m5n_" + lg) || "").trim(), sym_ES: (v("m5e_" + lg) || "").trim()}]))},

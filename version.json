@@ -1,6 +1,6 @@
 {
-  "version": "3.26.1",
-  "file": "releases/FVG-Trader-3.26.1.cmd",
-  "sha256": "36d6cc0c3a5eb569ff3026eddd62a960792f34abce90b23b60bac3b1882bd8e6",
-  "notes": "Kalender: Trades stehen am Tag aus MT5 (Schlusszeit des Deals, auch mit älterer FVG-Bridge) – beim Anklicken des grünen Tages erscheinen jetzt die Trades; Punkte zeigen je Bot-Trade einen Punkt statt je Konto-Order"
+  "version": "3.27.0",
+  "file": "releases/FVG-Trader-3.27.0.cmd",
+  "sha256": "cf869ca87717edfc70af52c5ae66364bf5897f369ea426d4c2f04e0351aac85f",
+  "notes": "MT5: eigene Handelszeit pro Konto (deutsche Uhrzeit, auch über Mitternacht) oder nur in Sessions; Spread-Puffer am Stop (Standard nur nachts 22–08 Uhr): Stop um den Spread des Kontos weiter weg, Lots kleiner, Risiko in $ gleich"
 }

@@ -1508,11 +1508,17 @@ class Mt5Broker:
                 warnings.append(f"MT5-Konto {login}: Symbol {sym_a} nicht gefunden (Name prüfen unter Einstellungen → MetaTrader 5), Trade dort ausgelassen")
                 continue
             fac = float(c.get("factor") or 1.0)
+            dist = abs(price - sl)
+            buf = 0.0
+            if getattr(self, "spread_buf", False) and spec["ask"] > spec["bid"] > 0 and dist > 0:
+                # Spread-Puffer: Stop um den aktuellen Spread dieses Kontos weiter weg, Lots kleiner (gleiches Risiko in $)
+                buf = spec["ask"] - spec["bid"]
+                fac = fac * dist / (dist + buf)
             room, why = mt5_rule_room(c, a)
             if room is not None and room <= 0:
                 warnings.append(f"MT5-Konto {login}: {why}")
                 continue
-            risk_acc = usd_pp * fac * abs(price - sl)
+            risk_acc = usd_pp * fac * (dist + buf)
             if room is not None and risk_acc > room:
                 fac = fac * room / risk_acc   # Firmen-Regeln: Trade auf das erlaubte Risiko verkleinern
                 warnings.append(f"MT5-Konto {login}: wegen Firmen-Regel „{why}“ verkleinert auf höchstens {room:,.0f} $ Risiko".replace(",", "."))
@@ -1526,16 +1532,18 @@ class Mt5Broker:
                 continue
             off = mid - price
             d = spec["digits"]
-            sl_c = round(sl + off, d)
+            sl_c = round(sl + off + (buf if side == "short" else -buf), d)
             tp_c = round(tp + off, d) if tp else 0
             if (side == "long" and sl_c >= spec["bid"]) or (side == "short" and sl_c <= spec["ask"]):
                 warnings.append(f"MT5-Konto {login}: Stop läge schon hinter dem Kurs, Trade dort ausgelassen")
                 continue
             plan[login] = {"offset": off, "lots": lots, "symbol": sym_a}
+            if buf:
+                warnings.append(f"MT5-Konto {login}: Spread-Puffer {buf:.{d}f} Pkt. am Stop, Lots entsprechend kleiner")
             jobs.append((login, {"action": "open", "symbol": sym_a, "side": "buy" if side == "long" else "sell",
                                  "volume": f"{lots:.2f}", "sl": sl_c, "tp": tp_c, "magic": MT5_BOT_MAGIC,
                                  # ab FVG-Bridge 2.09: Stop/Ziel als Abstand, gesetzt am echten Einstieg (auf allen Konten gleich weit)
-                                 "sl_pts": f"{abs(price - sl):.{d}f}", "tp_pts": f"{abs(tp - price):.{d}f}" if tp else "0",
+                                 "sl_pts": f"{dist + buf:.{d}f}", "tp_pts": f"{abs(tp - price):.{d}f}" if tp else "0",
                                  "comment": "FVG " + root}))
         if not jobs:
             raise BrokerError("Auf keinem MT5-Konto ausgeführt: " + "; ".join(warnings))

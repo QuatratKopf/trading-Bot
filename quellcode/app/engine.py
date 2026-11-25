@@ -133,6 +133,7 @@ DEFAULT_CONFIG = {
     "mt5": {"dir": "", "sym_NQ": "US100.cash", "sym_ES": "US500.cash", "accounts": {},
             "terminals": [],   # MT5-Starter: je Konto {id, name, login, password, server, base, auto}
             "chart_fix": True, "chart_minutes": 5,   # Chart der Bridge auf Nasdaq-Symbol und Zeiteinheit halten
+            "spread_buf": "nacht",                  # Spread-Puffer am Stop: aus | nacht (22–08 Uhr) | immer
             "copy": {"enabled": False, "master": ""}},
     "contracts": {"NQ": "", "MNQ": "", "ES": "", "MES": ""},
     "learning": {
@@ -286,6 +287,26 @@ def ny_time(ts=None):
     dst_end = dt.datetime.combine(_nth_sunday(y, 11, 1), dt.time(6))    # 2:00 EDT = 6:00 UTC
     off = -4 if dst_start <= utc < dst_end else -5
     return utc + dt.timedelta(hours=off)
+
+
+def de_time(ts=None):
+    """Deutsche Zeit (MEZ/MESZ): Sommerzeit vom letzten Sonntag im März bis zum letzten Sonntag im Oktober, je 01:00 UTC."""
+    utc = dt.datetime.fromtimestamp(ts if ts is not None else time.time(), dt.timezone.utc).replace(tzinfo=None)
+    y = utc.year
+
+    def last_sunday(month):
+        d = dt.date(y, month, 31)
+        return d - dt.timedelta(days=(d.weekday() + 1) % 7)
+    start = dt.datetime.combine(last_sunday(3), dt.time(1))
+    end = dt.datetime.combine(last_sunday(10), dt.time(1))
+    return utc + dt.timedelta(hours=2 if start <= utc < end else 1)
+
+
+def in_hours(now_hm, a, b):
+    """Liegt die Uhrzeit „HH:MM“ im Fenster a–b (auch über Mitternacht, z. B. 22:00–06:00)?"""
+    if not a or not b or a == b:
+        return True
+    return a <= now_hm < b if a < b else (now_hm >= a or now_hm < b)
 
 
 def ny_date(ts=None):
@@ -823,17 +844,25 @@ class Engine:
             rules["rule_trail"] = bool(a.get("rule_trail"))
             if rules["rules_on"] and rules["rule_size"] <= 0:
                 raise ValueError(f"MT5-Konto {lg}: für die Firmen-Regeln die Kontogröße eintragen")
+            hm_ = a.get("hours_mode") if a.get("hours_mode") in ("all", "sess", "own") else ("sess" if a.get("no_allday") else "all")
+            hf_, ht_ = str(a.get("hours_from") or "").strip(), str(a.get("hours_to") or "").strip()
+            if hm_ == "own":
+                if not (re.match(r"^([01]\d|2[0-3]):[0-5]\d$", hf_) and re.match(r"^([01]\d|2[0-3]):[0-5]\d$", ht_)) or hf_ == ht_:
+                    raise ValueError(f"MT5-Konto {lg}: eigene Handelszeit als „von“ und „bis“ eintragen, z. B. 08:00 und 22:00")
             try:
                 dw_ = max(0.0, float(str(a.get("day_win") or 0).replace(",", ".")))
                 dl_ = max(0.0, float(str(a.get("day_loss") or 0).replace(",", ".")))
             except ValueError:
                 raise ValueError(f"MT5-Konto {lg}: Tagesziel und Tagesverlust als Zahl in $ eingeben")
             accs[str(lg)] = dict(rules, bot=bool(a.get("bot")), copy=bool(a.get("copy")), factor=f, no_allday=bool(a.get("no_allday")), day_win=dw_, day_loss=dl_,
+                                 hours_mode=hm_, hours_from=hf_, hours_to=ht_,
                                  label=str(a.get("label") or "").strip()[:40],
                                  cons_on=bool(a.get("cons_on")), cons_pct=cp_, cons_target=ct_, **syms)
         m5["accounts"] = accs
         m5["hidden"] = list(dict.fromkeys(str(x) for x in (m5.get("hidden") or []) if str(x).isdigit()))[:200]
         m5["chart_fix"] = bool(m5.get("chart_fix", True))
+        if m5.get("spread_buf") not in ("aus", "nacht", "immer"):
+            m5["spread_buf"] = "nacht"
         try:
             m5["chart_minutes"] = int(m5.get("chart_minutes") or 5)
         except (TypeError, ValueError):
@@ -1738,9 +1767,20 @@ class Engine:
             on = self.cfg["risk"].get("sessions") or {}
             in_sess = any(on.get(k) and in_session(k, ny_time()) for k in TRADING_SESSIONS)
             conf = {lg: c for lg, c in ((self.cfg.get("mt5") or {}).get("accounts") or {}).items() if c.get("bot")}
-            skip = {} if in_sess else {lg: "nur in den angehakten Sessions (ganztägig für dieses Konto aus)" for lg, c in conf.items() if c.get("no_allday")}
+            now_de = de_time().strftime("%H:%M")
+            skip = {}
+            for lg, c in conf.items():
+                mode = c.get("hours_mode") or ("sess" if c.get("no_allday") else "all")
+                if mode == "sess" and not in_sess:
+                    skip[lg] = "nur in den angehakten Sessions"
+                elif mode == "own" and not in_hours(now_de, c.get("hours_from"), c.get("hours_to")):
+                    skip[lg] = f"nur {c.get('hours_from')}–{c.get('hours_to')} Uhr (jetzt {now_de})"
+            # Spread-Puffer am Stop: nachts (22–08 Uhr deutsche Zeit) oder immer
+            sb = (self.cfg.get("mt5") or {}).get("spread_buf") or "nacht"
+            h = de_time().hour
+            self.broker.spread_buf = sb == "immer" or (sb == "nacht" and (h >= 22 or h < 8))
             if conf and set(conf) <= set(skip):
-                why = "Außerhalb der Sessions: alle Bot-Konten handeln nur in den angehakten Sessions"
+                why = "Außerhalb der Handelszeit aller Bot-Konten: " + "; ".join(sorted(set(skip.values())))
                 self.db.update_signal(sig["id"], status="blockiert", reason=why)
                 return {"ok": False, "status": "blockiert", "reason": why}
             self.broker.skip_accounts = skip
@@ -2467,6 +2507,8 @@ class Engine:
                          "online": bool(a.get("online")), "can_trade": bool(a.get("can_trade")), "seen": a.get("seen"),
                          "positions": len(a.get("positions") or []), "bot": bool(c.get("bot")), "copy": bool(c.get("copy")),
                          "factor": float(c.get("factor") or 1.0), "no_allday": bool(c.get("no_allday")),
+                         "hours_mode": c.get("hours_mode") or ("sess" if c.get("no_allday") else "all"),
+                         "hours_from": c.get("hours_from") or "", "hours_to": c.get("hours_to") or "",
                          "day_win": c.get("day_win") or 0, "day_loss": c.get("day_loss") or 0,
                          "day_block": mt5_rule_room(dict(c, rules_on=False), a)[1] if a and (c.get("day_win") or c.get("day_loss")) and mt5_rule_room(dict(c, rules_on=False), a)[0] == 0 else "",
                          "cons": {"on": bool(c.get("cons_on")), "pct": c.get("cons_pct") or 0, "target": c.get("cons_target") or 0,
