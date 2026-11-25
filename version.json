@@ -1,6 +1,6 @@
 {
-  "version": "3.27.0",
-  "file": "releases/FVG-Trader-3.27.0.cmd",
-  "sha256": "cf869ca87717edfc70af52c5ae66364bf5897f369ea426d4c2f04e0351aac85f",
-  "notes": "MT5: eigene Handelszeit pro Konto (deutsche Uhrzeit, auch über Mitternacht) oder nur in Sessions; Spread-Puffer am Stop (Standard nur nachts 22–08 Uhr): Stop um den Spread des Kontos weiter weg, Lots kleiner, Risiko in $ gleich"
+  "version": "3.27.1",
+  "file": "releases/FVG-Trader-3.27.1.cmd",
+  "sha256": "9a6434b1913fcece5f3d9219370571559180eeea2676a6c422b9339a9b4bc427",
+  "notes": "Discord-Tagesabschluss: Liste aller MT5-Konten mit heutigem +/- laut MT5, Anzahl Abschlüsse und Kontostand, dazu die Summe"
 }

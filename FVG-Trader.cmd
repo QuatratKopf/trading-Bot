@@ -8492,7 +8492,33 @@ class Engine:
         if self.cfg["challenge"]["enabled"]:
             c = self.challenge()
             lines.append(f"Fremdkapital: {_fmt(c['buffer'], ',.0f')} $ Puffer bis zur Verlustgrenze · noch {_fmt(c['to_target'], ',.0f')} $ bis zum Ziel")
+        acc = self._mt5_day_lines()
+        if acc:
+            lines += ["", "**Konten heute (laut MT5):**"] + acc
         return "\n".join(lines)
+
+    def _mt5_day_lines(self):
+        """Je MT5-Konto: heutiges Ergebnis (Tag des MT5-Servers, offene Positionen eingerechnet) und Kontostand."""
+        if self.broker.name != "mt5":
+            return []
+        m5 = self.cfg.get("mt5") or {}
+        hidden = set(m5.get("hidden") or [])
+        names = {str(t["login"]): t["name"] for t in m5.get("terminals") or []}
+        out, total = [], 0.0
+        for lg, a in sorted(self.mt5_link.accounts().items(), key=lambda x: names.get(x[0]) or ((m5.get("accounts") or {}).get(x[0]) or {}).get("label") or x[0]):
+            if lg in hidden:
+                continue
+            name = names.get(lg) or ((m5.get("accounts") or {}).get(lg) or {}).get("label") or lg
+            day = mt5_day_pnl(a)
+            total += day
+            n = sum(int(d.get("n") or 0) for d in a.get("days") or [] if d.get("day") == str(a.get("today") or "").replace(".", "-"))
+            icon = "🟢" if day > 0.005 else "🔴" if day < -0.005 else "⚪"
+            out.append(f"{icon} {name}: **{_fmt(day, '+,.2f')} $**" + (f" · {n} Abschl." if n else "")
+                       + (f" · Stand {_fmt(a['equity'] if a.get('equity') is not None else a.get('balance'), ',.0f')} $" if a.get("balance") is not None else "")
+                       + ("" if a.get("online") else " · *meldet sich nicht*"))
+        if len(out) > 1:
+            out.append(f"**Zusammen: {_fmt(total, '+,.2f')} $**")
+        return out
 
     # ───────── Gesundheits-Check ─────────
     def health(self):
@@ -9493,7 +9519,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.27.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.27.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 
