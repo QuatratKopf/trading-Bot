@@ -15,7 +15,7 @@
 //| Pro MT5-Fenster (= pro Konto) einmal.                             |
 //+------------------------------------------------------------------+
 #property copyright "FVG Trader"
-#property version   "2.08"
+#property version   "2.09"
 #property description "Verbindung zur App FVG Trader: Bot-Orders und Copytrading."
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ input long InpMagic    = 260626;  // Magic-Nummer fuer Bot-Orders
 input int  InpSlippage = 30;      // Erlaubte Abweichung beim Einstieg (Punkte)
 input int  InpHistDays = 120;     // Tage Handelshistorie fuer die App (Challenge und Auszahlung)
 
-#define BRIDGE_VERSION "2.08"
+#define BRIDGE_VERSION "2.09"
 
 CTrade   trade;
 string   DIR = "FVG\\";
@@ -328,9 +328,21 @@ string DoOpen(string &keys[], string &vals[])
    double tp      = StringToDouble(Get(keys, vals, "tp"));
    string comment = Get(keys, vals, "comment");
    long   magic   = StringToInteger(Get(keys, vals, "magic"));
+   double slPts = StringToDouble(Get(keys, vals, "sl_pts"));   // Abstand in Punkten (ab 2.09): Stop/Ziel am echten Einstieg
+   double tpPts = StringToDouble(Get(keys, vals, "tp_pts"));
    if(!SymbolSelect(sym, true))
       return(Err("Symbol " + sym + " gibt es in diesem Konto nicht"));
    int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   if(slPts > 0)
+     {
+      double q = side == "buy" ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
+      if(q > 0)
+        {
+         sl = side == "buy" ? q - slPts : q + slPts;
+         if(tpPts > 0)
+            tp = side == "buy" ? q + tpPts : q - tpPts;
+        }
+     }
    sl  = NormalizeDouble(sl, digits);
    tp  = tp > 0 ? NormalizeDouble(tp, digits) : 0.0;
    vol = NormVol(sym, vol);
@@ -395,6 +407,16 @@ string DoOpen(string &keys[], string &vals[])
         }
       price = PositionGetDouble(POSITION_PRICE_OPEN);
       vol = PositionGetDouble(POSITION_VOLUME);
+      if(slPts > 0)
+        {
+         // Stop und Ziel genau im gewuenschten Abstand zum echten Einstiegskurs (alle Konten gleich)
+         double nsl = NormalizeDouble(side == "buy" ? price - slPts : price + slPts, digits);
+         double ntp = tpPts > 0 ? NormalizeDouble(side == "buy" ? price + tpPts : price - tpPts, digits) : PositionGetDouble(POSITION_TP);
+         if(MathAbs(nsl - PositionGetDouble(POSITION_SL)) > SymbolInfoDouble(sym, SYMBOL_POINT) / 2 ||
+            MathAbs(ntp - PositionGetDouble(POSITION_TP)) > SymbolInfoDouble(sym, SYMBOL_POINT) / 2)
+            if(!trade.PositionModify(ticket, nsl, ntp))
+               Print("FVG-Bridge: Stop/Ziel konnte nicht an den Einstieg angepasst werden: ", trade.ResultRetcodeDescription());
+        }
      }
    return("ok=1\r\n" + note + "ticket=" + IntegerToString((long)ticket) + "\r\nprice=" + DoubleToString(price, digits) +
           "\r\nvolume=" + DoubleToString(vol, 2) + "\r\n");

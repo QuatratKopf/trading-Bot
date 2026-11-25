@@ -1,6 +1,6 @@
 {
-  "version": "3.25.0",
-  "file": "releases/FVG-Trader-3.25.0.cmd",
-  "sha256": "b7d029e96f087087b1e1986f67725577020bd0411e6367de511001836bb6c4cd",
-  "notes": "MT5: Tagesziel $ und Tagesverlust $ pro Konto – erreicht ein Konto sein Tagesziel oder (fast) seinen Tagesverlust, handelt nur dieses Konto heute nicht mehr (Bot und Kopien), Trades werden vorher passend verkleinert, Meldung nach Discord; die anderen Konten handeln weiter"
+  "version": "3.26.0",
+  "file": "releases/FVG-Trader-3.26.0.cmd",
+  "sha256": "c2a3d0e67f2f6ad436f6d6e3a5512bc8727da73891bebeb3d9d8413fd8a579ef",
+  "notes": "MT5: Stop und Ziel werden als Abstand in Punkten geschickt und von FVG-Bridge 2.09 direkt am echten Einstiegskurs jedes Kontos gesetzt – alle Konten haben genau gleich weite Stops (vorher bis zu ~2 Punkte Unterschied durch Kurs-Schnappschüsse)"
 }

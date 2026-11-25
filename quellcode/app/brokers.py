@@ -1534,6 +1534,8 @@ class Mt5Broker:
             plan[login] = {"offset": off, "lots": lots, "symbol": sym_a}
             jobs.append((login, {"action": "open", "symbol": sym_a, "side": "buy" if side == "long" else "sell",
                                  "volume": f"{lots:.2f}", "sl": sl_c, "tp": tp_c, "magic": MT5_BOT_MAGIC,
+                                 # ab FVG-Bridge 2.09: Stop/Ziel als Abstand, gesetzt am echten Einstieg (auf allen Konten gleich weit)
+                                 "sl_pts": f"{abs(price - sl):.{d}f}", "tp_pts": f"{abs(tp - price):.{d}f}" if tp else "0",
                                  "comment": "FVG " + root}))
         if not jobs:
             raise BrokerError("Auf keinem MT5-Konto ausgeführt: " + "; ".join(warnings))
