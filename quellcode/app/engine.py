@@ -2666,8 +2666,7 @@ class Engine:
             login = str(b.get("login") or "")
             if not login.isdigit():
                 raise ValueError("Konto nicht gefunden")
-            if any(p["broker"] == "mt5" and login in self._acc_of(p) for p in self.db.open_positions()):
-                raise ValueError("Auf diesem Konto ist noch eine Position offen. Erst schließen, dann entfernen.")
+            note = self._acc_release(login)
             m5 = self.cfg.get("mt5") or {}
             acc = dict((m5.get("accounts") or {}).get(login) or {}, bot=False, copy=False)
             patch = {"mt5": {"hidden": list(m5.get("hidden") or []) + [login], "accounts": {login: acc}}}
@@ -2675,15 +2674,54 @@ class Engine:
                 patch["mt5"]["copy"] = {"master": "", "enabled": False}   # Hauptkonto weg: Copytrading aus
             self.update_cfg(patch)
             self.db.log(f"MT5-Konto {login} aus der Liste entfernt (Bot und Kopieren dort aus). Es erscheint wieder, sobald es sich aus MT5 meldet.")
-            return {"ok": True}
+            return {"ok": True, "note": note}
         if act == "remove":
-            if any(p["broker"] == "mt5" and t["login"] in self._acc_of(p) for p in self.db.open_positions()):
-                raise ValueError("Auf diesem Konto ist noch eine Position offen. Erst schließen, dann entfernen.")
+            note = self._acc_release(t["login"])
             mt.stop(t)
             self.update_cfg({"mt5": {"terminals": [x for x in terms if x["id"] != t["id"]]}})
             self.db.log(f"MT5-Konto „{t['name']}“ entfernt. Der MT5-Ordner bleibt erhalten: {mt.folder(t)}")
-            return {"ok": True, "folder": mt.folder(t)}
+            return {"ok": True, "folder": mt.folder(t), "note": note}
         raise ValueError("Unbekannte Aktion")
+
+    def _acc_release(self, login):
+        """Vor dem Entfernen eines MT5-Kontos: Ist dort wirklich noch ein Bot-Trade offen? Maßgeblich ist MT5 selbst,
+        nicht der Merker der App. Hängt ein Trade der App noch an dem Konto, obwohl in MT5 nichts mehr offen ist
+        (oder das Konto gar nicht mehr erreichbar ist), wird das Konto aus diesem Trade gelöst. Rückgabe: Hinweistext oder ""."""
+        login = str(login)
+        try:
+            st = (self.mt5_link.accounts() or {}).get(login)
+        except Exception:  # noqa: BLE001
+            st = None
+        online = bool(st and st.get("online"))
+        live = {p["ticket"] for p in (st or {}).get("positions") or []}
+        loose = []
+        for p in self.db.open_positions():
+            if p.get("broker") != "mt5":
+                continue
+            ref = p.get("broker_ref") or {}
+            a = (ref.get("accounts") or {}).get(login)
+            if not a or not a.get("open", True):
+                continue
+            if online and (st.get("seen") or 0) < (p.get("opened") or 0) + 1:
+                raise ValueError("Auf diesem Konto wurde gerade erst ein Trade eröffnet. Bitte ein paar Sekunden warten und noch einmal versuchen.")
+            if online and a.get("ticket") in live:
+                raise ValueError(f"Auf diesem Konto ist in MT5 noch eine Position offen (Ticket {a.get('ticket')}, {p.get('setup')}). "
+                                 "Erst schließen, dann entfernen.")
+            loose.append((p, ref, a))
+        for p, ref, a in loose:
+            a["open"] = False
+            a["released"] = time.time()
+            self.db.update_position(p["id"], broker_ref=ref)
+        if not loose:
+            return ""
+        if online:
+            note = (f"Die App hatte auf Konto {login} noch {len(loose)} Trade(s) als offen vermerkt, in MT5 ist dort aber nichts mehr offen. "
+                    "Der Vermerk wurde gelöscht.")
+        else:
+            note = (f"Konto {login} ist nicht verbunden, die App konnte dort nicht nachsehen. {len(loose)} Trade(s) wurden vom Konto gelöst. "
+                    "Falls in MT5 doch noch eine Position läuft, behält sie Stop und Ziel beim Broker, wird aber nicht mehr von der App verwaltet.")
+        self.db.log("MT5: " + note, "warn")
+        return note
 
     def bridge_version(self):
         """Version der FVG-Bridge, die in dieser App steckt (aus dem Quelltext)."""
@@ -2872,6 +2910,11 @@ class Engine:
                     for pos, exit_price in self.broker.sync(mine):
                         res = (getattr(self.broker, "close_info", None) or {}).pop(pos["id"], None) or []
                         why = next((x["why"] for x in res if x.get("found")), "")
+                        legs = (pos.get("broker_ref") or {}).get("accounts") or {}
+                        if exit_price is None and not any(x.get("found") for x in res) and any(a.get("released") for a in legs.values()):
+                            # Konto wurde entfernt und MT5 kennt kein Ergebnis: nicht als Stop-Loss verbuchen
+                            self._finish(pos, pos["entry"], "Konto entfernt, Ergebnis unbekannt", slip=False, accounts=res)
+                            continue
                         if why in ("tp", "sl"):   # MT5 sagt selbst, ob Ziel oder Stop gegriffen hat
                             reason = "Ziel erreicht" if why == "tp" else "Stop-Loss"
                         else:
