@@ -1150,7 +1150,7 @@ class Mt5Terminals:
             fake = os.environ.get("FVG_MT5_LAUNCH")   # nur für Tests: nachgebautes MT5
             if os.name == "nt" and os.environ.get("FVG_SERVICE") and not fake:
                 user = self._start_as_user(t, self.exe_of(dst), dst, ini)
-                st.update(started=time.time(), pid=0, manual_stop=False, user=user)
+                st.update(started=time.time(), pid=0, manual_stop=False, user=user, error="")
                 self._ps = (0, {})
                 self._scrub_later(t, ini)
                 self._say(f"MT5 „{t['name']}“ ({t['login']}) im Benutzerkonto {user} gestartet ({reason})")
@@ -1168,7 +1168,7 @@ class Mt5Terminals:
                 si.wShowWindow = 7                 # minimiert, ohne den Fokus zu nehmen
                 kw = {"startupinfo": si, "creationflags": 0x00000008 | 0x00000200}   # unabhängig von der App
             self._procs[t["id"]] = subprocess.Popen(cmd, cwd=dst, close_fds=True, **kw)
-            st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False)
+            st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False, error="")
             self._ps = (0, {})
 
             self._scrub_later(t, ini)
@@ -1304,6 +1304,10 @@ Write-Output ('OK ' + $u)
             if not t.get("auto", True) or t["id"] in self._busy:
                 continue
             st = self.state.setdefault(t["id"], {})
+            if (accounts.get(str(t["login"])) or {}).get("online"):
+                st["restarts"] = 0
+                st["error"] = ""   # läuft und meldet sich: alte Fehlermeldungen sind erledigt
+                continue
             if st.get("manual_stop"):
                 continue   # von Hand beendet: bleibt aus, bis jemand „Starten“ drückt
             if time.time() - st.get("started", 0) < 180 or time.time() - st.get("stopped", 0) < 60:
@@ -1438,6 +1442,13 @@ class Mt5Broker:
     def _bot_accounts(self):
         conf = self.mcfg.get("accounts") or {}
         return [(lg, c) for lg, c in conf.items() if c.get("bot")]
+
+    def status_text(self):
+        """Wie viele Bot-Konten gerade verbunden sind (ohne etwas zu schreiben, für die Anzeige)."""
+        accs = self.link.accounts()
+        on = [lg for lg, _ in self._bot_accounts() if accs.get(lg, {}).get("online")]
+        total = len(self._bot_accounts())
+        return f"MetaTrader 5: {len(on)} von {total} Konten verbunden" if total else "MetaTrader 5: noch kein Konto für den Bot angehakt"
 
     def connect(self):
         self.link.ensure_dir()

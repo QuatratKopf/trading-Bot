@@ -1,6 +1,6 @@
 {
-  "version": "3.28.0",
-  "file": "releases/FVG-Trader-3.28.0.cmd",
-  "sha256": "6e1bf8413d1c701b472536eb0b7c2a0643cdc375efa9a3432ec2c914a1578df1",
-  "notes": "MT5-Starter: Knopf „Alle MT5 neu starten“ (nacheinander, mit neuester FVG-Bridge); nach App-Updates startet die App Konten mit veralteter FVG-Bridge selbst neu, sobald dort keine Position offen ist; Konto-Karte zeigt die Bridge-Version"
+  "version": "3.28.1",
+  "file": "releases/FVG-Trader-3.28.1.cmd",
+  "sha256": "90de0fa046ab5a62e89f5deb52ac1a576dba2a5f39a59b9d98240d9cae2c9587",
+  "notes": "MT5: alte Fehlermeldungen (z. B. „niemand angemeldet“) verschwinden, sobald das Konto läuft und verbunden ist; „x von y Konten verbunden“ ist jetzt immer aktuell"
 }

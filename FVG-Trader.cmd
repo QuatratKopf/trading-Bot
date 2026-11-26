@@ -1456,7 +1456,7 @@ class Mt5Terminals:
             fake = os.environ.get("FVG_MT5_LAUNCH")   # nur für Tests: nachgebautes MT5
             if os.name == "nt" and os.environ.get("FVG_SERVICE") and not fake:
                 user = self._start_as_user(t, self.exe_of(dst), dst, ini)
-                st.update(started=time.time(), pid=0, manual_stop=False, user=user)
+                st.update(started=time.time(), pid=0, manual_stop=False, user=user, error="")
                 self._ps = (0, {})
                 self._scrub_later(t, ini)
                 self._say(f"MT5 „{t['name']}“ ({t['login']}) im Benutzerkonto {user} gestartet ({reason})")
@@ -1474,7 +1474,7 @@ class Mt5Terminals:
                 si.wShowWindow = 7                 # minimiert, ohne den Fokus zu nehmen
                 kw = {"startupinfo": si, "creationflags": 0x00000008 | 0x00000200}   # unabhängig von der App
             self._procs[t["id"]] = subprocess.Popen(cmd, cwd=dst, close_fds=True, **kw)
-            st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False)
+            st.update(started=time.time(), pid=self._procs[t["id"]].pid, manual_stop=False, error="")
             self._ps = (0, {})
 
             self._scrub_later(t, ini)
@@ -1610,6 +1610,10 @@ Write-Output ('OK ' + $u)
             if not t.get("auto", True) or t["id"] in self._busy:
                 continue
             st = self.state.setdefault(t["id"], {})
+            if (accounts.get(str(t["login"])) or {}).get("online"):
+                st["restarts"] = 0
+                st["error"] = ""   # läuft und meldet sich: alte Fehlermeldungen sind erledigt
+                continue
             if st.get("manual_stop"):
                 continue   # von Hand beendet: bleibt aus, bis jemand „Starten“ drückt
             if time.time() - st.get("started", 0) < 180 or time.time() - st.get("stopped", 0) < 60:
@@ -1744,6 +1748,13 @@ class Mt5Broker:
     def _bot_accounts(self):
         conf = self.mcfg.get("accounts") or {}
         return [(lg, c) for lg, c in conf.items() if c.get("bot")]
+
+    def status_text(self):
+        """Wie viele Bot-Konten gerade verbunden sind (ohne etwas zu schreiben, für die Anzeige)."""
+        accs = self.link.accounts()
+        on = [lg for lg, _ in self._bot_accounts() if accs.get(lg, {}).get("online")]
+        total = len(self._bot_accounts())
+        return f"MetaTrader 5: {len(on)} von {total} Konten verbunden" if total else "MetaTrader 5: noch kein Konto für den Bot angehakt"
 
     def connect(self):
         self.link.ensure_dir()
@@ -5688,7 +5699,7 @@ class Engine:
             out.append({"hint": hint, "lines": lines, "user": st.get("user", ""), "version": a.get("version") or "","id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
                         "auto": t["auto"], "has_pw": bool(t.get("password")), "running": run,
                         "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
-                        "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),
+                        "step": st.get("step", ""), "error": "" if a.get("online") else st.get("error", ""), "restarts": st.get("restarts", 0),
                         "folder": mt.folder(t), "busy": t["id"] in mt._busy})
         return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH")),
                 "bridge": self.bridge_version()}
@@ -8948,7 +8959,7 @@ class Engine:
                 "tv": {"last_msg": self.last_msg,
                        "last_bar": {k: v for k, v in self.last_bar.items()}},
                 "broker": {"name": self.broker.name, "label": self.broker.label, "ok": self.broker_ok,
-                           "status": self.broker_status},
+                           "status": self.broker.status_text() if hasattr(self.broker, "status_text") else self.broker_status},
                 "balance": self.balance_view(),
                 "balance_note": self.balance_note(),
                 "view_accounts": self._view(),
@@ -9574,7 +9585,7 @@ def service_state():
     if time.time() - _svc_cache["t"] > 60:
         _svc_cache.update(t=time.time(), v=service_installed())
     return {"installed": _svc_cache["v"], "running": SERVICE}
-APP_VERSION = "3.28.0"   # wird beim Bauen der Ein-Datei-Version gesetzt
+APP_VERSION = "3.28.1"   # wird beim Bauen der Ein-Datei-Version gesetzt
 
 LOG_FILE = os.path.join(DATA, "app.log")
 

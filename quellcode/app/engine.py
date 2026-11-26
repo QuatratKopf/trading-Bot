@@ -2591,7 +2591,7 @@ class Engine:
             out.append({"hint": hint, "lines": lines, "user": st.get("user", ""), "version": a.get("version") or "","id": t["id"], "name": t["name"], "login": t["login"], "server": t["server"], "base": t["base"],
                         "auto": t["auto"], "has_pw": bool(t.get("password")), "running": run,
                         "online": bool(a.get("online")), "balance": a.get("balance"), "company": a.get("company", ""),
-                        "step": st.get("step", ""), "error": st.get("error", ""), "restarts": st.get("restarts", 0),
+                        "step": st.get("step", ""), "error": "" if a.get("online") else st.get("error", ""), "restarts": st.get("restarts", 0),
                         "folder": mt.folder(t), "busy": t["id"] in mt._busy})
         return {"list": out, "installs": self._installs_cached(), "windows": os.name == "nt" or bool(os.environ.get("FVG_MT5_LAUNCH")),
                 "bridge": self.bridge_version()}
@@ -5851,7 +5851,7 @@ class Engine:
                 "tv": {"last_msg": self.last_msg,
                        "last_bar": {k: v for k, v in self.last_bar.items()}},
                 "broker": {"name": self.broker.name, "label": self.broker.label, "ok": self.broker_ok,
-                           "status": self.broker_status},
+                           "status": self.broker.status_text() if hasattr(self.broker, "status_text") else self.broker_status},
                 "balance": self.balance_view(),
                 "balance_note": self.balance_note(),
                 "view_accounts": self._view(),
