@@ -39,11 +39,93 @@ SESSION_NAMES = {k: v[0] for k, v in TRADING_SESSIONS.items()} | {"aus": "außer
 
 
 def market_open(t):
-    """CME-Futures: So 18:00 bis Fr 17:00 New York, täglich Pause 17–18 Uhr."""
+    """CME-Futures: So 18:00 bis Fr 17:00 New York, täglich Pause 17–18 Uhr, dazu US-Feiertage und verkürzte Tage."""
     wd, hm = t.weekday(), t.strftime("%H:%M")
     if wd == 5 or (wd == 6 and hm < "18:00") or (wd == 4 and hm >= "17:00"):
         return False
-    return not ("17:00" <= hm < "18:00")
+    if "17:00" <= hm < "18:00":
+        return False
+    return holiday_closed(t) is None
+
+
+def _easter(y):
+    """Ostersonntag (gregorianisch)."""
+    a, b, c = y % 19, y // 100, y % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l_ = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l_) // 451
+    month = (h + l_ - 7 * m + 114) // 31
+    return dt.date(y, month, (h + l_ - 7 * m + 114) % 31 + 1)
+
+
+def _observed(d):
+    """Fällt ein fester Feiertag aufs Wochenende: Samstag → Freitag davor, Sonntag → Montag danach."""
+    return d - dt.timedelta(days=1) if d.weekday() == 5 else d + dt.timedelta(days=1) if d.weekday() == 6 else d
+
+
+def us_market_days(y):
+    """US-Feiertage und verkürzte Tage der CME-Aktienindex-Futures (vereinfacht):
+    {Datum: (Name, Schluss „HH:MM“ New York oder None = ganzer Tag zu)}."""
+    def nth(month, weekday, n):
+        d = dt.date(y, month, 1)
+        d += dt.timedelta(days=(weekday - d.weekday()) % 7)
+        return d + dt.timedelta(weeks=n - 1)
+
+    def last(month, weekday):
+        d = dt.date(y, month + 1, 1) - dt.timedelta(days=1) if month < 12 else dt.date(y, 12, 31)
+        return d - dt.timedelta(days=(d.weekday() - weekday) % 7)
+    thanks = nth(11, 3, 4)
+    out = {
+        _observed(dt.date(y, 1, 1)): ("Neujahr", None),
+        _easter(y) - dt.timedelta(days=2): ("Karfreitag", None),
+        _observed(dt.date(y, 12, 25)): ("Weihnachten", None),
+        nth(1, 0, 3): ("Martin Luther King Day", "13:00"),
+        nth(2, 0, 3): ("Presidents Day", "13:00"),
+        last(5, 0): ("Memorial Day", "13:00"),
+        _observed(dt.date(y, 6, 19)): ("Juneteenth", "13:00"),
+        _observed(dt.date(y, 7, 4)): ("Unabhängigkeitstag", "13:00"),
+        nth(9, 0, 1): ("Labor Day", "13:00"),
+        thanks: ("Thanksgiving", "13:00"),
+        thanks + dt.timedelta(days=1): ("Tag nach Thanksgiving (Black Friday)", "13:15"),
+    }
+    for d, name in ((dt.date(y, 12, 24), "Heiligabend"), (dt.date(y, 7, 3), "Tag vor dem Unabhängigkeitstag")):
+        if d.weekday() < 5 and d not in out:
+            out[d] = (name, "13:15")
+    return out
+
+
+def holiday_closed(t):
+    """Ist der Markt zur New-Yorker Zeit t wegen eines Feiertags zu? → (Name, Schluss) oder None.
+    Ganzer Tag zu: vom Vorabend 18:00 bis 18:00 an dem Tag. Verkürzt: vom Schluss bis 18:00."""
+    for d in (t.date(), t.date() + dt.timedelta(days=1)):
+        info = us_market_days(d.year).get(d)
+        if not info:
+            continue
+        name, close = info
+        hm = t.strftime("%H:%M")
+        if close is None and ((t.date() == d and hm < "18:00") or (t.date() < d and hm >= "18:00")):
+            return info
+        if close and t.date() == d and close <= hm < "18:00":
+            return info
+    return None
+
+
+def ny_hm_to_de(day, hm):
+    """New-Yorker Uhrzeit „HH:MM“ an einem Datum → deutsche Uhrzeit „HH:MM“."""
+    import calendar
+    naive = dt.datetime.combine(day, dt.time(*map(int, hm.split(":"))))
+    guess = calendar.timegm(naive.timetuple()) + 5 * 3600            # New York ist UTC−5 oder −4
+    off = (ny_time(guess) - dt.datetime.fromtimestamp(guess, dt.timezone.utc).replace(tzinfo=None)).total_seconds()
+    return de_time(calendar.timegm(naive.timetuple()) - off).strftime("%H:%M")
+
+
+def holiday_today(t):
+    """Feiertag/verkürzter Tag am heutigen New-Yorker Datum → (Name, Schluss) oder None."""
+    return us_market_days(t.year).get(t.date())
 
 
 def session_of(t):
@@ -5535,7 +5617,8 @@ class Engine:
             txt = f"Letzte Nachricht vor {_ago(age)}"
             st = "ok" if age < tf * 3 + 300 else ("off" if not mo else "warn" if age < 2400 else "bad")   # Kerzen kommen ggf. gebündelt (alle 15 Min)
             if not mo and st != "ok":
-                txt += " · Markt geschlossen"
+                hc = holiday_closed(t)
+                txt += f" · Markt geschlossen ({hc[0]})" if hc else " · Markt geschlossen"
             items.append(("tv", "TradingView", st, txt))
         ai = getattr(self, "alert_issue", None)
         if ai:
@@ -5889,6 +5972,8 @@ class Engine:
                 "now_ny": now_ny.strftime("%H:%M"),
                 "session_open": bool(self.session_now(now_ny)),
                 "session_name": SESSION_NAMES.get(self.session_now(now_ny), "") if self.session_now(now_ny) else "",
+                "holiday": (lambda h: {"name": h[0], "close": h[1], "close_de": ny_hm_to_de(now_ny.date(), h[1]) if h[1] else None,
+                                       "closed": holiday_closed(now_ny) is not None} if h else None)(holiday_today(now_ny) or holiday_closed(now_ny)),
                 "session_names": SESSION_NAMES,
                 "sessions": {k: {"name": v[0], "start": v[1], "end": v[2]} for k, v in TRADING_SESSIONS.items()},
                 "tv": {"last_msg": self.last_msg,

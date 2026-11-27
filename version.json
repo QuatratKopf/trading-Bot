@@ -1,6 +1,6 @@
 {
-  "version": "3.28.2",
-  "file": "releases/FVG-Trader-3.28.2.cmd",
-  "sha256": "01907a55d537cb361b3aafb90f69ccf8530fbee5b0f39b943d1bc0404c601ce8",
-  "notes": "MT5-Konto entfernen: geprüft wird jetzt in MT5 selbst, ob dort noch eine Position offen ist. Ein alter Vermerk der App blockiert das Entfernen nicht mehr."
+  "version": "3.29.0",
+  "file": "releases/FVG-Trader-3.29.0.cmd",
+  "sha256": "e39dd654555afc57c76d7959915e21a1777503cde18875163ebd5c67192afe14",
+  "notes": "US-Börsenfeiertage und verkürzte Handelstage (Thanksgiving, Black Friday, Weihnachten, Neujahr, Karfreitag, …): kein Fehlalarm im Gesundheits-Check und kein „TradingView schweigt“; oben steht z. B. „Black Friday: Markt nur bis 19:15 Uhr“"
 }

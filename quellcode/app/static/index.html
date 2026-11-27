@@ -1438,7 +1438,9 @@ function header() {
   $("#pVer").textContent = "Version " + S.version;
   $("#pBroker").innerHTML = `<span class="dot ${S.broker.ok ? "ok" : "bad"}"></span>${esc(S.broker.label)}${S.broker.name === "topstep" && c.topstep && c.topstep.account ? " " + esc(c.topstep.account) : ""}`;
   $("#pBroker").title = S.broker.status;
-  $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? esc(S.session_name) : "keine Session"}`;
+  const HD = S.holiday;
+  $("#pSess").innerHTML = `<span class="dot ${S.session_open ? "ok" : ""}"></span>NY ${S.now_ny} · ${S.session_open ? esc(S.session_name) : "keine Session"}`
+    + (HD ? ` · <span class="${HD.closed ? "neg" : ""}" title="US-Börsenfeiertag">${esc(HD.name)}: ${HD.closed ? "Markt zu" : HD.close_de ? "Markt nur bis " + HD.close_de + " Uhr" : "Markt zu"}</span>` : "");
   $("#autoT").setAttribute("aria-checked", c.auto_mode);
   $("#banner").innerHTML = c.paused ? `<div class="banner">Handel pausiert. Neue Signale werden blockiert. <button class="btn" id="resume" style="margin-left:8px">Fortsetzen</button></div>`
     : (S.broker.name === "topstep" ? `<div class="banner">Topstep-Konto aktiv: Der Bot schickt Orders an ${esc((c.topstep || {}).account || "dein Topstep-Konto")}. Die App muss auf deinem eigenen PC laufen, nicht auf einem gemieteten Server.</div>` : "")
